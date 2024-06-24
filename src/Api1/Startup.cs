@@ -1,10 +1,8 @@
-﻿using MongoDB.Driver;
-using Serilog;
+﻿using ApiOne;
+using Blocks.Genesis;
+using MassTransit;
+using MongoDB.Driver;
 using StackExchange.Redis;
-using OpenTelemetry.Logs;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
 
 namespace Api1
 {
@@ -14,42 +12,32 @@ namespace Api1
         {
             services.AddControllers();
             services.AddHttpClient();
-            services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
-            //services.AddSingleton<RabbitMQService>();
-            //services.AddSingleton(sp => sp.GetRequiredService<RabbitMQService>().GetChannel());
 
-            services.AddLogging(builder =>
+            services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
+
+            //services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect("10.30.65.4:6379,abortConnect=false,connectTimeout=50000,syncTimeout=50000"));
+
+            services.AddMassTransit(x =>
             {
-                builder.ClearProviders();
-                builder.AddSerilog();
+                x.SetKebabCaseEndpointNameFormatter();
+                x.AddPublishMessageScheduler();
+                x.UsingRabbitMq((context, cfg) =>
+                {
+                    cfg.Host(new Uri("rabbitmq://10.30.65.4:5672/"), h =>
+                    {
+                        h.Username("test");
+                        h.Password("test");
+                    });
+
+                    cfg.Message<B1Event>(e => e.SetEntityName("b1-event-queue"));
+                    cfg.ConfigureEndpoints(context);
+                });
             });
 
-            services.AddOpenTelemetry()
-                .WithTracing(builder =>
-                {
-                    builder.AddAspNetCoreInstrumentation()
-                           .AddHttpClientInstrumentation()
-                           .AddMongoDBInstrumentation()
-                           .AddRedisInstrumentation()
-                           .AddSource("YourServiceName")
-                           .AddProcessor(new MongoDBTraceExporter());
-                })
-                .WithMetrics(builder =>
-                {
-                    builder.AddAspNetCoreInstrumentation()
-                            .AddRuntimeInstrumentation()
-                            .AddMeter("YourServiceName")
-                            .AddMeter("Microsoft.AspNetCore.Hosting")
-                            .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
-                            .AddMeter("Microsoft.AspNetCore.Http.Connections")
-                            .AddMeter("Microsoft.AspNetCore.Routing")
-                            .AddMeter("Microsoft.AspNetCore.Diagnostics")
-                            .AddMeter("Microsoft.AspNetCore.RateLimiting")
-                            .AddProcessInstrumentation()
-                           .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter()));
-                });
 
-            
+            ApplicationConfigurations.ConfigureServices(services, "Service-API-Test_One");
+
+
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
@@ -59,8 +47,10 @@ namespace Api1
                 app.UseDeveloperExceptionPage();
             }
 
+            ApplicationConfigurations.ConfigureTraceContextMiddleware(app);
+
             app.UseRouting();
-            app.UseMiddleware<TraceContextMiddleware>();
+
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();

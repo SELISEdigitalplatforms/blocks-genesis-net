@@ -1,8 +1,7 @@
 using Blocks.Genesis;
 using MassTransit;
 using System.Reflection;
-using WorkerOne;
-using Workers;
+using WorkerTwo;
 
 public class Program
 {
@@ -18,8 +17,8 @@ public class Program
             {
                 services.AddMassTransit(x =>
                 {
-                    x.SetKebabCaseEndpointNameFormatter();
-                    x.AddConsumer<B1Consumer>();
+                    var entryAssembly = Assembly.GetExecutingAssembly();
+                    x.AddConsumers(entryAssembly);
                     x.UsingRabbitMq((context, cfg) =>
                     {
                         cfg.Host(new Uri("rabbitmq://10.30.65.4:5672/"), h =>
@@ -27,14 +26,10 @@ public class Program
                             h.Username("test");
                             h.Password("test");
                         });
-
-                        cfg.ReceiveEndpoint("b1-event-queue", e =>
-                        {
-                            e.ConfigureConsumer<B1Consumer>(context);
-                        });
+                        cfg.ConfigureEndpoints(context);
                     });
-                });
 
+                });
 
                 services.AddHttpClient();
                 services.AddHostedService<Worker>();

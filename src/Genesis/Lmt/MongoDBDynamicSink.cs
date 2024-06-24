@@ -4,23 +4,25 @@ using Newtonsoft.Json;
 using Serilog.Core;
 using Serilog.Events;
 
-namespace Api1
+namespace Blocks.Genesis
 {
     public class MongoDBDynamicSink : ILogEventSink
     {
+        private readonly string _serviceName;
         private readonly IMongoClient _mongoClient;
         private readonly string _databaseName;
 
-        public MongoDBDynamicSink()
+        public MongoDBDynamicSink(string serviceName)
         {
+            _serviceName = serviceName;
             _mongoClient = new MongoClient("mongodb://localhost:27017");
-            _databaseName = "logs";
+            _databaseName = "Logs";
         }
 
         public void Emit(LogEvent logEvent)
         {
             var database = _mongoClient.GetDatabase(_databaseName);
-            var collection = database.GetCollection<BsonDocument>("API");
+            var collection = database.GetCollection<BsonDocument>("Logs"); // tenant wise
 
             var document = new BsonDocument
             {
@@ -28,7 +30,8 @@ namespace Api1
                 { "MessageTemplate", logEvent?.MessageTemplate.Text },
                 { "Level", logEvent?.Level.ToString()  ?? string.Empty },
                 { "Message", logEvent?.RenderMessage() },
-                { "Exception", logEvent?.Exception?.ToString() ?? string.Empty }
+                { "Exception", logEvent?.Exception?.ToString() ?? string.Empty },
+                { "ServiceName", _serviceName },
             };
 
             if(logEvent?.Properties != null)

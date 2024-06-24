@@ -4,17 +4,19 @@ using Newtonsoft.Json;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 
-namespace Api1
+namespace Blocks.Genesis
 {
     public class MongoDBMetricsExporter : BaseExporter<Metric>
     {
         private readonly IMongoCollection<BsonDocument> _collection;
+        private readonly string _serviceName;
 
-        public MongoDBMetricsExporter()
+        public MongoDBMetricsExporter(string serviceName)
         {
+            _serviceName = serviceName;
             var client = new MongoClient("mongodb://localhost:27017");
-            var database = client.GetDatabase("telemetry");
-            _collection = database.GetCollection<BsonDocument>("metrics");
+            var database = client.GetDatabase("Metrics");
+            _collection = database.GetCollection<BsonDocument>("metrics"); // tenant wise
         }
 
         public override ExportResult Export(in Batch<Metric> batch)

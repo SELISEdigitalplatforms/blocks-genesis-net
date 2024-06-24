@@ -1,6 +1,7 @@
-﻿using System.Diagnostics;
+﻿using Microsoft.AspNetCore.Http;
+using System.Diagnostics;
 
-namespace Api1
+namespace Blocks.Genesis
 {
     public class TraceContextMiddleware
     {

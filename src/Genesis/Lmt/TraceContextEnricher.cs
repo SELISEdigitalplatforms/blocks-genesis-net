@@ -2,7 +2,7 @@
     using Serilog.Events;
     using System.Diagnostics;
 
-namespace Api1
+namespace Blocks.Genesis
 {
     public class TraceContextEnricher : ILogEventEnricher
     {
