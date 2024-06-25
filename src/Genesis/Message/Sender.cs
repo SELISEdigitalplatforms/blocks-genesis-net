@@ -13,6 +13,10 @@ namespace Blocks.Genesis
                 ServiceBusSender sender = client.CreateSender("DemoQueue");
                 ServiceBusMessage message = new ServiceBusMessage("It Is a demo");
                 await sender.SendMessageAsync(message);
+
+                sender = client.CreateSender("DemoQueue1");
+                message = new ServiceBusMessage("It Is a demo 1");
+                await sender.SendMessageAsync(message);
             }
             catch (Exception e)
             {

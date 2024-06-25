@@ -16,10 +16,10 @@ namespace Blocks.Genesis
         {
             try
             {
-                var isExist = await CheckQueueExistsAsync("DemoQueue");
+                var isExist = await CheckQueueExistsAsync("DemoQueue1");
                 if (isExist) return;
 
-                var createQueueOptions = new CreateQueueOptions("DemoQueue");
+                var createQueueOptions = new CreateQueueOptions("DemoQueue1");
                 createQueueOptions.MaxSizeInMegabytes = 2048;
                 createQueueOptions.MaxDeliveryCount = 5;
                 createQueueOptions.DefaultMessageTimeToLive = TimeSpan.FromSeconds(3600 * 24 * 7);
