@@ -1,6 +1,4 @@
-using Azure.Messaging.ServiceBus;
 using Blocks.Genesis;
-using WorkerOne;
 
 public class Program
 {
@@ -19,13 +17,11 @@ public class Program
 
                 ApplicationConfigurations.ConfigureServices(services, "Service-Worker-Test_One");
 
-                services.AddHostedService<Worker>();
-
-                // Add configuration for Azure Service Bus
-                services.AddSingleton(serviceProvider =>
+                await ApplicationConfigurations.ConfigureMessageWorker(services, new MessageConfiguration
                 {
-                    string serviceBusConnectionString = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***";
-                    return new ServiceBusClient(serviceBusConnectionString);
+                    Connection = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***",
+                    Queues = new List<string> { "demo_queue", "demo_queue_1" },
+                    Topics = new List<string> { "demo_topic", "demo_topic_1" }
                 });
 
             });

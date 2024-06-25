@@ -7,7 +7,7 @@ using Serilog;
 
 namespace Blocks.Genesis
 {
-    public class ApplicationConfigurations
+    public static class ApplicationConfigurations
     {
         public static void ConfigureLog(string serviceName)
         {
@@ -60,12 +60,25 @@ namespace Blocks.Genesis
             app.UseMiddleware<TraceContextMiddleware>();
         }
 
-        public async Task ConfigureMessage()
+        public static async Task ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
-            var azureMessageService = new ConfigAzureServiceBus();
+            await ConfigureMessage(services, messageConfiguration);
 
-            await azureMessageService.CreateQueuesAsync();
+            services.AddHostedService<AzureMessageWorker>();
         }
+
+        public static async Task ConfigureMessage(IServiceCollection services, MessageConfiguration messageConfiguration)
+        {
+            await ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
+
+            services.AddSingleton(_ =>
+            {
+                return messageConfiguration;
+            });
+
+            services.AddSingleton<IMessageClient, AzureMessageClient>();
+        }
+
 
     }
 }
