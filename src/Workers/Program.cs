@@ -1,46 +1,23 @@
 using Blocks.Genesis;
-using MassTransit;
-using System.Reflection;
-using WorkerOne;
-using Workers;
 
 public class Program
 {
-    public static async Task Main(string[] args)
+    public static void Main(string[] args)
     {
         ApplicationConfigurations.ConfigureLog("Service-Worker-Test_One");
-        await CreateHostBuilder(args).Build().RunAsync();
+        CreateHostBuilder(args).Build().Run();
     }
 
     public static IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
-            .ConfigureServices((hostContext, services) =>
+            .ConfigureServices(async (hostContext, services) =>
             {
-                services.AddMassTransit(x =>
-                {
-                    x.SetKebabCaseEndpointNameFormatter();
-                    x.AddConsumer<B1Consumer>();
-                    x.UsingRabbitMq((context, cfg) =>
-                    {
-                        cfg.Host(new Uri("rabbitmq://10.30.65.4:5672/"), h =>
-                        {
-                            h.Username("test");
-                            h.Password("test");
-                        });
-
-                        cfg.ReceiveEndpoint("b1-event-queue", e =>
-                        {
-                            e.ConfigureConsumer<B1Consumer>(context);
-                        });
-                    });
-                });
-
 
                 services.AddHttpClient();
-                services.AddHostedService<Worker>();
 
-                ApplicationConfigurations.ConfigureServices(services, "Service-Worker-Test_Two");
+                ApplicationConfigurations.ConfigureServices(services, "Service-Worker-Test_One");
 
+                await MessageReceiver.ReceiveMessagesAsync();
 
             });
 }

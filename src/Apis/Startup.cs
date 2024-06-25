@@ -1,7 +1,5 @@
 using Blocks.Genesis;
-using MassTransit;
 using MongoDB.Driver;
-using StackExchange.Redis;
 
 namespace Api1
 {
@@ -16,22 +14,14 @@ namespace Api1
 
             //services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect("10.30.65.4:6379,abortConnect=false,connectTimeout=50000,syncTimeout=50000"));
 
-            services.AddMassTransit(x =>
-            {
-                x.UsingRabbitMq((context, cfg) =>
-                {
-                    cfg.Host(new Uri("rabbitmq://10.30.65.4:5672/"), h =>
-                    {
-                        h.Username("test");
-                        h.Password("test");
-                    });
-                });
-            });
+
 
 
             ApplicationConfigurations.ConfigureServices(services, "Service-API-Test_Two");
 
+            new ApplicationConfigurations().ConfigureMessage();
 
+            
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

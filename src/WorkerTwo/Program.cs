@@ -1,6 +1,4 @@
 using Blocks.Genesis;
-using MassTransit;
-using System.Reflection;
 using WorkerTwo;
 
 public class Program
@@ -15,21 +13,7 @@ public class Program
         Host.CreateDefaultBuilder(args)
             .ConfigureServices((hostContext, services) =>
             {
-                services.AddMassTransit(x =>
-                {
-                    var entryAssembly = Assembly.GetExecutingAssembly();
-                    x.AddConsumers(entryAssembly);
-                    x.UsingRabbitMq((context, cfg) =>
-                    {
-                        cfg.Host(new Uri("rabbitmq://10.30.65.4:5672/"), h =>
-                        {
-                            h.Username("test");
-                            h.Password("test");
-                        });
-                        cfg.ConfigureEndpoints(context);
-                    });
 
-                });
 
                 services.AddHttpClient();
                 services.AddHostedService<Worker>();

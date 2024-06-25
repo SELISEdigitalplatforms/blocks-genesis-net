@@ -19,7 +19,7 @@ namespace ApiOne
         }
 
         [HttpPost("process")]
-        public async Task<IActionResult> ProcessRequest([FromBody] RequestModel model)
+        public async Task<IActionResult> ProcessRequest([FromBody] string model)
         {
             _logger.LogInformation("Processing request in S1");
 
@@ -27,8 +27,8 @@ namespace ApiOne
             await Task.Delay(100);
 
             // Send event to B1
-            await _publishEndpoint.Publish<B1Event>(new { Data = model.Data });
-            _logger.LogInformation("S1 send an event to B1");
+            //await _publishEndpoint.Publish<B1Event>(new { Data = model.Data });
+            //_logger.LogInformation("S1 send an event to B1");
 
             // Make HTTP call to S2
             var client = _httpClientFactory.CreateClient();
@@ -40,13 +40,4 @@ namespace ApiOne
         }
     }
 
-    public class RequestModel
-    {
-        public string Data { get; set; }
-    }
-
-    public class B1Event
-    {
-        public string Data { get; set; }
-    }
 }

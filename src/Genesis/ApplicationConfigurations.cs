@@ -7,7 +7,7 @@ using Serilog;
 
 namespace Blocks.Genesis
 {
-    public static class ApplicationConfigurations
+    public class ApplicationConfigurations
     {
         public static void ConfigureLog(string serviceName)
         {
@@ -58,6 +58,13 @@ namespace Blocks.Genesis
         public static void ConfigureTraceContextMiddleware(IApplicationBuilder app)
         {
             app.UseMiddleware<TraceContextMiddleware>();
+        }
+
+        public async Task ConfigureMessage()
+        {
+            var azureMessageService = new ConfigAzureServiceBus();
+
+            await azureMessageService.CreateQueuesAsync();
         }
 
     }

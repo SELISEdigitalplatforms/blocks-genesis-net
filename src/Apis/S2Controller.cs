@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
@@ -15,6 +16,7 @@ public class S2Controller : ControllerBase
     public async Task<IActionResult> ProcessRequest()
     {
         _logger.LogInformation("Processing request in S2");
+        MessageSender.SendMessagesAsync();
 
         // Simulate some processing
         await Task.Delay(100);
