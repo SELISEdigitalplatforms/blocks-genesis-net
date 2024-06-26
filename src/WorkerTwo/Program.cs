@@ -1,5 +1,4 @@
 using Blocks.Genesis;
-using WorkerTwo;
 
 public class Program
 {
@@ -16,7 +15,6 @@ public class Program
 
 
                 services.AddHttpClient();
-                services.AddHostedService<Worker>();
 
                 ApplicationConfigurations.ConfigureServices(services, "Service-Worker-Test_Two");
 

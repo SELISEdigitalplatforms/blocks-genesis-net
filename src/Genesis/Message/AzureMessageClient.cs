@@ -24,7 +24,12 @@ namespace Blocks.Genesis
             {
                 Identifier = Guid.NewGuid().ToString()
             });
-            var message = new ServiceBusMessage(JsonConvert.SerializeObject(consumerMessage.Payload));
+            var messageBody = new Message
+            {
+                Body = JsonConvert.SerializeObject(consumerMessage.Payload),
+                Type = consumerMessage.Payload.GetType().Name
+            };
+            var message = new ServiceBusMessage(JsonConvert.SerializeObject(messageBody));
             await sender.SendMessageAsync(message);
         }
 
@@ -34,7 +39,12 @@ namespace Blocks.Genesis
             {
                 Identifier = Guid.NewGuid().ToString()
             });
-            var message = new ServiceBusMessage(JsonConvert.SerializeObject(consumerMessage.Payload));
+            var messageBody = new Message
+            {
+                Body = JsonConvert.SerializeObject(consumerMessage.Payload),
+                Type = consumerMessage.Payload.GetType().Name
+            };
+            var message = new ServiceBusMessage(JsonConvert.SerializeObject(messageBody));
             await sender.SendMessageAsync(message);
         }
     }

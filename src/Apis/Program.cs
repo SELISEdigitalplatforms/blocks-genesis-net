@@ -5,7 +5,7 @@ namespace Api1
 {
     public class Program
     {
-        public static async Task Main(string[] args)
+        public static void Main(string[] args)
         {
             ApplicationConfigurations.ConfigureLog("Service-API-Test_Two");
 
@@ -20,7 +20,7 @@ namespace Api1
 
             ApplicationConfigurations.ConfigureServices(services, "Service-API-Test_Two");
 
-            await ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
+            ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
             {
                 Connection = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***",
                 Queues = new List<string> { "demo_queue", "demo_queue_1" },

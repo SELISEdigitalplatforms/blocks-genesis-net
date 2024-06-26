@@ -43,7 +43,7 @@ namespace Blocks.Genesis
                     createQueueOptions.MaxSizeInMegabytes = _messageConfiguration.QueueMaxSizeInMegabytes;
                     createQueueOptions.MaxDeliveryCount = _messageConfiguration.QueueMaxDeliveryCount;
                     createQueueOptions.DefaultMessageTimeToLive = _messageConfiguration.QueueDefaultMessageTimeToLive;
-                    createQueueOptions.LockDuration = TimeSpan.FromMinutes(5);
+                    createQueueOptions.LockDuration = TimeSpan.FromSeconds(30);
 
                     _adminClient.CreateQueueAsync(createQueueOptions);
                 }
@@ -106,7 +106,7 @@ namespace Blocks.Genesis
                 var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, _messageConfiguration.GetSubscriptionName(topicName));
                 createTopicSubscriptionOptions.MaxDeliveryCount = _messageConfiguration.TopicSubscriptionMaxDeliveryCount;
                 createTopicSubscriptionOptions.DefaultMessageTimeToLive = _messageConfiguration.TopicSubscriptionDefaultMessageTimeToLive;
-                createTopicSubscriptionOptions.LockDuration = TimeSpan.FromMinutes(5);
+                createTopicSubscriptionOptions.LockDuration = TimeSpan.FromSeconds(30);
 
                 _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions);
 

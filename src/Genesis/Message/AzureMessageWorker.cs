@@ -1,24 +1,28 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 namespace Blocks.Genesis
 {
     internal class AzureMessageWorker : BackgroundService
     {
         private readonly ILogger<AzureMessageWorker> _logger;
-        private readonly List<ServiceBusProcessor> _processors = new List<ServiceBusProcessor>(); 
+        private readonly List<ServiceBusProcessor> _processors = new List<ServiceBusProcessor>();
         private readonly MessageConfiguration _messageConfiguration;
+        private ServiceBusClient _serviceBusClient;
+        private Consumer _consumer;
 
-        private ServiceBusClient? _serviceBusClient;
-
-        public AzureMessageWorker(ILogger<AzureMessageWorker> logger, MessageConfiguration messageConfiguration)
+        public AzureMessageWorker(ILogger<AzureMessageWorker> logger, MessageConfiguration messageConfiguration, Consumer consumer)
         {
             _logger = logger;
             _messageConfiguration = messageConfiguration;
+            _consumer = consumer;
+
+            Initialization();
         }
 
-        public override async Task StartAsync(CancellationToken cancellationToken)
+        private void Initialization()
         {
             try
             {
@@ -29,12 +33,11 @@ namespace Blocks.Genesis
                 }
 
                 _serviceBusClient = new ServiceBusClient(_messageConfiguration.Connection);
-
-                _logger.LogInformation("Worker started at: {time}", DateTimeOffset.Now);
+                _logger.LogInformation("Service Bus Client initialized at: {time}", DateTimeOffset.Now);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error stopping StartAsync");
+                _logger.LogError(ex, "Error during initialization");
                 throw;
             }
         }
@@ -61,32 +64,27 @@ namespace Blocks.Genesis
             _logger.LogInformation("Worker stopped at: {time}", DateTimeOffset.Now);
         }
 
-        protected async override Task ExecuteAsync(CancellationToken stoppingToken)
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             try
             {
                 if (_serviceBusClient == null)
                 {
-                    _logger.LogError("Cannot create azure service bus client");
+                    _logger.LogError("Service Bus Client is not initialized");
                     return;
                 }
 
-                // Register processors for queues
                 await ProcessQueues(stoppingToken);
-
-                // Register processors for topic subscriptions
                 await ProcessTopics(stoppingToken);
-
-
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error stopping ExecuteAsync");
+                _logger.LogError(ex, "Error in ExecuteAsync");
                 throw;
             }
         }
 
-        async Task ProcessQueues(CancellationToken stoppingToken)
+        private async Task ProcessQueues(CancellationToken stoppingToken)
         {
             foreach (var queueName in _messageConfiguration.Queues)
             {
@@ -101,7 +99,7 @@ namespace Blocks.Genesis
             }
         }
 
-        async Task ProcessTopics(CancellationToken stoppingToken)
+        private async Task ProcessTopics(CancellationToken stoppingToken)
         {
             foreach (var topicName in _messageConfiguration.Topics)
             {
@@ -116,13 +114,17 @@ namespace Blocks.Genesis
             }
         }
 
-        async Task MessageHandler(ProcessMessageEventArgs args)
+        private async Task MessageHandler(ProcessMessageEventArgs args)
         {
             string body = args.Message.Body.ToString();
             _logger.LogInformation($"Message received: {body}");
 
             try
             {
+                var message = JsonConvert.DeserializeObject<Message>(body);
+
+                await _consumer.ProcessMessageAsync(message.Type, message.Body);
+
                 await args.CompleteMessageAsync(args.Message);
             }
             catch (Exception ex)
@@ -131,10 +133,12 @@ namespace Blocks.Genesis
             }
         }
 
-        Task ErrorHandler(ProcessErrorEventArgs args)
+        private Task ErrorHandler(ProcessErrorEventArgs args)
         {
             _logger.LogError(args.Exception, "Error processing message");
             return Task.CompletedTask;
         }
+
+
     }
 }

@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -23,6 +25,9 @@ namespace Blocks.Genesis
 
         public static void ConfigureServices(IServiceCollection services, string serviceName)
         {
+            var objectSerializer = new ObjectSerializer(_ => true);
+            BsonSerializer.RegisterSerializer(objectSerializer);
+
             services.AddLogging(builder =>
             {
                 builder.ClearProviders();
@@ -60,21 +65,24 @@ namespace Blocks.Genesis
             app.UseMiddleware<TraceContextMiddleware>();
         }
 
-        public static async Task ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
+        public static void ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
-            await ConfigureMessage(services, messageConfiguration);
+            ConfigureMessage(services, messageConfiguration);
 
             services.AddHostedService<AzureMessageWorker>();
+
+            
+            services.AddSingleton<Consumer>();
+
+            var routingTable = new RoutingTable(services);
+            services.AddSingleton<RoutingTable>(routingTable);
         }
 
-        public static async Task ConfigureMessage(IServiceCollection services, MessageConfiguration messageConfiguration)
+        public static void ConfigureMessage(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
-            await ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
+            ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
 
-            services.AddSingleton(_ =>
-            {
-                return messageConfiguration;
-            });
+            services.AddSingleton(messageConfiguration);
 
             services.AddSingleton<IMessageClient, AzureMessageClient>();
         }

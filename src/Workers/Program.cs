@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using WorkerOne;
 
 public class Program
 {
@@ -10,19 +11,26 @@ public class Program
 
     public static IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
-            .ConfigureServices(async (hostContext, services) =>
+            .ConfigureServices((hostContext, services) =>
             {
 
                 services.AddHttpClient();
 
                 ApplicationConfigurations.ConfigureServices(services, "Service-Worker-Test_One");
 
-                await ApplicationConfigurations.ConfigureMessageWorker(services, new MessageConfiguration
+
+                services.AddSingleton<IConsumer<W1Context>, W1Consumer>();
+                services.AddSingleton<IConsumer<W2Context>, W2Consumer>();
+
+                ApplicationConfigurations.ConfigureMessageWorker(services, new MessageConfiguration
                 {
                     Connection = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***",
                     Queues = new List<string> { "demo_queue", "demo_queue_1" },
                     Topics = new List<string> { "demo_topic", "demo_topic_1" }
                 });
+
+
+                
 
             });
 }
