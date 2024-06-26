@@ -116,6 +116,10 @@ namespace Blocks.Genesis
 
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
+            // Start timer
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+
             string body = args.Message.Body.ToString();
             _logger.LogInformation($"Message received: {body}");
 
@@ -131,7 +135,14 @@ namespace Blocks.Genesis
             {
                 _logger.LogError(ex, "Error completing message");
             }
+            finally
+            {
+                // Stop timer and log execution time
+                stopwatch.Stop();
+                _logger.LogInformation($"Message processing time: {stopwatch.ElapsedMilliseconds} ms");
+            }
         }
+
 
         private Task ErrorHandler(ProcessErrorEventArgs args)
         {
