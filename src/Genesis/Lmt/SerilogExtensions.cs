@@ -7,7 +7,12 @@ namespace Blocks.Genesis
     {
         public static LoggerConfiguration MongoDBWithDynamicCollection(this LoggerSinkConfiguration loggerConfiguration, string serviceName)
         {
-            return loggerConfiguration.Sink(new MongoDBDynamicSink(serviceName));
+            return loggerConfiguration.Sink(new MongoDBDynamicSink(serviceName), new BatchingOptions
+            {
+                BufferingTimeLimit = TimeSpan.FromSeconds(3),
+                BatchSizeLimit = 1000,
+                EagerlyEmitFirstEvent = false
+            });
         }
     }
 }

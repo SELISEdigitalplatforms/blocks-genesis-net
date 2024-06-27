@@ -64,7 +64,8 @@ namespace Blocks.Genesis
 
             }
 
-            collection.InsertManyAsync(documents);
+            var insertTask = Task.Run(async () => await collection.InsertManyAsync(documents));
+            insertTask.Wait();
 
             return ExportResult.Success;
 

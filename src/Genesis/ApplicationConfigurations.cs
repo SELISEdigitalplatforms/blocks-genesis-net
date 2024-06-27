@@ -49,21 +49,21 @@ namespace Blocks.Genesis
                            .AddRedisInstrumentation()
                            .AddSource(serviceName)
                            .AddProcessor(new MongoDBTraceExporter(serviceName));
-                })
-                .WithMetrics(builder =>
-                {
-                    builder.AddAspNetCoreInstrumentation()
-                            .AddRuntimeInstrumentation()
-                            .AddMeter(serviceName)
-                            .AddMeter("Microsoft.AspNetCore.Hosting")
-                            .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
-                            .AddMeter("Microsoft.AspNetCore.Http.Connections")
-                            .AddMeter("Microsoft.AspNetCore.Routing")
-                            .AddMeter("Microsoft.AspNetCore.Diagnostics")
-                            .AddMeter("Microsoft.AspNetCore.RateLimiting")
-                            .AddProcessInstrumentation()
-                           .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(serviceName)));
                 });
+                //.WithMetrics(builder =>
+                //{
+                //    builder.AddAspNetCoreInstrumentation()
+                //            .AddRuntimeInstrumentation()
+                //            .AddMeter(serviceName)
+                //            .AddMeter("Microsoft.AspNetCore.Hosting")
+                //            .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
+                //            .AddMeter("Microsoft.AspNetCore.Http.Connections")
+                //            .AddMeter("Microsoft.AspNetCore.Routing")
+                //            .AddMeter("Microsoft.AspNetCore.Diagnostics")
+                //            .AddMeter("Microsoft.AspNetCore.RateLimiting")
+                //            .AddProcessInstrumentation()
+                //           .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(serviceName)));
+                //});
         }
 
         public static void ConfigureTraceContextMiddleware(IApplicationBuilder app)

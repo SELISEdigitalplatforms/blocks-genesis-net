@@ -5,7 +5,7 @@ using Serilog.Events;
 
 namespace Blocks.Genesis
 {
-    public class MongoDBDynamicSink : ILogEventSink
+    public class MongoDBDynamicSink : IBatchedLogEventSink
     {
         private readonly string _serviceName;
 
@@ -14,10 +14,8 @@ namespace Blocks.Genesis
             _serviceName = serviceName;
         }
 
-        public async void Emit(LogEvent logEvent)
+        private BsonDocument CreateLogBsonDocument(LogEvent logEvent)
         {
-            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.LogDatabaseName, _serviceName);
-
             var document = new BsonDocument
             {
                 { "Timestamp", logEvent?.Timestamp.UtcDateTime },
@@ -45,7 +43,19 @@ namespace Blocks.Genesis
                 }
             }
 
-            await collection.InsertOneAsync(document);
+            return document;
+        }
+
+        public async Task EmitBatchAsync(IReadOnlyCollection<LogEvent> batch)
+        {
+            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.LogDatabaseName, _serviceName);
+            var documents = new List<BsonDocument>();
+            foreach (var logEvent in batch)
+            {
+                documents.Add(CreateLogBsonDocument(logEvent));
+            }
+
+            await collection.InsertManyAsync(documents);
         }
     }
 }
