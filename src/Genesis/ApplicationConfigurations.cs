@@ -6,6 +6,7 @@ using MongoDB.Bson.Serialization.Serializers;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
+using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
@@ -20,11 +21,14 @@ namespace Blocks.Genesis
                         .WriteTo.Console()
                         .WriteTo.MongoDBWithDynamicCollection(serviceName)
                         .CreateLogger();
+
         }
 
 
         public static void ConfigureServices(IServiceCollection services, string serviceName)
         {
+            LmtConfiguration.CreateCollectionAsync(serviceName);
+
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);
 
@@ -33,6 +37,8 @@ namespace Blocks.Genesis
                 builder.ClearProviders();
                 builder.AddSerilog();
             });
+
+            services.AddSingleton(new ActivitySource(serviceName));
 
             services.AddOpenTelemetry()
                 .WithTracing(builder =>
@@ -71,7 +77,7 @@ namespace Blocks.Genesis
 
             services.AddHostedService<AzureMessageWorker>();
 
-            
+
             services.AddSingleton<Consumer>();
 
             var routingTable = new RoutingTable(services);

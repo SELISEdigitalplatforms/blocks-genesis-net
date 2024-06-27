@@ -1,5 +1,4 @@
 ﻿using MongoDB.Bson;
-using MongoDB.Driver;
 using Newtonsoft.Json;
 using OpenTelemetry;
 using System.Diagnostics;
@@ -8,22 +7,21 @@ namespace Blocks.Genesis
 {
     public class MongoDBTraceExporter : BaseProcessor<Activity>
     {
-        private readonly IMongoCollection<BsonDocument> _collection;
         private string _serviceName;
 
         public MongoDBTraceExporter(string serviceName)
         {
             _serviceName = serviceName;
-            var client = new MongoClient("mongodb://localhost:27017");
-            var database = client.GetDatabase("Traces");
-            _collection = database.GetCollection<BsonDocument>("traces"); // tenant wise
         }
 
-        public override void OnEnd(Activity data)
+        public override async void OnEnd(Activity data)
         {
+            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.TraceDatabaseName, _serviceName);
+
             var endTime = DateTime.Now;
             var document = new BsonDocument
             {
+                { "Timestamp", DateTime.UtcNow },
                 { "TraceId", data.TraceId.ToString() },
                 { "SpanId", data.SpanId.ToString() },
                 { "ParentSpanId", data.ParentSpanId.ToString() },
@@ -41,7 +39,7 @@ namespace Blocks.Genesis
                 { "TenantId", "TenantId" }
             };
 
-            _collection.InsertOne(document);
+            await collection.InsertOneAsync(document);
         }
     }
 

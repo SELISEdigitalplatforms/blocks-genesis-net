@@ -2,22 +2,26 @@ using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using OpenTelemetry.Trace;
+using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
-    internal class AzureMessageWorker : BackgroundService
+    public class AzureMessageWorker : BackgroundService
     {
         private readonly ILogger<AzureMessageWorker> _logger;
         private readonly List<ServiceBusProcessor> _processors = new List<ServiceBusProcessor>();
         private readonly MessageConfiguration _messageConfiguration;
+        private readonly ActivitySource _activitySource;
         private ServiceBusClient _serviceBusClient;
         private Consumer _consumer;
 
-        public AzureMessageWorker(ILogger<AzureMessageWorker> logger, MessageConfiguration messageConfiguration, Consumer consumer)
+        public AzureMessageWorker(ILogger<AzureMessageWorker> logger, MessageConfiguration messageConfiguration, Consumer consumer, ActivitySource activitySource)
         {
             _logger = logger;
             _messageConfiguration = messageConfiguration;
             _consumer = consumer;
+            _activitySource = activitySource;
 
             Initialization();
         }
@@ -116,8 +120,23 @@ namespace Blocks.Genesis
 
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
+            var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : null;
+            var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : null;
+            var parentSpanId = args.Message.ApplicationProperties.TryGetValue("ParentSpanId", out var parentSpanIdObj) ? parentSpanIdObj.ToString() : null;
+
+            var activityContext = new ActivityContext(
+                ActivityTraceId.CreateFromString(traceId.AsSpan()),
+                ActivitySpanId.CreateFromString(spanId.AsSpan()),
+                ActivityTraceFlags.Recorded,
+                traceState: null,
+                isRemote: true
+            );
+
+            using var activity = _activitySource.StartActivity("ProcessMessage", ActivityKind.Consumer, activityContext);
+            activity?.SetTag("message.id", args.Message.MessageId);
+
             // Start timer
-            var stopwatch = new System.Diagnostics.Stopwatch();
+            var stopwatch = new Stopwatch();
             stopwatch.Start();
 
             string body = args.Message.Body.ToString();
@@ -140,16 +159,14 @@ namespace Blocks.Genesis
                 // Stop timer and log execution time
                 stopwatch.Stop();
                 _logger.LogInformation($"Message processing time: {stopwatch.ElapsedMilliseconds} ms");
+                activity?.Stop();
             }
         }
-
 
         private Task ErrorHandler(ProcessErrorEventArgs args)
         {
             _logger.LogError(args.Exception, "Error processing message");
             return Task.CompletedTask;
         }
-
-
     }
 }

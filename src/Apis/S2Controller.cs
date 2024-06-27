@@ -17,12 +17,21 @@ public class S2Controller : ControllerBase
     [HttpGet("process")]
     public async Task<IActionResult> ProcessRequest()
     {
-        _logger.LogInformation("Processing request in S2");
-        await _messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue", Payload = new W2Context { Data = "" } });
-        await _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic", Payload = new W1Context { Data = "" } });
+        _logger.LogInformation("Processing request in S2: process");
+        await _messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue_1", Payload = new W2Context { Data = "From S2" } });
+        await _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic_1", Payload = new W1Context { Data = "From S2" } });
 
         // Simulate some processing
         await Task.Delay(100);
+
+        return Ok();
+    }
+
+    [HttpGet("process_1")]
+    public IActionResult Process1Request()
+    {
+        _logger.LogInformation("Processing request in S2: process_1");
+       
 
         return Ok();
     }

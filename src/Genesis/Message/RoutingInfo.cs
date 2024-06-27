@@ -2,7 +2,7 @@
 
 namespace Blocks.Genesis
 {
-    internal record RoutingInfo
+    public record RoutingInfo
     {
         public string ContextName { get; }
         public Type ContextType { get; }

@@ -1,5 +1,4 @@
 ﻿using MongoDB.Bson;
-using MongoDB.Driver;
 using Newtonsoft.Json;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -8,19 +7,17 @@ namespace Blocks.Genesis
 {
     public class MongoDBMetricsExporter : BaseExporter<Metric>
     {
-        private readonly IMongoCollection<BsonDocument> _collection;
         private readonly string _serviceName;
 
         public MongoDBMetricsExporter(string serviceName)
         {
             _serviceName = serviceName;
-            var client = new MongoClient("mongodb://localhost:27017");
-            var database = client.GetDatabase("Metrics");
-            _collection = database.GetCollection<BsonDocument>("metrics"); // tenant wise
         }
 
         public override ExportResult Export(in Batch<Metric> batch)
         {
+            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.MetricDatabaseName, _serviceName);
+
             var documents = new List<BsonDocument>();
             foreach (var data in batch)
             {
@@ -35,7 +32,7 @@ namespace Blocks.Genesis
                         { "Unit", data.Unit.ToString() },
                         { "MeterName", data.MeterName.ToString() },
                         { "Timestamp", DateTime.UtcNow },
-                        { "ServiceName", "API" },
+                        { "ServiceName", _serviceName },
                         { "TenantId", "TenantId" },
                         { "Tags", JsonConvert.SerializeObject(metricPoint.Tags) },
                         { "StartTime", metricPoint.StartTime.ToString() },
@@ -67,7 +64,7 @@ namespace Blocks.Genesis
 
             }
 
-            _collection.InsertManyAsync(documents);
+            collection.InsertManyAsync(documents);
 
             return ExportResult.Success;
 

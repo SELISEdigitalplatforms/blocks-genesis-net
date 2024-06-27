@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Blocks.Genesis
 {
-    internal class Consumer
+    public class Consumer
     {
         private readonly ILogger<Consumer> _logger;
         private readonly IServiceProvider _serviceProvider;

@@ -11,9 +11,7 @@
     <Version>1.0.0</Version>
   </PropertyGroup>
 
-	<ItemGroup>
-		<PackageReference Include="MongoDB.Driver" Version="2.26.0" />
-	</ItemGroup>
+	
 
   <ItemGroup>
     <ProjectReference Include="..\Genesis\Blocks.Genesis.csproj" />

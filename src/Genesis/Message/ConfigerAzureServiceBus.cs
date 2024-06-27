@@ -2,7 +2,7 @@
 
 namespace Blocks.Genesis
 {
-    internal static class ConfigerAzureServiceBus
+    public static class ConfigerAzureServiceBus
     {
         private static ServiceBusAdministrationClient _adminClient;
         private static MessageConfiguration _messageConfiguration;

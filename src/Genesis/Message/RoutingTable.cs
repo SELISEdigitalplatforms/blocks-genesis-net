@@ -3,7 +3,7 @@ using System.Reflection;
 
 namespace Blocks.Genesis
 {
-    internal record RoutingTable
+    public record RoutingTable
     {
         public IDictionary<string, RoutingInfo> Routes { get; } = new SortedDictionary<string, RoutingInfo>();
 

@@ -1,6 +1,6 @@
 ﻿using Blocks.Genesis;
 
-namespace WorkerOne
+namespace WorkerTwo
 {
     internal class W2Consumer : IConsumer<W2Context>
     {
@@ -13,7 +13,7 @@ namespace WorkerOne
 
         public async Task Consume(W2Context context)
         {
-            _logger.LogInformation("Message recieved in W2 Worker One");
+            _logger.LogInformation("Message recieved W2 worker 2");
         }
     }
 

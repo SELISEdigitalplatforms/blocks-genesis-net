@@ -25,7 +25,7 @@ public class Program
                 ApplicationConfigurations.ConfigureMessageWorker(services, new MessageConfiguration
                 {
                     Connection = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***",
-                    Queues = new List<string> { "demo_queue", "demo_queue_1" },
+                    Queues = new List<string> { "demo_queue" },
                     Topics = new List<string> { "demo_topic", "demo_topic_1" }
                 });
 

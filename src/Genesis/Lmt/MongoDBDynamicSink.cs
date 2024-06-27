@@ -1,5 +1,4 @@
 ﻿using MongoDB.Bson;
-using MongoDB.Driver;
 using Newtonsoft.Json;
 using Serilog.Core;
 using Serilog.Events;
@@ -9,20 +8,15 @@ namespace Blocks.Genesis
     public class MongoDBDynamicSink : ILogEventSink
     {
         private readonly string _serviceName;
-        private readonly IMongoClient _mongoClient;
-        private readonly string _databaseName;
 
         public MongoDBDynamicSink(string serviceName)
         {
             _serviceName = serviceName;
-            _mongoClient = new MongoClient("mongodb://localhost:27017");
-            _databaseName = "Logs";
         }
 
-        public void Emit(LogEvent logEvent)
+        public async void Emit(LogEvent logEvent)
         {
-            var database = _mongoClient.GetDatabase(_databaseName);
-            var collection = database.GetCollection<BsonDocument>("Logs"); // tenant wise
+            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.LogDatabaseName, _serviceName);
 
             var document = new BsonDocument
             {
@@ -34,7 +28,7 @@ namespace Blocks.Genesis
                 { "ServiceName", _serviceName },
             };
 
-            if(logEvent?.Properties != null)
+            if (logEvent?.Properties != null)
             {
                 foreach (var property in logEvent.Properties)
                 {
@@ -47,11 +41,11 @@ namespace Blocks.Genesis
                     {
                         document[property.Key] = prop;
                     }
-                    
-                }
-            }    
 
-            collection.InsertOne(document);
+                }
+            }
+
+            await collection.InsertOneAsync(document);
         }
     }
 }
