@@ -18,8 +18,9 @@ public class S2Controller : ControllerBase
     public async Task<IActionResult> ProcessRequest()
     {
         _logger.LogInformation("Processing request in S2: process");
-        await _messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue_1", Payload = new W2Context { Data = "From S2" } });
-        //await _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic_1", Payload = new W1Context { Data = "From S2" } });
+
+        await Task.WhenAll(_messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue_1", Payload = new W2Context { Data = "From S2" } }),
+        _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic_1", Payload = new W1Context { Data = "From S2" } }));
 
         return Ok();
     }

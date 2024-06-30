@@ -12,22 +12,27 @@ namespace Blocks.Genesis
 {
     public static class ApplicationConfigurations
     {
-        public static void ConfigureLog(string serviceName)
+        static string _serviceName = string.Empty;
+        public static void SetServiceName(string serviceName)
+        {
+            _serviceName = serviceName;
+        }
+        public static void ConfigureLog()
         {
             Log.Logger = new LoggerConfiguration()
                         .Enrich.FromLogContext()
                         .Enrich.With<TraceContextEnricher>()
                         .Enrich.WithEnvironmentName()
                         .WriteTo.Console()
-                        .WriteTo.MongoDBWithDynamicCollection(serviceName)
+                        .WriteTo.MongoDBWithDynamicCollection(_serviceName)
                         .CreateLogger();
 
         }
 
 
-        public static void ConfigureServices(IServiceCollection services, string serviceName)
+        public async static void ConfigureServices(IServiceCollection services)
         {
-            LmtConfiguration.CreateCollectionAsync(serviceName);
+            await LmtConfiguration.CreateCollectionAsync(_serviceName);
 
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);
@@ -38,7 +43,7 @@ namespace Blocks.Genesis
                 builder.AddSerilog();
             });
 
-            services.AddSingleton(new ActivitySource(serviceName));
+            services.AddSingleton(new ActivitySource(_serviceName));
 
             services.AddOpenTelemetry()
                 .WithTracing(builder =>
@@ -47,23 +52,14 @@ namespace Blocks.Genesis
                            .AddHttpClientInstrumentation()
                            .AddMongoDBInstrumentation()
                            .AddRedisInstrumentation()
-                           .AddSource(serviceName)
-                           .AddProcessor(new MongoDBTraceExporter(serviceName));
+                           .AddProcessor(new MongoDBTraceExporter(_serviceName));
                 });
-                //.WithMetrics(builder =>
-                //{
-                //    builder.AddAspNetCoreInstrumentation()
-                //            .AddRuntimeInstrumentation()
-                //            .AddMeter(serviceName)
-                //            .AddMeter("Microsoft.AspNetCore.Hosting")
-                //            .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
-                //            .AddMeter("Microsoft.AspNetCore.Http.Connections")
-                //            .AddMeter("Microsoft.AspNetCore.Routing")
-                //            .AddMeter("Microsoft.AspNetCore.Diagnostics")
-                //            .AddMeter("Microsoft.AspNetCore.RateLimiting")
-                //            .AddProcessInstrumentation()
-                //           .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(serviceName)));
-                //});
+            services.AddOpenTelemetry().WithMetrics(builder =>
+            {
+                builder.AddAspNetCoreInstrumentation()
+                        .AddRuntimeInstrumentation()
+                       .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName)));
+            });
         }
 
         public static void ConfigureTraceContextMiddleware(IApplicationBuilder app)
@@ -71,23 +67,22 @@ namespace Blocks.Genesis
             app.UseMiddleware<TraceContextMiddleware>();
         }
 
-        public static void ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
+        public static async void ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
+            await ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
+
             ConfigureMessage(services, messageConfiguration);
 
             services.AddHostedService<AzureMessageWorker>();
 
-
             services.AddSingleton<Consumer>();
 
             var routingTable = new RoutingTable(services);
-            services.AddSingleton<RoutingTable>(routingTable);
+            services.AddSingleton(routingTable);
         }
 
         public static void ConfigureMessage(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
-            ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
-
             services.AddSingleton(messageConfiguration);
 
             services.AddSingleton<IMessageClient, AzureMessageClient>();

@@ -2,7 +2,6 @@
 using MongoDB.Driver;
 using Newtonsoft.Json;
 using OpenTelemetry;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace Blocks.Genesis
@@ -10,20 +9,21 @@ namespace Blocks.Genesis
     public class MongoDBTraceExporter : BaseProcessor<Activity>, IDisposable
     {
         private readonly string _serviceName;
-        private readonly ConcurrentBag<BsonDocument> _batch;
+        private readonly Queue<BsonDocument> _batch;
         private readonly Timer _timer;
         private readonly IMongoCollection<BsonDocument> _collection;
         private readonly int _batchSize;
         private readonly TimeSpan _flushInterval;
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
         public MongoDBTraceExporter(string serviceName, int batchSize = 1000, TimeSpan? flushInterval = null)
         {
             _serviceName = serviceName;
             _batchSize = batchSize;
-            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(7);
-            _batch = new ConcurrentBag<BsonDocument>();
+            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(29);
+            _batch = new Queue<BsonDocument>();
             _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.TraceDatabaseName, _serviceName);
-            _timer = new Timer(FlushBatch, null, _flushInterval, _flushInterval);
+            _timer = new Timer(async _ => await FlushBatchAsync(), null, _flushInterval, _flushInterval);
         }
 
         public override void OnEnd(Activity data)
@@ -49,44 +49,52 @@ namespace Blocks.Genesis
                 { "TenantId", "TenantId" }
             };
 
-            _batch.Add(document);
+            _batch.Enqueue(document);
             if (_batch.Count >= _batchSize)
             {
-                FlushBatch(null);
+                Task.Run(() => FlushBatchAsync());
             }
         }
 
-        private async void FlushBatch(object? state)
+        private async Task FlushBatchAsync()
         {
-            if (_batch.IsEmpty)
+            await _semaphore.WaitAsync();
+            try
             {
-                return;
-            }
+                var batchToInsert = new List<BsonDocument>();
 
-            var documentsToInsert = new List<BsonDocument>();
-            while (_batch.TryTake(out var document))
-            {
-                documentsToInsert.Add(document);
-            }
+                while (_batch.TryDequeue(out var document))
+                {
+                    batchToInsert.Add(document);
+                }
 
-            if (documentsToInsert.Any())
+                if (batchToInsert.Any())
+                {
+                    try
+                    {
+                        await _collection.InsertManyAsync(batchToInsert);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to insert batch: {ex.Message}");
+                    }
+                    finally
+                    {
+                        batchToInsert = null;
+                    }
+                }
+            }
+            finally
             {
-                try
-                {
-                    await _collection.InsertManyAsync(documentsToInsert);
-                }
-                catch (Exception ex)
-                {
-                    // Log or handle the exception as necessary
-                    Console.WriteLine($"Failed to insert batch: {ex.Message}");
-                }
+                _semaphore.Release();
             }
         }
 
         public void Dispose()
         {
             _timer.Dispose();
-            FlushBatch(null);
+            FlushBatchAsync().GetAwaiter().GetResult();
+            _semaphore.Dispose();
             base.Dispose();
         }
     }

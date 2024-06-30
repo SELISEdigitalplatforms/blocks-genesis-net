@@ -1,4 +1,5 @@
 ﻿using MongoDB.Bson;
+using MongoDB.Driver;
 using Newtonsoft.Json;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -8,20 +9,19 @@ namespace Blocks.Genesis
     public class MongoDBMetricsExporter : BaseExporter<Metric>
     {
         private readonly string _serviceName;
+        private readonly IMongoCollection<BsonDocument> _collection;
 
         public MongoDBMetricsExporter(string serviceName)
         {
             _serviceName = serviceName;
+            _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.MetricDatabaseName, _serviceName);
         }
 
         public override ExportResult Export(in Batch<Metric> batch)
         {
-            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.MetricDatabaseName, _serviceName);
-
             var documents = new List<BsonDocument>();
             foreach (var data in batch)
             {
-
                 foreach (var metricPoint in data.GetMetricPoints())
                 {
                     var document = new BsonDocument
@@ -29,8 +29,8 @@ namespace Blocks.Genesis
                         { "Name", data.Name },
                         { "Description", data.Description },
                         { "Type", data.MetricType.ToString() },
-                        { "Unit", data.Unit.ToString() },
-                        { "MeterName", data.MeterName.ToString() },
+                        { "Unit", data.Unit },
+                        { "MeterName", data.MeterName },
                         { "Timestamp", DateTime.UtcNow },
                         { "ServiceName", _serviceName },
                         { "TenantId", "TenantId" },
@@ -61,15 +61,23 @@ namespace Blocks.Genesis
                     }
                     documents.Add(document);
                 }
-
             }
 
-            var insertTask = Task.Run(async () => await collection.InsertManyAsync(documents));
-            insertTask.Wait();
-
-            return ExportResult.Success;
-
+            try
+            {
+                _collection.InsertMany(documents);
+                return ExportResult.Success;
+            }
+            catch (Exception ex)
+            {
+                // Log the exception
+                Console.WriteLine($"Error exporting metrics: {ex.Message}");
+                return ExportResult.Failure;
+            }
+            finally
+            {
+                documents = null; // Explicitly setting the documents list to null
+            }
         }
     }
-
 }

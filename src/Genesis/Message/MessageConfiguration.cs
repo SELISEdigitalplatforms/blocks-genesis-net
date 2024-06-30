@@ -36,9 +36,12 @@
         public int TopicSubscriptionMaxDeliveryCount { get; set; } = 5;
         public TimeSpan TopicSubscriptionDefaultMessageTimeToLive { get; set; } = TimeSpan.FromMinutes(60 * 24 * 7);
 
+
+        public required string ServiceName { get; init; }
+
         public string GetSubscriptionName(string topicName)
         {
-            return $"{topicName}_sub";
+            return $"{topicName}_sub_{ServiceName}";
         }
 
     }

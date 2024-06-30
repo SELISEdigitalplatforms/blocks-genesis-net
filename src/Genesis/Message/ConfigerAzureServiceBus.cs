@@ -45,7 +45,7 @@ namespace Blocks.Genesis
                     createQueueOptions.DefaultMessageTimeToLive = _messageConfiguration.QueueDefaultMessageTimeToLive;
                     createQueueOptions.LockDuration = TimeSpan.FromSeconds(30);
 
-                    _adminClient.CreateQueueAsync(createQueueOptions);
+                    _adminClient.CreateQueueAsync(createQueueOptions); // don't await it need synchronization
                 }
 
             }
@@ -76,9 +76,9 @@ namespace Blocks.Genesis
                     createTopicOptions.MaxSizeInMegabytes = _messageConfiguration.TopicMaxSizeInMegabytes;
                     createTopicOptions.DefaultMessageTimeToLive = _messageConfiguration.TopicDefaultMessageTimeToLive;
 
-                    _adminClient.CreateTopicAsync(createTopicOptions);
+                    _adminClient.CreateTopicAsync(createTopicOptions); // don't await it need synchronization
 
-                    CreateTopicSubscriptionAsync(topicName);
+                    CreateTopicSubscriptionAsync(topicName); // don't await it need synchronization
                 }
 
             }
@@ -108,7 +108,7 @@ namespace Blocks.Genesis
                 createTopicSubscriptionOptions.DefaultMessageTimeToLive = _messageConfiguration.TopicSubscriptionDefaultMessageTimeToLive;
                 createTopicSubscriptionOptions.LockDuration = TimeSpan.FromSeconds(30);
 
-                _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions);
+                _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions); // don't await it need synchronization
 
             }
             catch (Exception ex)

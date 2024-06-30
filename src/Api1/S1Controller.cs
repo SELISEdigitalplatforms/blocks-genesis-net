@@ -24,17 +24,20 @@ namespace ApiOne
             _logger.LogInformation("Processing request in S1");
 
             // Send event to B1
-            _messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue", Payload = new W2Context { Data = "From S1" } });
-            //await _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic", Payload = new W1Context { Data = "From S1" } });
+            await Task.WhenAll(_messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue", Payload = new W2Context { Data = "From S1" } }),
+            _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic", Payload = new W1Context { Data = "From S1" } }), CallApi());
             _logger.LogInformation("S1 send an event to B1");
 
+            return Ok();
+        }
+
+        private async Task CallApi()
+        {
             // Make HTTP call to S2
             var client = _httpClientFactory.CreateClient();
             var response = await client.GetAsync("http://localhost:51846/api/s2/process");
             response.EnsureSuccessStatusCode();
             _logger.LogInformation("S1 call to S2");
-
-            return Ok();
         }
     }
 

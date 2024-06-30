@@ -56,6 +56,7 @@ namespace Blocks.Genesis
             }
 
             await collection.InsertManyAsync(documents);
+            documents = null;
         }
     }
 }
