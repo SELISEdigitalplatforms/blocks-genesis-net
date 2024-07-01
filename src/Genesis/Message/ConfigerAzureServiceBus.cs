@@ -33,6 +33,8 @@ namespace Blocks.Genesis
         {
             try
             {
+                var tasks = new List<Task>();   
+                
                 foreach (var queueName in _messageConfiguration.Queues)
                 {
 
@@ -45,8 +47,10 @@ namespace Blocks.Genesis
                     createQueueOptions.DefaultMessageTimeToLive = _messageConfiguration.QueueDefaultMessageTimeToLive;
                     createQueueOptions.LockDuration = TimeSpan.FromSeconds(30);
 
-                    _adminClient.CreateQueueAsync(createQueueOptions); // don't await it need synchronization
+                    tasks.Add(_adminClient.CreateQueueAsync(createQueueOptions));
                 }
+
+                await Task.WhenAll(tasks);
 
             }
             catch (Exception ex)
@@ -66,6 +70,8 @@ namespace Blocks.Genesis
         {
             try
             {
+                var tasks = new List<Task>();
+
                 foreach (var topicName in _messageConfiguration.Topics)
                 {
 
@@ -76,10 +82,14 @@ namespace Blocks.Genesis
                     createTopicOptions.MaxSizeInMegabytes = _messageConfiguration.TopicMaxSizeInMegabytes;
                     createTopicOptions.DefaultMessageTimeToLive = _messageConfiguration.TopicDefaultMessageTimeToLive;
 
-                    _adminClient.CreateTopicAsync(createTopicOptions); // don't await it need synchronization
-
-                    CreateTopicSubscriptionAsync(topicName); // don't await it need synchronization
+                    tasks.Add(_adminClient.CreateTopicAsync(createTopicOptions)); 
                 }
+
+                await Task.WhenAll(tasks);
+
+                var subTasks = _messageConfiguration.Topics.Select(topicName => CreateTopicSubscriptionAsync(topicName));
+
+                await Task.WhenAll(subTasks);
 
             }
             catch (Exception ex)
@@ -108,7 +118,7 @@ namespace Blocks.Genesis
                 createTopicSubscriptionOptions.DefaultMessageTimeToLive = _messageConfiguration.TopicSubscriptionDefaultMessageTimeToLive;
                 createTopicSubscriptionOptions.LockDuration = TimeSpan.FromSeconds(30);
 
-                _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions); // don't await it need synchronization
+                await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions); // don't await it need synchronization
 
             }
             catch (Exception ex)

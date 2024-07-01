@@ -2,7 +2,7 @@
 
 namespace Blocks.Genesis
 {
-    internal sealed class RedisClient
+    public sealed class RedisClient : ICacheClient
     {
         private readonly IDatabase _database;
 

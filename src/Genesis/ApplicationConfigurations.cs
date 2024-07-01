@@ -13,10 +13,12 @@ namespace Blocks.Genesis
     public static class ApplicationConfigurations
     {
         static string _serviceName = string.Empty;
+
         public static void SetServiceName(string serviceName)
         {
             _serviceName = serviceName;
         }
+
         public static void ConfigureLog()
         {
             Log.Logger = new LoggerConfiguration()
@@ -26,11 +28,9 @@ namespace Blocks.Genesis
                         .WriteTo.Console()
                         .WriteTo.MongoDBWithDynamicCollection(_serviceName)
                         .CreateLogger();
-
         }
 
-
-        public async static void ConfigureServices(IServiceCollection services)
+        public async static Task ConfigureServices(IServiceCollection services)
         {
             await LmtConfiguration.CreateCollectionAsync(_serviceName);
 
@@ -57,9 +57,11 @@ namespace Blocks.Genesis
             services.AddOpenTelemetry().WithMetrics(builder =>
             {
                 builder.AddAspNetCoreInstrumentation()
-                        .AddRuntimeInstrumentation()
+                       .AddRuntimeInstrumentation()
                        .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName)));
             });
+
+            services.AddSingleton<ICacheClient, RedisClient>();
         }
 
         public static void ConfigureTraceContextMiddleware(IApplicationBuilder app)
@@ -67,7 +69,7 @@ namespace Blocks.Genesis
             app.UseMiddleware<TraceContextMiddleware>();
         }
 
-        public static async void ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
+        public async static Task ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             await ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
 
@@ -87,7 +89,5 @@ namespace Blocks.Genesis
 
             services.AddSingleton<IMessageClient, AzureMessageClient>();
         }
-
-
     }
 }

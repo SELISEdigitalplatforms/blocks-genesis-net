@@ -33,6 +33,7 @@ namespace Blocks.Genesis
             try
             {
                 await CreateCollectionIfNotExistsAsync(LogDatabaseName, collectionName, options);
+                await CreateIndexAsync(LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
             }
             catch (Exception ex)
             {
@@ -42,6 +43,7 @@ namespace Blocks.Genesis
             try
             {
                 await CreateCollectionIfNotExistsAsync(TraceDatabaseName, collectionName, options);
+                await CreateIndexAsync(TraceDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
             }
             catch (Exception ex)
             {
@@ -51,6 +53,7 @@ namespace Blocks.Genesis
             try
             {
                 await CreateCollectionIfNotExistsAsync(MetricDatabaseName, collectionName, options);
+                await CreateIndexAsync(MetricDatabaseName, collectionName, new BsonDocument{ { "TenantId", 1 }, { "Timestamp", -1 } });
             }
             catch (Exception ex)
             {
@@ -89,6 +92,14 @@ namespace Blocks.Genesis
 
             var collections = await database.ListCollectionNamesAsync(options);
             return await collections.AnyAsync();
+        }
+
+        public static async Task CreateIndexAsync(string databaseName, string collectionName, BsonDocument indexKeys)
+        {
+            var collection = GetMongoCollection<BsonDocument>(databaseName, collectionName);
+            var indexModel = new CreateIndexModel<BsonDocument>(indexKeys);
+            await collection.Indexes.CreateOneAsync(indexModel);
+            Console.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
         }
     }
 }
