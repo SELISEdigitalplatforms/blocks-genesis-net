@@ -17,7 +17,7 @@ services.AddHttpClient();
 
 services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
 
-ApplicationConfigurations.ConfigureServices(services);
+await ApplicationConfigurations.ConfigureServices(services);
 
 ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
 {

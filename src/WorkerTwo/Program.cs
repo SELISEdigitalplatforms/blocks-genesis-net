@@ -9,18 +9,18 @@ CreateHostBuilder(args).Build().Run();
 
 
 IHostBuilder CreateHostBuilder(string[] args) =>
-        Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
+        Host.CreateDefaultBuilder(args).ConfigureServices(async (hostContext, services) =>
         {
 
             services.AddHttpClient();
 
-            ApplicationConfigurations.ConfigureServices(services);
+            await ApplicationConfigurations.ConfigureServices(services);
 
 
             services.AddSingleton<IConsumer<W1Context>, W1Consumer>();
             services.AddSingleton<IConsumer<W2Context>, W2Consumer>();
 
-            ApplicationConfigurations.ConfigureMessageWorker(services, new MessageConfiguration
+            await ApplicationConfigurations.ConfigureMessageWorker(services, new MessageConfiguration
             {
                 Connection = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***",
                 Queues = new List<string> { "demo_queue_1" },
