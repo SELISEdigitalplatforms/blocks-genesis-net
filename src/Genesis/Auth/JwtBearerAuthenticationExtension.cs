@@ -15,6 +15,14 @@ namespace Blocks.Genesis
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = false,
+                        ValidateAudience = false,
+                        ValidateIssuerSigningKey = false,
+                        ValidateLifetime = true,
+                        ClockSkew = TimeSpan.Zero
+                    };
                     options.Events = new JwtBearerEvents
                     {
                         OnTokenValidated = async context =>
@@ -24,9 +32,9 @@ namespace Blocks.Genesis
                             {
                                 var jwtValidationService = context.HttpContext.RequestServices.GetRequiredService<IJwtValidationService>();
                                 var issuer = token.Issuer;
-                                var audience = token.Audiences.FirstOrDefault();
+                                var audienceId = token.Audiences.FirstOrDefault();
 
-                                var validationParameters = await jwtValidationService.GetValidationParametersAsync(issuer, audience);
+                                var validationParameters = await jwtValidationService.GetValidationParametersAsync(issuer, audienceId);
 
                                 if (validationParameters == null)
                                 {
@@ -53,7 +61,6 @@ namespace Blocks.Genesis
                                     ValidIssuer = validationParameters.Issuer,
                                     ValidateAudience = true,
                                     ValidAudiences = validationParameters.Audiences,
-                                    ValidateLifetime = true,
                                     ValidateIssuerSigningKey = true,
                                     IssuerSigningKey = new X509SecurityKey(TokenRetrievalHelper.CreateSecurityKey(validationParameters))
                                 };
