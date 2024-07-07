@@ -11,11 +11,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Configure services
 var services = builder.Services;
-services.AddControllers();
-services.AddHttpClient();
 
 services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
 
+
+ApplicationConfigurations.ConfigureAuth(services);
 await ApplicationConfigurations.ConfigureServices(services);
 
 ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
@@ -35,6 +35,7 @@ if (app.Environment.IsDevelopment())
 }
 
 ApplicationConfigurations.ConfigureTraceContextMiddleware(app);
+ApplicationConfigurations.ConfigureAuthMiddleware(app);
 
 app.UseRouting();
 

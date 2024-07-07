@@ -12,9 +12,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args).ConfigureServices(async (hostContext, services) =>
         {
 
-            services.AddHttpClient();
-
             await ApplicationConfigurations.ConfigureServices(services);
+
+            services.AddHttpClient();
 
 
             services.AddSingleton<IConsumer<W1Context>, W1Consumer>();

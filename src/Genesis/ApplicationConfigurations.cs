@@ -62,11 +62,25 @@ namespace Blocks.Genesis
             });
 
             services.AddSingleton<ICacheClient, RedisClient>();
+
+        }
+
+        public static void ConfigureAuth(IServiceCollection services)
+        {
+            services.JwtBearerAuthentication();
+            services.AddControllers();
+            services.AddHttpClient();
         }
 
         public static void ConfigureTraceContextMiddleware(IApplicationBuilder app)
         {
             app.UseMiddleware<TraceContextMiddleware>();
+        }
+
+        public static void ConfigureAuthMiddleware(IApplicationBuilder app)
+        {
+            app.UseAuthentication();
+            app.UseAuthorization();
         }
 
         public async static Task ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
