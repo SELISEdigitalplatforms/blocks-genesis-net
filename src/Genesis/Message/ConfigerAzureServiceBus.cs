@@ -6,6 +6,7 @@ namespace Blocks.Genesis
     {
         private static ServiceBusAdministrationClient _adminClient;
         private static MessageConfiguration _messageConfiguration;
+
         public static async Task ConfigerMessagesAsync(MessageConfiguration messageConfiguration)
         {
             try
@@ -18,9 +19,9 @@ namespace Blocks.Genesis
                 _adminClient = new ServiceBusAdministrationClient(messageConfiguration.Connection);
                 _messageConfiguration = messageConfiguration;
 
-                await CreateQueuesAsync();
-
-                await CreateTopicAsync();
+                var queueCreationTask = CreateQueuesAsync();
+                var topicCreationTask = CreateTopicAsync();
+                await Task.WhenAll(queueCreationTask, topicCreationTask);
             }
             catch (Exception ex)
             {
@@ -133,8 +134,5 @@ namespace Blocks.Genesis
         {
             return await _adminClient.SubscriptionExistsAsync(topicName, subscriptionName);
         }
-
-
-
     }
 }

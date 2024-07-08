@@ -47,6 +47,7 @@ namespace Blocks.Genesis
                 Body = JsonConvert.SerializeObject(consumerMessage.Payload),
                 Type = consumerMessage.Payload.GetType().Name
             };
+
             var message = new ServiceBusMessage(JsonConvert.SerializeObject(messageBody));
 
             if (activity != null)
@@ -56,15 +57,14 @@ namespace Blocks.Genesis
                 message.ApplicationProperties["ParentSpanId"] = activity.ParentSpanId.ToString();
             }
 
-            await sender.SendMessageAsync(message);
-
-           
+            await sender.SendMessageAsync(message);  
         }
 
         public async Task SendToMassConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
         {
             var activity = Activity.Current;
             var sender = GetSender(consumerMessage.ConsumerName);
+
             var messageBody = new Message
             {
                 Body = JsonConvert.SerializeObject(consumerMessage.Payload),

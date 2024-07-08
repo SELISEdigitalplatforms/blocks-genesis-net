@@ -1,4 +1,5 @@
-﻿using MongoDB.Bson;
+﻿using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Blocks.Genesis
@@ -30,16 +31,14 @@ namespace Blocks.Genesis
                 TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "TenantId", TimeSeriesGranularity.Minutes)
             };
 
-            try
-            {
-                await CreateCollectionIfNotExistsAsync(LogDatabaseName, collectionName, options);
-                await CreateIndexAsync(LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-            }
+           var logsCollectionCreationTask = CreateCollectionForLogs(collectionName, options);
+           var tracesCollectionCreationTask = CreateCollectionForTraces(collectionName, options);
+           var metricesCollectionCreationTask = CreateCollectionForMetrics(collectionName, options);
+           await Task.WhenAll(logsCollectionCreationTask, tracesCollectionCreationTask, metricesCollectionCreationTask); 
+        }
 
+        private static async Task CreateCollectionForTraces(string collectionName, CreateCollectionOptions options)
+        {
             try
             {
                 await CreateCollectionIfNotExistsAsync(TraceDatabaseName, collectionName, options);
@@ -49,11 +48,27 @@ namespace Blocks.Genesis
             {
                 Console.WriteLine(ex);
             }
+        }
 
+        private static async Task CreateCollectionForMetrics(string collectionName, CreateCollectionOptions options)
+        {
             try
             {
                 await CreateCollectionIfNotExistsAsync(MetricDatabaseName, collectionName, options);
-                await CreateIndexAsync(MetricDatabaseName, collectionName, new BsonDocument{ { "TenantId", 1 }, { "Timestamp", -1 } });
+                await CreateIndexAsync(MetricDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
+        }
+
+        private static async Task CreateCollectionForLogs(string collectionName, CreateCollectionOptions options)
+        {
+            try
+            {
+                await CreateCollectionIfNotExistsAsync(LogDatabaseName, collectionName, options);
+                await CreateIndexAsync(LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
             }
             catch (Exception ex)
             {
