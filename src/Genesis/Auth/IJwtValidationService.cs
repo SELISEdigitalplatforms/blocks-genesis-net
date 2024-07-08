@@ -1,8 +1,12 @@
-﻿namespace Blocks.Genesis
+﻿using Microsoft.IdentityModel.Tokens;
+
+namespace Blocks.Genesis
 {
     public interface IJwtValidationService
     {
-        Task<JwtValidationParameters> GetValidationParametersAsync(string issuer, string audience);
+        public IEnumerable<string> GetAudiences();
+        public IEnumerable<string> GetIssuers();
+        public IEnumerable<X509SecurityKey> GetSecurityKeys();
     }
 
 }

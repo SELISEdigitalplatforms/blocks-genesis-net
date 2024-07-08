@@ -35,9 +35,10 @@ if (app.Environment.IsDevelopment())
 }
 
 ApplicationConfigurations.ConfigureTraceContextMiddleware(app);
-ApplicationConfigurations.ConfigureAuthMiddleware(app);
 
 app.UseRouting();
+
+ApplicationConfigurations.ConfigureAuthMiddleware(app);
 
 app.MapControllers();
 

@@ -12,15 +12,22 @@ namespace Blocks.Genesis
         {
             services.AddSingleton<IJwtValidationService, JwtValidationService>();
 
+            var serviceProvider = services.BuildServiceProvider();
+            var jwtValidationService = serviceProvider.GetRequiredService<IJwtValidationService>();
+
+
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
                     options.TokenValidationParameters = new TokenValidationParameters
                     {
-                        ValidateIssuer = false,
-                        ValidateAudience = false,
-                        ValidateIssuerSigningKey = false,
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateIssuerSigningKey = true,
                         ValidateLifetime = true,
+                        ValidIssuers = jwtValidationService.GetIssuers(),
+                        ValidAudiences = jwtValidationService.GetAudiences(),
+                        IssuerSigningKeys = jwtValidationService.GetSecurityKeys(),
                         ClockSkew = TimeSpan.Zero
                     };
                     options.Events = new JwtBearerEvents
@@ -30,23 +37,11 @@ namespace Blocks.Genesis
                             var token = context.SecurityToken as JwtSecurityToken;
                             if (token != null)
                             {
-                                var jwtValidationService = context.HttpContext.RequestServices.GetRequiredService<IJwtValidationService>();
-                                var issuer = token.Issuer;
-                                var audienceId = token.Audiences.FirstOrDefault();
-
-                                var validationParameters = await jwtValidationService.GetValidationParametersAsync(issuer, audienceId);
-
-                                if (validationParameters == null)
-                                {
-                                    context.Fail("Invalid token parameters");
-                                    return;
-                                }
-
-                                var origin = TokenRetrievalHelper.GetHostOfRequestOrigin(context.Request);
+                                var origin = TokenHelper.GetHostOfRequestOrigin(context.Request);
 
                                 if (!string.IsNullOrWhiteSpace(origin))
                                 {
-                                    var isAllowed = validationParameters.Audiences.Any(x => x == origin);
+                                    var isAllowed = token.Audiences.Any(x => x == origin);
 
                                     if (!isAllowed)
                                     {
@@ -54,27 +49,14 @@ namespace Blocks.Genesis
                                         return;
                                     }
                                 }
-
-                                var tokenValidationParameters = new TokenValidationParameters
-                                {
-                                    ValidateIssuer = true,
-                                    ValidIssuer = validationParameters.Issuer,
-                                    ValidateAudience = true,
-                                    ValidAudiences = validationParameters.Audiences,
-                                    ValidateIssuerSigningKey = true,
-                                    IssuerSigningKey = new X509SecurityKey(TokenRetrievalHelper.CreateSecurityKey(validationParameters))
-                                };
-
+                                
                                 try
                                 {
-                                    var principal = new JwtSecurityTokenHandler().ValidateToken(token.RawData, tokenValidationParameters, out _);
-                                    context.Principal = principal;
-
                                     var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
                                     var requestUri = context.Request.Path.Value;
                                     var jwtBearerToken = token.RawData;
 
-                                    TokenRetrievalHelper.HandleTokenIssuer(claimsIdentity, requestUri, jwtBearerToken);
+                                    TokenHelper.HandleTokenIssuer(claimsIdentity, requestUri, jwtBearerToken);
                                 }
                                 catch (Exception ex)
                                 {
@@ -84,7 +66,7 @@ namespace Blocks.Genesis
                         },
                         OnMessageReceived = context =>
                         {
-                            context.Token = TokenRetrievalHelper.GetToken(context.Request);
+                            context.Token = TokenHelper.GetToken(context.Request);
                             return Task.CompletedTask;
                         },
                         OnAuthenticationFailed = authenticationFailedContext =>
