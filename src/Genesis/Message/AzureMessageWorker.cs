@@ -78,8 +78,10 @@ namespace Blocks.Genesis
                     return;
                 }
 
-                await ProcessQueues(stoppingToken);
-                await ProcessTopics(stoppingToken);
+                var queueProcessingTask = ProcessQueues(stoppingToken);
+                var topicesProcessingTask = ProcessTopics(stoppingToken);
+
+                await Task.WhenAll(queueProcessingTask, topicesProcessingTask);
             }
             catch (Exception ex)
             {
