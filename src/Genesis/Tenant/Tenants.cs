@@ -1,28 +1,50 @@
 ﻿using MongoDB.Driver;
+using StackExchange.Redis;
 
 namespace Blocks.Genesis
 {
     public class Tenants : ITenants
     {
-        private readonly IEnumerable<Tenant> _tenants;
+        private readonly List<Tenant> _tenants = new List<Tenant>();
+        private readonly IMongoCollection<Tenant> _collection;
+
         public Tenants()
         {
             IMongoDatabase database = new MongoClient("mongodb://localhost:27017").GetDatabase("Blocks");
-            _tenants = database.GetCollection<Tenant>("Tenants").Find((Tenant _) => true).ToEnumerable();
+            _collection = database.GetCollection<Tenant>("Tenants");
+
+            _tenants = _collection.Find((Tenant _) => true).ToList();
         }
-        public Tenant GetTenantByApplicationDomain(string applicationDomain)
+        public async Task<Tenant> GetTenantByApplicationDomain(string applicationDomain)
         {
-            return _tenants.FirstOrDefault((Tenant t) => t.ApplicationDomain.Equals(applicationDomain, StringComparison.InvariantCultureIgnoreCase));
+            var tenant = _tenants.FirstOrDefault((Tenant t) => t.ApplicationDomain.Equals(applicationDomain, StringComparison.InvariantCultureIgnoreCase));
+
+            if (tenant == null)
+            {
+                tenant = await _collection.Find(t => t.ApplicationDomain == applicationDomain).FirstOrDefaultAsync();
+                _tenants.Add(tenant);
+            }
+
+            return tenant;
         }
 
-        public Tenant GetTenantByID(string tenantId)
-        {
-            return _tenants.FirstOrDefault((Tenant t) => t.TenantId.Equals(tenantId, StringComparison.InvariantCultureIgnoreCase));
-        }
-
-        public string GetTenantDatabaseConnectionString(string tenantId)
+        public async Task<Tenant> GetTenantByID(string tenantId)
         {
             var tenant = _tenants.FirstOrDefault((Tenant t) => t.TenantId.Equals(tenantId, StringComparison.InvariantCultureIgnoreCase));
+
+            if (tenant == null)
+            {
+                tenant = await _collection.Find(t => t.TenantId == tenantId).FirstOrDefaultAsync();
+                _tenants.Add(tenant);
+            }
+
+            return tenant;
+        }
+
+        public async Task<string> GetTenantDatabaseConnectionString(string tenantId)
+        {
+            var tenant = await GetTenantByID(tenantId);
+
             return tenant?.DbConnectionString ?? string.Empty;
         }
 

@@ -10,10 +10,12 @@ namespace Blocks.Genesis
     {
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
+            services.AddScoped<ISecurityContext, SecurityContext>();
             services.AddSingleton<IJwtValidationService, JwtValidationService>();
 
             var serviceProvider = services.BuildServiceProvider();
             var jwtValidationService = serviceProvider.GetRequiredService<IJwtValidationService>();
+            var securityContext = serviceProvider.GetRequiredService<ISecurityContext>();
 
 
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -57,6 +59,8 @@ namespace Blocks.Genesis
                                     var jwtBearerToken = token.RawData;
 
                                     TokenHelper.HandleTokenIssuer(claimsIdentity, requestUri, jwtBearerToken);
+
+                                    securityContext = SecurityContext.CreateFromClaimsIdentity(claimsIdentity);
                                 }
                                 catch (Exception ex)
                                 {

@@ -49,8 +49,8 @@ namespace Blocks.Genesis
         {
             claimsIdentity.AddClaims(new[]
             {
-                new Claim("RequestUri", requestUri),
-                new Claim("OauthBearerToken", jwtBearerToken)
+                new Claim("requestUri", requestUri),
+                new Claim("oauthBearerToken", jwtBearerToken)
             });
         }
     }
