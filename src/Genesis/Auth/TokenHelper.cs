@@ -47,11 +47,40 @@ namespace Blocks.Genesis
 
         public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri, string jwtBearerToken)
         {
+            if (claimsIdentity == null) throw new ArgumentNullException(nameof(claimsIdentity));
+            if (requestUri == null) throw new ArgumentNullException(nameof(requestUri));
+            if (jwtBearerToken == null) throw new ArgumentNullException(nameof(jwtBearerToken));
+
             claimsIdentity.AddClaims(new[]
             {
                 new Claim("requestUri", requestUri),
                 new Claim("oauthBearerToken", jwtBearerToken)
             });
+        }
+
+        public static string GetBlocksSecret(HttpRequest request)
+        {
+            if (request.Headers.TryGetValue("X-Blocks-Secret", out StringValues secret))
+            {
+                return secret.ToString();
+            }
+
+            return string.Empty;
+        }
+
+        public static string GetOriginOrReferer(HttpRequest request)
+        {
+            if (request.Headers.TryGetValue("Origin", out StringValues origin))
+            {
+                return origin.ToString();
+            }
+
+            if (request.Headers.TryGetValue("Referer", out origin))
+            {
+                return origin.ToString();
+            }
+
+            return string.Empty;
         }
     }
 }

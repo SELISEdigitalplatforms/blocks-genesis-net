@@ -61,7 +61,7 @@ namespace Blocks.Genesis
             return new JwtTokenParameters 
             {
                 Issuer = "https://issuer1.com",
-                Audiences = new[] { "audience1" },
+                Audiences = new List<string> { "audience1" },
                 SigningKeyPassword = "signingKey1",
                 SigningKeyPath = ""
             };
@@ -72,7 +72,7 @@ namespace Blocks.Genesis
             return _tenants.Select((Tenant t) =>  new JwtTokenParameters
             {
                 Issuer = "https://issuer1.com",
-                Audiences = new[] { "audience1" },
+                Audiences = new List<string> { "audience1" },
                 SigningKeyPassword = "signingKey1",
                 SigningKeyPath = ""
             });

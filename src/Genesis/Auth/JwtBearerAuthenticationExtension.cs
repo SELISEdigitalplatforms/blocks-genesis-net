@@ -11,25 +11,22 @@ namespace Blocks.Genesis
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
             services.AddScoped<ISecurityContext, SecurityContext>();
+
             services.AddSingleton<IJwtValidationService, JwtValidationService>();
 
             var serviceProvider = services.BuildServiceProvider();
             var jwtValidationService = serviceProvider.GetRequiredService<IJwtValidationService>();
             var securityContext = serviceProvider.GetRequiredService<ISecurityContext>();
 
-
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
                     options.TokenValidationParameters = new TokenValidationParameters
                     {
-                        ValidateIssuer = true,
-                        ValidateAudience = true,
-                        ValidateIssuerSigningKey = true,
+                        ValidateIssuer = false,
+                        ValidateAudience = false,
+                        ValidateIssuerSigningKey = false,
                         ValidateLifetime = true,
-                        ValidIssuers = jwtValidationService.GetIssuers(),
-                        ValidAudiences = jwtValidationService.GetAudiences(),
-                        IssuerSigningKeys = jwtValidationService.GetSecurityKeys(),
                         ClockSkew = TimeSpan.Zero
                     };
                     options.Events = new JwtBearerEvents
@@ -39,7 +36,14 @@ namespace Blocks.Genesis
                             var token = context.SecurityToken as JwtSecurityToken;
                             if (token != null)
                             {
-                                var origin = TokenHelper.GetHostOfRequestOrigin(context.Request);
+                                var tenantId = TokenHelper.GetBlocksSecret(context.Request);
+                                if (string.IsNullOrWhiteSpace(tenantId))
+                                {
+                                    context.Fail("Blocks secret is missing.");
+                                    return;
+                                }
+
+                                var origin = TokenHelper.GetOriginOrReferer(context.Request);
 
                                 if (!string.IsNullOrWhiteSpace(origin))
                                 {
@@ -51,7 +55,7 @@ namespace Blocks.Genesis
                                         return;
                                     }
                                 }
-                                
+
                                 try
                                 {
                                     var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
@@ -61,6 +65,28 @@ namespace Blocks.Genesis
                                     TokenHelper.HandleTokenIssuer(claimsIdentity, requestUri, jwtBearerToken);
 
                                     securityContext = SecurityContext.CreateFromClaimsIdentity(claimsIdentity);
+
+                                    // Custom validation logic for tenant-specific parameters
+                                    var tokenParameters = jwtValidationService.GetTokenParameters(tenantId);
+                                    var signingKey = new X509SecurityKey(JwtValidationService.CreateSecurityKey(tokenParameters.SigningKeyPath, tokenParameters.SigningKeyPassword));
+                                    var tokenHandler = new JwtSecurityTokenHandler();
+                                    try
+                                    {
+                                        tokenHandler.ValidateToken(token.RawData, new TokenValidationParameters
+                                        {
+                                            IssuerSigningKey = signingKey,
+                                            ValidateIssuerSigningKey = true,
+                                            ValidateIssuer = true,
+                                            ValidIssuer = tokenParameters.Issuer,
+                                            ValidAudiences = tokenParameters.Audiences,
+                                            ValidateAudience = true
+                                        }, out _);
+                                    }
+                                    catch (SecurityTokenException)
+                                    {
+                                        context.Fail("Invalid token");
+                                        return;
+                                    }
                                 }
                                 catch (Exception ex)
                                 {
@@ -88,8 +114,5 @@ namespace Blocks.Genesis
 
             services.AddAuthorization();
         }
-
-
-
     }
 }

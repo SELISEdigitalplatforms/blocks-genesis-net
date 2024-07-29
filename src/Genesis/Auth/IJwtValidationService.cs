@@ -1,12 +1,9 @@
-﻿using Microsoft.IdentityModel.Tokens;
-
-namespace Blocks.Genesis
+﻿namespace Blocks.Genesis
 {
     public interface IJwtValidationService
     {
-        public IEnumerable<string> GetAudiences();
-        public IEnumerable<string> GetIssuers();
-        public IEnumerable<X509SecurityKey> GetSecurityKeys();
+        public JwtTokenParameters GetTokenParameters(string tenantId);
+        void SaveTokenParameters(string tenantId, JwtTokenParameters parameters);
     }
 
 }

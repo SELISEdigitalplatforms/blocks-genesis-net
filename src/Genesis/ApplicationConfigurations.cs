@@ -32,6 +32,7 @@ namespace Blocks.Genesis
 
         public async static Task ConfigureServices(IServiceCollection services)
         {
+            services.AddSingleton<ICacheClient, RedisClient>();
             await LmtConfiguration.CreateCollectionAsync(_serviceName);
 
             var objectSerializer = new ObjectSerializer(_ => true);
@@ -60,8 +61,6 @@ namespace Blocks.Genesis
                        .AddRuntimeInstrumentation()
                        .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName)));
             });
-
-            services.AddSingleton<ICacheClient, RedisClient>();
 
         }
 
