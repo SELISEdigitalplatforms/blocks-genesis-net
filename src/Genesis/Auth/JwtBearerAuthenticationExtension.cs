@@ -10,13 +10,14 @@ namespace Blocks.Genesis
     {
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
-            services.AddScoped<ISecurityContext, SecurityContext>();
 
+            var securityContext = new SecurityContext();
+            services.AddSingleton(typeof(ISecurityContext), securityContext);
             services.AddSingleton<IJwtValidationService, JwtValidationService>();
 
             var serviceProvider = services.BuildServiceProvider();
             var jwtValidationService = serviceProvider.GetRequiredService<IJwtValidationService>();
-            var securityContext = serviceProvider.GetRequiredService<ISecurityContext>();
+            
 
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>

@@ -13,14 +13,20 @@ namespace Blocks.Genesis
     public static class ApplicationConfigurations
     {
         static string _serviceName = string.Empty;
+        static IBlocksSecret _blocksSecret = null;
 
-        public static void SetServiceName(string serviceName)
+        public static void SetServiceName(string serviceName) // remove this
         {
             _serviceName = serviceName;
         }
 
-        public static void ConfigureLog()
+        public static void ConfigureLog() // initiateConfiguration(serviceName) this will be called before builder
         {
+            // Blocks secret load
+            // set blocks secret in LmtConfiguration 
+
+            //_serviceName = serviceName;
+
             Log.Logger = new LoggerConfiguration()
                         .Enrich.FromLogContext()
                         .Enrich.With<TraceContextEnricher>()
@@ -28,12 +34,19 @@ namespace Blocks.Genesis
                         .WriteTo.Console()
                         .WriteTo.MongoDBWithDynamicCollection(_serviceName)
                         .CreateLogger();
+
+            //await LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, _serviceName);
+            //await LmtConfiguration.CreateCollectionForTraces(_blocksSecret.TraceConnectionString, _serviceName);
+            //await LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, _serviceName);
         }
 
         public async static Task ConfigureServices(IServiceCollection services)
         {
+
+            services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
-            await LmtConfiguration.CreateCollectionAsync(_serviceName);
+
+           
 
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);

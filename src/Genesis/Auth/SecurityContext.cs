@@ -2,7 +2,7 @@
 
 namespace Blocks.Genesis
 {
-    internal record SecurityContext : ISecurityContext
+    public record SecurityContext : ISecurityContext
     {
         private const string TENANT_ID_CLAIM = "tenantId";
         private const string ROLES_CLAIM = "roles";
@@ -22,6 +22,7 @@ namespace Blocks.Genesis
         public string OrganizationId { get; }
         public bool IsAuthenticated { get; }
 
+        public SecurityContext() { }
         private SecurityContext((string TenantId, IEnumerable<string> Roles, string OauthBearerToken, string UserId, bool IsAuthenticated, Uri RequestUri, string OrganizationId) tuple)
         {
             TenantId = tuple.TenantId;
@@ -52,9 +53,8 @@ namespace Blocks.Genesis
 
         public static SecurityContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
         {
-            return new SecurityContext(claimsIdentity);
+             return new SecurityContext(claimsIdentity);
         }
-
 
 
     }

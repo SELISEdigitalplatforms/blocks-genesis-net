@@ -9,9 +9,10 @@ namespace Blocks.Genesis
     {
         private readonly string _serviceName;
 
-        public MongoDBDynamicSink(string serviceName)
+        public MongoDBDynamicSink(string serviceName, IBlocksSecret blocksSecret)
         {
             _serviceName = serviceName;
+            _blocksSecret = blocksSecret;
         }
 
         private BsonDocument CreateLogBsonDocument(LogEvent logEvent)

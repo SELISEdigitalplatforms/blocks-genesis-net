@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Options;
-using MongoDB.Bson;
+﻿using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Blocks.Genesis
@@ -10,19 +9,18 @@ namespace Blocks.Genesis
         public static string TraceDatabaseName { get; } = "Traces";
         public static string MetricDatabaseName { get; } = "Metrics";
 
-        private static readonly MongoClient _mongoClient = new MongoClient("mongodb://localhost:27017");
-
-        public static IMongoDatabase GetMongoDatabase(string databaseName)
+        public static IMongoDatabase GetMongoDatabase(string connection, string databaseName)
         {
-            return _mongoClient.GetDatabase(databaseName);
+            var mongoClient = new MongoClient(connection);
+            return mongoClient.GetDatabase(databaseName);
         }
 
-        public static IMongoCollection<TDocument> GetMongoCollection<TDocument>(string databaseName, string collectionName)
+        public static IMongoCollection<TDocument> GetMongoCollection<TDocument>(string connection, string databaseName, string collectionName)
         {
-            return GetMongoDatabase(databaseName).GetCollection<TDocument>(collectionName);
+            return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
         }
 
-        public static async Task CreateCollectionAsync(string collectionName)
+        public static async Task CreateCollectionForTraces(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
             {
@@ -31,18 +29,10 @@ namespace Blocks.Genesis
                 TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "TenantId", TimeSeriesGranularity.Minutes)
             };
 
-           var logsCollectionCreationTask = CreateCollectionForLogs(collectionName, options);
-           var tracesCollectionCreationTask = CreateCollectionForTraces(collectionName, options);
-           var metricesCollectionCreationTask = CreateCollectionForMetrics(collectionName, options);
-           await Task.WhenAll(logsCollectionCreationTask, tracesCollectionCreationTask, metricesCollectionCreationTask); 
-        }
-
-        private static async Task CreateCollectionForTraces(string collectionName, CreateCollectionOptions options)
-        {
             try
             {
-                await CreateCollectionIfNotExistsAsync(TraceDatabaseName, collectionName, options);
-                await CreateIndexAsync(TraceDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
+                await CreateCollectionIfNotExistsAsync(connection, TraceDatabaseName, collectionName, options);
+                await CreateIndexAsync(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
             }
             catch (Exception ex)
             {
@@ -50,12 +40,19 @@ namespace Blocks.Genesis
             }
         }
 
-        private static async Task CreateCollectionForMetrics(string collectionName, CreateCollectionOptions options)
+        public static async Task CreateCollectionForMetrics(string connection, string collectionName)
         {
+            var options = new CreateCollectionOptions
+            {
+                //Capped = true,
+                //MaxSize = 52428800, // 50MB
+                TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "TenantId", TimeSeriesGranularity.Minutes)
+            };
+
             try
             {
-                await CreateCollectionIfNotExistsAsync(MetricDatabaseName, collectionName, options);
-                await CreateIndexAsync(MetricDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
+                await CreateCollectionIfNotExistsAsync(connection, MetricDatabaseName, collectionName, options);
+                await CreateIndexAsync(connection, MetricDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
             }
             catch (Exception ex)
             {
@@ -63,12 +60,19 @@ namespace Blocks.Genesis
             }
         }
 
-        private static async Task CreateCollectionForLogs(string collectionName, CreateCollectionOptions options)
+        public static async Task CreateCollectionForLogs(string connection, string collectionName)
         {
+            var options = new CreateCollectionOptions
+            {
+                //Capped = true,
+                //MaxSize = 52428800, // 50MB
+                TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "TenantId", TimeSeriesGranularity.Minutes)
+            };
+
             try
             {
-                await CreateCollectionIfNotExistsAsync(LogDatabaseName, collectionName, options);
-                await CreateIndexAsync(LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
+                await CreateCollectionIfNotExistsAsync(connection, LogDatabaseName, collectionName, options);
+                await CreateIndexAsync(connection, LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
             }
             catch (Exception ex)
             {
@@ -76,11 +80,11 @@ namespace Blocks.Genesis
             }
         }
 
-        private static async Task CreateCollectionIfNotExistsAsync(string databaseName, string collectionName, CreateCollectionOptions options)
+        private static async Task CreateCollectionIfNotExistsAsync(string connection, string databaseName, string collectionName, CreateCollectionOptions options)
         {
             try
             {
-                var database = GetMongoDatabase(databaseName);
+                var database = GetMongoDatabase(connection, databaseName);
                 var collectionExists = await CollectionExistsAsync(database, collectionName);
 
                 if (!collectionExists)
@@ -109,9 +113,9 @@ namespace Blocks.Genesis
             return await collections.AnyAsync();
         }
 
-        public static async Task CreateIndexAsync(string databaseName, string collectionName, BsonDocument indexKeys)
+        public static async Task CreateIndexAsync(string connection, string databaseName, string collectionName, BsonDocument indexKeys)
         {
-            var collection = GetMongoCollection<BsonDocument>(databaseName, collectionName);
+            var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
             var indexModel = new CreateIndexModel<BsonDocument>(indexKeys);
             await collection.Indexes.CreateOneAsync(indexModel);
             Console.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
