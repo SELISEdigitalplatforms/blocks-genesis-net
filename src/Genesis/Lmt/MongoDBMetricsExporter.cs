@@ -11,10 +11,10 @@ namespace Blocks.Genesis
         private readonly string _serviceName;
         private readonly IMongoCollection<BsonDocument> _collection;
 
-        public MongoDBMetricsExporter(string serviceName)
+        public MongoDBMetricsExporter(string serviceName, IBlocksSecret blocksSecret)
         {
             _serviceName = serviceName;
-            _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.MetricDatabaseName, _serviceName);
+            _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(blocksSecret.MetricConnectionString, LmtConfiguration.MetricDatabaseName, _serviceName);
         }
 
         public override ExportResult Export(in Batch<Metric> batch)

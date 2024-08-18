@@ -4,10 +4,10 @@ namespace Blocks.Genesis
 {
     public interface IDbContextProvider
     {
-        IMongoDatabase GetDatabase(string databaseName);
-        IMongoDatabase GetDatabase();
+        Task<IMongoDatabase> GetDatabase(string databaseName);
+        Task<IMongoDatabase> GetDatabase();
         IMongoDatabase GetDatabase(string connectionString, string databaseName);
-        IMongoCollection<T> GetCollection<T>(string collectionName);
-        IMongoCollection<T> GetCollection<T>(string databaseName, string collectionName);
+        Task<IMongoCollection<T>> GetCollection<T>(string collectionName);
+        Task<IMongoCollection<T>> GetCollection<T>(string databaseName, string collectionName);
     }
 }

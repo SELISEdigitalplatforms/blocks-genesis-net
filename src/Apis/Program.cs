@@ -5,23 +5,21 @@ using MongoDB.Driver;
 
 const string _serviceName = "Service-API-Test_Two";
 
-ApplicationConfigurations.SetServiceName(_serviceName);
-ApplicationConfigurations.ConfigureLog();
+var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName);
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure services
 var services = builder.Services;
 
-services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
+//services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
 
 ApplicationConfigurations.ConfigureAuth(services);
-
-await ApplicationConfigurations.ConfigureServices(services);
+ApplicationConfigurations.ConfigureServices(services);
 
 ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
 {
-    Connection = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***",
+    Connection = blocksSecret.MessageConnectionString,
     Queues = new List<string> { "demo_queue_1" },
     Topics = new List<string> { "demo_topic_1" },
     ServiceName = _serviceName,

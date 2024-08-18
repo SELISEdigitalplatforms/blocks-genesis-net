@@ -11,5 +11,6 @@
         public string MetricDatabaseName { get; set; }
         public string TraceDatabaseName { get; set; }
         public string ServiceName { get; set; }
+        public string DatabaseConnectionString { get; set; }
     }
 }

@@ -8,6 +8,7 @@ namespace Blocks.Genesis
     public class MongoDBDynamicSink : IBatchedLogEventSink
     {
         private readonly string _serviceName;
+        private readonly IBlocksSecret _blocksSecret;
 
         public MongoDBDynamicSink(string serviceName, IBlocksSecret blocksSecret)
         {
@@ -49,8 +50,9 @@ namespace Blocks.Genesis
 
         public async Task EmitBatchAsync(IReadOnlyCollection<LogEvent> batch)
         {
-            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.LogDatabaseName, _serviceName);
+            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(_blocksSecret.LogConnectionString, LmtConfiguration.LogDatabaseName, _serviceName);
             var documents = new List<BsonDocument>();
+
             foreach (var logEvent in batch)
             {
                 documents.Add(CreateLogBsonDocument(logEvent));

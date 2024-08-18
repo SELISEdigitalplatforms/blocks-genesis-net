@@ -15,15 +15,14 @@ namespace Blocks.Genesis
         private readonly int _batchSize;
         private readonly TimeSpan _flushInterval;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
-
-        public MongoDBTraceExporter(string serviceName, int batchSize = 1000, TimeSpan? flushInterval = null)
+        public MongoDBTraceExporter(string serviceName, int batchSize = 1000, TimeSpan? flushInterval = null, IBlocksSecret blocksSecret = null)
         {
             _serviceName = serviceName;
             _batchSize = batchSize;
-            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(29);
+            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(29);            
             _batch = new Queue<BsonDocument>();
-            _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(LmtConfiguration.TraceDatabaseName, _serviceName);
-            _timer = new Timer(async _ => await FlushBatchAsync(), null, _flushInterval, _flushInterval);
+            _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(blocksSecret.TraceConnectionString, LmtConfiguration.TraceDatabaseName, _serviceName);
+            _timer = new Timer(async _ => await FlushBatchAsync(), null, _flushInterval, _flushInterval);        
         }
 
         public override void OnEnd(Activity data)

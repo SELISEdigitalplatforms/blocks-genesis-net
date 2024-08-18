@@ -7,13 +7,14 @@ namespace Blocks.Genesis
     {
         private readonly List<Tenant> _tenants = new List<Tenant>();
         private readonly IMongoCollection<Tenant> _collection;
+        private readonly IBlocksSecret _blocksSecret;
 
-        public Tenants()
+        public Tenants(IBlocksSecret blocksSecret)
         {
-            IMongoDatabase database = new MongoClient("mongodb://localhost:27017").GetDatabase("Blocks");
+            _blocksSecret = blocksSecret;
+            IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase("Blocks");
             _collection = database.GetCollection<Tenant>("Tenants");
-
-            _tenants = _collection.Find((Tenant _) => true).ToList();
+            _tenants = _collection.Find((Tenant _) => true).ToList();  
         }
         public async Task<Tenant> GetTenantByApplicationDomain(string applicationDomain)
         {

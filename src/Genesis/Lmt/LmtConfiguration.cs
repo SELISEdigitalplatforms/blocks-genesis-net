@@ -9,6 +9,7 @@ namespace Blocks.Genesis
         public static string TraceDatabaseName { get; } = "Traces";
         public static string MetricDatabaseName { get; } = "Metrics";
 
+
         public static IMongoDatabase GetMongoDatabase(string connection, string databaseName)
         {
             var mongoClient = new MongoClient(connection);

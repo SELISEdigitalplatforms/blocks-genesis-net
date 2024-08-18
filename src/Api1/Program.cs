@@ -1,29 +1,22 @@
 ﻿using Blocks.Genesis;
-using MongoDB.Driver;
 
 const string _serviceName = "Service-API-Test_One";
 
-
-ApplicationConfigurations.SetServiceName(_serviceName);
-ApplicationConfigurations.ConfigureLog();
-
+var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName);
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure services
 var services = builder.Services;
 
-services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
-
-
+ApplicationConfigurations.ConfigureServices(services);
 ApplicationConfigurations.ConfigureAuth(services);
-await ApplicationConfigurations.ConfigureServices(services);
 
 ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
 {
-    Connection = "Endpoint=sb://blocks-rnd.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***REMOVED***",
+    Connection = blocksSecret.MessageConnectionString,
     Queues = new List<string> { "demo_queue" },
     Topics = new List<string> { "demo_topic" },
-    ServiceName = _serviceName,
+    ServiceName = blocksSecret.ServiceName,
 });
 
 var app = builder.Build();
