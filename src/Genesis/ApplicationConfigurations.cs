@@ -74,6 +74,7 @@ namespace Blocks.Genesis
                            .AddRedisInstrumentation()
                            .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
                 });
+
             services.AddOpenTelemetry().WithMetrics(builder =>
             {
                 builder.AddAspNetCoreInstrumentation()

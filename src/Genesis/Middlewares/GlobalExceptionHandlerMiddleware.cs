@@ -15,11 +15,11 @@ namespace Blocks.Genesis.Middlewares
         private const string BasicErrorMessage = "An error was encountered";
         private static readonly JsonSerializer jsonSerializer = new JsonSerializer();
 
-        public GlobalExceptionHandlerMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlerMiddleware> logger, string errorVerbosity)
+        public GlobalExceptionHandlerMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlerMiddleware> logger, IBlocksSecret blocksSecret)
         {
             this.next = next;
             this.logger = logger;
-            this.errorVerbosity = errorVerbosity;
+            this.errorVerbosity =  blocksSecret.ErrorVerbosity;
         }
 
         public async Task Invoke(HttpContext context)

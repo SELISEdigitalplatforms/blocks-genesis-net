@@ -12,6 +12,7 @@
         public string TraceDatabaseName { get; set; }
         public string ServiceName { get; set; }
         public string DatabaseConnectionString { get ; set ; }
+        public string ErrorVerbosity { get; set; } = "StackTrace";
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(CloudType cloudType, Dictionary<string, string> cloudConfig)
         {
