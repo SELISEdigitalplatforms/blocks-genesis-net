@@ -1,7 +1,12 @@
 ﻿using Microsoft.AspNetCore.Http;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis.Middlewares
 {
     public class TraceContextMiddleware
     {
@@ -27,5 +32,4 @@ namespace Blocks.Genesis
             }
         }
     }
-
 }

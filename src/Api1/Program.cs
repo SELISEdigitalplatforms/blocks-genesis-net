@@ -27,7 +27,7 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
-ApplicationConfigurations.ConfigureTraceContextMiddleware(app);
+ApplicationConfigurations.ConfigureCustomMiddleware(app);
 
 app.UseRouting();
 

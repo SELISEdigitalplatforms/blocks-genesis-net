@@ -1,4 +1,4 @@
-﻿using Amazon.Runtime.Internal.Transform;
+﻿using Blocks.Genesis.Middlewares;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -90,8 +90,9 @@ namespace Blocks.Genesis
             services.AddHttpClient();
         }
 
-        public static void ConfigureTraceContextMiddleware(IApplicationBuilder app)
+        public static void ConfigureCustomMiddleware(IApplicationBuilder app)
         {
+            app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
             app.UseMiddleware<TraceContextMiddleware>();
         }
 
@@ -104,13 +105,9 @@ namespace Blocks.Genesis
         public async static Task ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             await ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
-
             ConfigureMessage(services, messageConfiguration);
-
             services.AddHostedService<AzureMessageWorker>();
-
             services.AddSingleton<Consumer>();
-
             var routingTable = new RoutingTable(services);
             services.AddSingleton(routingTable);
         }
@@ -118,7 +115,6 @@ namespace Blocks.Genesis
         public static void ConfigureMessage(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             services.AddSingleton(messageConfiguration);
-
             services.AddSingleton<IMessageClient, AzureMessageClient>();
         }
     }
