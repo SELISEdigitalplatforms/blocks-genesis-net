@@ -103,9 +103,8 @@ namespace Blocks.Genesis
             app.UseAuthorization();
         }
 
-        public async static Task ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
+        public static void ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
-            await ConfigerAzureServiceBus.ConfigerMessagesAsync(messageConfiguration);
             ConfigureMessage(services, messageConfiguration);
             services.AddHostedService<AzureMessageWorker>();
             services.AddSingleton<Consumer>();

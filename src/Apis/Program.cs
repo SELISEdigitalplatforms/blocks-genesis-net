@@ -14,8 +14,8 @@ var services = builder.Services;
 
 //services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
 
-ApplicationConfigurations.ConfigureAuth(services);
 ApplicationConfigurations.ConfigureServices(services);
+ApplicationConfigurations.ConfigureAuth(services);
 
 ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
 {

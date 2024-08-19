@@ -77,7 +77,7 @@ namespace Blocks.Genesis
                 {
 
                     var isExist = await CheckTopicExistsAsync(topicName);
-                    if (isExist) return;
+                    if (isExist) continue;
 
                     var createTopicOptions = new CreateTopicOptions(topicName);
                     createTopicOptions.MaxSizeInMegabytes = _messageConfiguration.TopicMaxSizeInMegabytes;

@@ -16,7 +16,6 @@ public class S2Controller : ControllerBase
     }
 
     [HttpGet("process")]
-    [Authorize]
     public async Task<IActionResult> ProcessRequest()
     {
         _logger.LogInformation("Processing request in S2: process");
