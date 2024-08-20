@@ -16,7 +16,7 @@ await ConfigerAzureServiceBus.ConfigerMessagesAsync(new MessageConfiguration
 await CreateHostBuilder(args).Build().RunAsync();
 
 IHostBuilder CreateHostBuilder(string[] args) =>
-        Host.CreateDefaultBuilder(args).ConfigureServices(async (hostContext, services) =>
+        Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
         {
             ApplicationConfigurations.ConfigureServices(services);
             services.AddHttpClient();

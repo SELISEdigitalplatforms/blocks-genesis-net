@@ -1,5 +1,4 @@
 using Blocks.Genesis;
-using Microsoft.Extensions.Hosting;
 using WorkerOne;
 
 
@@ -14,9 +13,7 @@ await ConfigerAzureServiceBus.ConfigerMessagesAsync(new MessageConfiguration
     ServiceName = blocksSecrets.ServiceName,
 });
 
-var host = CreateHostBuilder(args).Build();
-var environment = host.Services.GetRequiredService<IHostEnvironment>();
-await host.RunAsync();
+await CreateHostBuilder(args).Build().RunAsync();
 
 IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args).ConfigureServices((services) =>
