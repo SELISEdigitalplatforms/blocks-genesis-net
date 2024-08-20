@@ -40,7 +40,7 @@ namespace Blocks.Genesis
                 {
 
                     var isExist = await CheckQueueExistsAsync(queueName);
-                    if (isExist) return;
+                    if (isExist) continue;
 
                     var createQueueOptions = new CreateQueueOptions(queueName);
                     createQueueOptions.MaxSizeInMegabytes = _messageConfiguration.QueueMaxSizeInMegabytes;
