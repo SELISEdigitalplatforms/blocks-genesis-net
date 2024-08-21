@@ -48,8 +48,6 @@ namespace Blocks.Genesis
         public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri, string jwtBearerToken)
         {
             if (claimsIdentity == null) throw new ArgumentNullException(nameof(claimsIdentity));
-            if (requestUri == null) throw new ArgumentNullException(nameof(requestUri));
-            if (jwtBearerToken == null) throw new ArgumentNullException(nameof(jwtBearerToken));
 
             claimsIdentity.AddClaims(new[]
             {
