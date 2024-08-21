@@ -9,24 +9,25 @@ namespace Blocks.Genesis.Middlewares
 {
     public class GlobalExceptionHandlerMiddleware
     {
-        private readonly RequestDelegate next;
-        private readonly string errorVerbosity;
-        private readonly ILogger<GlobalExceptionHandlerMiddleware> logger;
-        private const string BasicErrorMessage = "An error was encountered";
+        private readonly RequestDelegate _next;
         private static readonly JsonSerializer jsonSerializer = new JsonSerializer();
+        private readonly ILogger<GlobalExceptionHandlerMiddleware> _logger;
+
+        public const string EmptyJsonBodyString = "Empty";
+        public const string JsonContentType = "application/json";
+        
 
         public GlobalExceptionHandlerMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlerMiddleware> logger, IBlocksSecret blocksSecret)
         {
-            this.next = next;
-            this.logger = logger;
-            this.errorVerbosity =  blocksSecret.ErrorVerbosity;
+            _next = next;
+            _logger = logger;
         }
 
         public async Task Invoke(HttpContext context)
         {
             try
             {
-                await next(context);
+                await _next(context);
             }
             catch (Exception exception)
             {
@@ -37,29 +38,15 @@ namespace Blocks.Genesis.Middlewares
         private async Task HandleExceptionAsync(HttpContext context, Exception exception)
         {
             var jwtToken = GetJwtToken(context);
-            var requestPayload = HttpRequestPayloadExtractor.EmptyJsonBodyString;
+            var requestPayload = EmptyJsonBodyString;
             var logMessage = $"Unhandled exception thrown on request Trace: [{context.TraceIdentifier}] Method: [{context.Request.Method}] {context.Request.GetDisplayUrl()} : {exception.Message}.\r\nPayload: {requestPayload}\r\nToken: {jwtToken}";
-            logger.LogError(exception, "{Message}", logMessage);
-            context.Response.ContentType = HttpRequestPayloadExtractor.JsonContentType;
+            _logger.LogError(exception, "{Message}", logMessage);
+            context.Response.ContentType = JsonContentType;
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
 
             using (var writer = new HttpResponseStreamWriter(context.Response.Body, Encoding.UTF8))
             {
-                switch (errorVerbosity)
-                {
-                    case ErrorVerbosities.None:
-                        jsonSerializer.Serialize(writer, BasicErrorMessage);
-                        break;
-
-                    case ErrorVerbosities.ExceptionMessage:
-                        jsonSerializer.Serialize(writer, exception.Message);
-                        break;
-
-                    case ErrorVerbosities.StackTrace:
-                        jsonSerializer.Serialize(writer, exception);
-                        break;
-                }
-
+                jsonSerializer.Serialize(writer, exception.Message);
                 await writer.FlushAsync();
             }
         }
@@ -72,16 +59,4 @@ namespace Blocks.Genesis.Middlewares
     }
 }
 
-public static class HttpRequestPayloadExtractor
-{
-    public const string EmptyJsonBodyString = "Empty";
-    public const string JsonContentType = "application/json";
-}
-
-public static class ErrorVerbosities
-{
-    public const string None = "None";
-    public const string StackTrace = "StackTrace";
-    public const string ExceptionMessage = "ExceptionMessage";
-}
 
