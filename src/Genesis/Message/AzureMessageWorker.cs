@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using OpenTelemetry.Trace;
+using System.ComponentModel;
 using System.Diagnostics;
 
 namespace Blocks.Genesis
@@ -127,10 +128,10 @@ namespace Blocks.Genesis
             var parentSpanId = args.Message.ApplicationProperties.TryGetValue("ParentSpanId", out var parentSpanIdObj) ? parentSpanIdObj.ToString() : null;
 
             var activityContext = new ActivityContext(
-                ActivityTraceId.CreateFromString(traceId.AsSpan()),
+                ActivityTraceId.CreateRandom(),
                 ActivitySpanId.CreateFromString(spanId.AsSpan()),
                 ActivityTraceFlags.Recorded,
-                traceState: null,
+                traceState: traceId,
                 isRemote: true
             );
 

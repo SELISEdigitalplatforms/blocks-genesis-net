@@ -32,6 +32,7 @@ namespace Blocks.Genesis
             {
                 { "Timestamp", DateTime.UtcNow },
                 { "TraceId", data.TraceId.ToString() },
+                { "ParentTraceId", data.TraceStateString },
                 { "SpanId", data.SpanId.ToString() },
                 { "ParentSpanId", data.ParentSpanId.ToString() },
                 { "Kind", data.Kind.ToString() },
