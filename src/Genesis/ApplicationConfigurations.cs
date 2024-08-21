@@ -1,5 +1,6 @@
 ﻿using Blocks.Genesis.Middlewares;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson.Serialization;
@@ -20,16 +21,9 @@ namespace Blocks.Genesis
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName) // initiateConfiguration(serviceName) this will be called before builder
         {
             _serviceName = serviceName;
+            var vaultConfig = GetVaultConfig();
 
-            var voltConfig = new Dictionary<string, string>
-            {
-              { "ClientSecret", "***REMOVED***" },
-              { "KeyVaultUrl", "https://blocks-vault.vault.azure.net/" },
-              { "TenantId", "5c6dd6a7-f0c7-4a32-8f7c-9ca7cebf6e87" },
-              {"ClientId", "8d49c722-d33e-419e-8b42-8b543b573c4b" }
-            };
-
-            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(CloudType.Azure, voltConfig);
+            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(CloudType.Azure, vaultConfig);
             _blocksSecret.ServiceName = _serviceName;
 
             await LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, _serviceName);
@@ -45,6 +39,15 @@ namespace Blocks.Genesis
                         .CreateLogger();
 
             return _blocksSecret;
+        }
+
+        private static Dictionary<string, string> GetVaultConfig()
+        {
+            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+            var keyVaultConfig = new Dictionary<string, string>();
+            configuration.GetSection("KeyVault").Bind(keyVaultConfig);
+
+            return keyVaultConfig;
         }
 
         public  static void ConfigureServices(IServiceCollection services)
