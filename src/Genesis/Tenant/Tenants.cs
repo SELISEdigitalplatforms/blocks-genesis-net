@@ -11,7 +11,7 @@ namespace Blocks.Genesis
         public Tenants(IBlocksSecret blocksSecret)
         {
             _blocksSecret = blocksSecret;
-            IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase("Blocks");
+            IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
             _tenants = database.GetCollection<Tenant>("Tenants").Find((Tenant _) => true).ToList(); 
         }
 

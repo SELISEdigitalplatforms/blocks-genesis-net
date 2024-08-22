@@ -1,14 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Moq;
-using MongoDB.Driver;
-using Xunit;
-using System.Linq.Expressions;
-
-namespace Blocks.Genesis.Tests
+﻿using Moq;
+using Blocks.Genesis;
+namespace UnitTest.Tenant
 {
     public class TenantsTests
     {

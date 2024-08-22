@@ -12,5 +12,6 @@
         public string TraceDatabaseName { get; set; }
         public string ServiceName { get; set; }
         public string DatabaseConnectionString { get; set; }
+        public string RooDatabaseName { get; set; }
     }
 }
