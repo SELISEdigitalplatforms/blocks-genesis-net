@@ -13,6 +13,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WorkerTwo", "WorkerTwo\Work
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Blocks.Genesis", "Genesis\Blocks.Genesis.csproj", "{8AFF3E7D-CDD0-467D-8BA3-11A42029FFB6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTest", "UnitTest\UnitTest.csproj", "{9C393072-CDED-416D-8433-22769465B6E3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{8AFF3E7D-CDD0-467D-8BA3-11A42029FFB6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8AFF3E7D-CDD0-467D-8BA3-11A42029FFB6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8AFF3E7D-CDD0-467D-8BA3-11A42029FFB6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9C393072-CDED-416D-8433-22769465B6E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9C393072-CDED-416D-8433-22769465B6E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9C393072-CDED-416D-8433-22769465B6E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9C393072-CDED-416D-8433-22769465B6E3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

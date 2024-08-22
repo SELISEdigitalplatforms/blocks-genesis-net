@@ -9,9 +9,6 @@ namespace Blocks.Genesis
         public RedisClient(IBlocksSecret blocksSecret)
         {
             IConnectionMultiplexer connectionMultiplexer = ConnectionMultiplexer.Connect(blocksSecret.CacheConnectionString);
-
-            // create new method with retry and try catch. just call the method here.
-
             _database = connectionMultiplexer.GetDatabase();
         }
 

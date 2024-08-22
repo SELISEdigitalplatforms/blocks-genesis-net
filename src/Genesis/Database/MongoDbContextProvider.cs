@@ -39,7 +39,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public async Task<IMongoDatabase> GetDatabase(string databaseName)
+        public IMongoDatabase GetDatabase(string databaseName)
         {
             var databaseExists = _databases.ContainsKey(databaseName.ToLower());
             if (databaseExists)
@@ -47,10 +47,10 @@ namespace Blocks.Genesis
                 return _databases[databaseName.ToLower()];
             }
 
-            return await SaveNewTenantDbConnection(databaseName);
+            return  SaveNewTenantDbConnection(databaseName);
         }
 
-        public Task<IMongoDatabase> GetDatabase()
+        public IMongoDatabase GetDatabase()
         {
             return GetDatabase(_securityContext.TenantId.ToLower());
         }
@@ -71,21 +71,21 @@ namespace Blocks.Genesis
             return database;
         }
 
-        public async Task<IMongoCollection<T>> GetCollection<T>(string collectionName)
+        public IMongoCollection<T> GetCollection<T>(string collectionName)
         {
-            var database = await GetDatabase();
+            var database =  GetDatabase();
             return database.GetCollection<T>(collectionName);
         }
 
-        public async Task<IMongoCollection<T>> GetCollection<T>(string databaseName, string collectionName)
+        public IMongoCollection<T> GetCollection<T>(string databaseName, string collectionName)
         {
-            var database = await GetDatabase(databaseName);
+            var database =  GetDatabase(databaseName);
             return database.GetCollection<T>(collectionName);
         }
 
-        private async Task<IMongoDatabase> SaveNewTenantDbConnection(string databaseName)
+        private IMongoDatabase SaveNewTenantDbConnection(string databaseName)
         {
-            var tenantDbConnection = await _tenants.GetTenantDatabaseConnectionString(databaseName);
+            var tenantDbConnection =  _tenants.GetTenantDatabaseConnectionString(databaseName);
             var database = new MongoClient(tenantDbConnection).GetDatabase(databaseName);
             _databases.Add(databaseName.ToLower(), database);
 
