@@ -10,6 +10,7 @@ namespace UnitTest.Tenant
         {
             _blocksSecretMock = new Mock<IBlocksSecret>();
             _blocksSecretMock.SetupGet(x => x.DatabaseConnectionString).Returns("mongodb://localhost:27017");
+            _blocksSecretMock.SetupGet(x => x.RooDatabaseName).Returns("Blocks");
         }
 
         [Fact]

@@ -56,9 +56,5 @@ namespace Blocks.Genesis
                         method.Name.Equals("Consume") &&
                         method.GetParameters().Length == 1));
         }
-
-        
-
-
     }
 }
