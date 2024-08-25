@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Blocks.Genesis.Configuration;
 using MongoDB.Driver;
 
 

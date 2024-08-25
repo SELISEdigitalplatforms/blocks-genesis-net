@@ -1,4 +1,5 @@
 ﻿using Blocks.Genesis;
+using Blocks.Genesis.Configuration;
 
 const string _serviceName = "Service-API-Test_One";
 

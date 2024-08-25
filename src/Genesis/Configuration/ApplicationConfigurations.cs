@@ -11,7 +11,7 @@ using OpenTelemetry.Trace;
 using Serilog;
 using System.Diagnostics;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis.Configuration
 {
     public static class ApplicationConfigurations
     {
@@ -50,7 +50,7 @@ namespace Blocks.Genesis
             return keyVaultConfig;
         }
 
-        public  static void ConfigureServices(IServiceCollection services)
+        public static void ConfigureServices(IServiceCollection services)
         {
 
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
