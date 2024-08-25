@@ -55,6 +55,8 @@ namespace Blocks.Genesis
 
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
+            services.AddSingleton<ITenants, Tenants>();
+            services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
 
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);

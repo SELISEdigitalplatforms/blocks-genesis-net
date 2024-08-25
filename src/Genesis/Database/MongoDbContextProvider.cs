@@ -4,7 +4,7 @@ using Newtonsoft.Json;
 
 namespace Blocks.Genesis
 {
-    internal class MongoDbContextProvider : IDbContextProvider
+    public class MongoDbContextProvider : IDbContextProvider
     {
         private readonly IDictionary<string, IMongoDatabase> _databases = new SortedDictionary<string, IMongoDatabase>();
         private readonly ILogger<MongoDbContextProvider> _logger;

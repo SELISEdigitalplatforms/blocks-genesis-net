@@ -28,7 +28,6 @@ namespace Blocks.Genesis
         public string GetTenantDatabaseConnectionString(string tenantId)
         {
             var tenant =  GetTenantByID(tenantId);
-
             return tenant?.DbConnectionString ?? string.Empty;
         }
 
