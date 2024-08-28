@@ -86,7 +86,6 @@ namespace Blocks.Genesis.Configuration
                        .AddRuntimeInstrumentation()
                        .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName, _blocksSecret)));
             });
-
         }
 
         public static void ConfigureAuth(IServiceCollection services)
@@ -108,7 +107,7 @@ namespace Blocks.Genesis.Configuration
             app.UseAuthorization();
         }
 
-        public static void ConfigureMessageWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
+        public static void ConfigureMessageConsumerAsync(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             ConfigureMessage(services, messageConfiguration);
             services.AddHostedService<AzureMessageWorker>();

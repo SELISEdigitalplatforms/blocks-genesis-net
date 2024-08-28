@@ -7,7 +7,7 @@ namespace Blocks.Genesis
         private static ServiceBusAdministrationClient _adminClient;
         private static MessageConfiguration _messageConfiguration;
 
-        public static async Task ConfigerMessagesAsync(MessageConfiguration messageConfiguration)
+        public static async Task ConfigerQueueAndTopicAsync(MessageConfiguration messageConfiguration)
         {
             try
             {
