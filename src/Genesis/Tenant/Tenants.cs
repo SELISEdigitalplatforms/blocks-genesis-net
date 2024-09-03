@@ -5,14 +5,17 @@ namespace Blocks.Genesis
 {
     public class Tenants : ITenants
     {
-        private readonly List<Tenant> _tenants = new List<Tenant>();
+        private List<Tenant> _tenants = new List<Tenant>();
         private readonly IBlocksSecret _blocksSecret;
+        private readonly ICacheClient _cacheClient;
 
-        public Tenants(IBlocksSecret blocksSecret)
+        public Tenants(IBlocksSecret blocksSecret, ICacheClient cacheClient)
         {
             _blocksSecret = blocksSecret;
             IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
-            _tenants = database.GetCollection<Tenant>("Tenants").Find((Tenant _) => true).ToList(); 
+            _cacheClient = cacheClient;
+            _tenants = database.GetCollection<Tenant>("Tenants").Find((Tenant _) => true).ToList();
+            CacheTenantInfo(_tenants);
         }
 
         public Tenant? GetTenantByApplicationDomain(string applicationDomain)
@@ -59,6 +62,22 @@ namespace Blocks.Genesis
                 SigningKeyPassword = "signingKey1",
                 SigningKeyPath = ""
             });
+        }
+
+        public async Task ReloadTenantsAsync()
+        {
+            IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
+            _tenants = await database.GetCollection<Tenant>("Tenants").Find((Tenant _) => true).ToListAsync();
+            CacheTenantInfo(_tenants);
+        }
+
+        private void CacheTenantInfo(List<Tenant> tenants)
+        {
+            foreach (var tenant in tenants)
+            {
+                _cacheClient.AddStringValue($"tenant-origin-{tenant.TenantId}", tenant.ApplicationDomain);
+                _cacheClient.AddStringValue("Test", "testOrigin");
+            }
         }
     }
 }

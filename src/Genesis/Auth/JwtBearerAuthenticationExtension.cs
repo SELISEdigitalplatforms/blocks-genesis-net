@@ -38,25 +38,7 @@ namespace Blocks.Genesis
                             if (token != null)
                             {
                                 var tenantId = TokenHelper.GetBlocksSecret(context.Request);
-                                if (string.IsNullOrWhiteSpace(tenantId))
-                                {
-                                    context.Fail("Blocks secret is missing.");
-                                    return;
-                                }
-
-                                var origin = TokenHelper.GetOriginOrReferer(context.Request);
-
-                                if (!string.IsNullOrWhiteSpace(origin))
-                                {
-                                    var isAllowed = token.Audiences.Any(x => x == origin);
-
-                                    if (!isAllowed)
-                                    {
-                                        context.Fail("Invalid origin");
-                                        return;
-                                    }
-                                }
-
+                             
                                 try
                                 {
                                     var claimsIdentity = context.Principal.Identity as ClaimsIdentity;

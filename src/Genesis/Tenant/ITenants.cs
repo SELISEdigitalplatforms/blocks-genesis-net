@@ -8,5 +8,6 @@
         public Dictionary<string, string> GetTenantDatabaseConnectionStrings();
         public JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId);
         public IEnumerable<JwtTokenParameters> GetTenantTokenValidationParameters();
+        public Task ReloadTenantsAsync();
     }
 }

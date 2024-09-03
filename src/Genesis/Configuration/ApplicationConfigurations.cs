@@ -55,7 +55,7 @@ namespace Blocks.Genesis.Configuration
 
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
-            services.AddSingleton<ITenants, Tenants>();
+            services.AddTransient<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
 
             var objectSerializer = new ObjectSerializer(_ => true);
@@ -97,6 +97,7 @@ namespace Blocks.Genesis.Configuration
 
         public static void ConfigureCustomMiddleware(IApplicationBuilder app)
         {
+            app.UseMiddleware<TanentValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
             app.UseMiddleware<TraceContextMiddleware>();
         }
