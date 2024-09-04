@@ -76,7 +76,6 @@ namespace Blocks.Genesis
             foreach (var tenant in tenants)
             {
                 _cacheClient.AddStringValue($"tenant-origin-{tenant.TenantId}", tenant.ApplicationDomain);
-                _cacheClient.AddStringValue("Test", "testOrigin");
             }
         }
     }
