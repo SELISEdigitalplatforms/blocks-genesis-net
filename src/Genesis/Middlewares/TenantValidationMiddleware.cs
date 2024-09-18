@@ -8,13 +8,13 @@ using System.Diagnostics;
 
 namespace Blocks.Genesis.Middlewares
 {
-    public class TanentValidationMiddleware
+    public class TenantValidationMiddleware
     {
         private readonly RequestDelegate _next;
         private readonly ICacheClient _cacheClient;
         private readonly ITenants _tenants;
 
-        public TanentValidationMiddleware(RequestDelegate next, ICacheClient cacheClient, ITenants tenants)
+        public TenantValidationMiddleware(RequestDelegate next, ICacheClient cacheClient, ITenants tenants)
         {
             _next = next;
             _cacheClient = cacheClient;
@@ -56,7 +56,7 @@ namespace Blocks.Genesis.Middlewares
             if (string.IsNullOrWhiteSpace(origin))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                await context.Response.WriteAsync("Forbidden: Request_Origi_Not_Exist");
+                await context.Response.WriteAsync("Forbidden: Request_Origin_Not_Exist");
             }
         }
     }

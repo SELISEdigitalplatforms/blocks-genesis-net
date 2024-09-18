@@ -42,6 +42,7 @@ namespace Blocks.Genesis
         public IMongoDatabase GetDatabase(string databaseName)
         {
             var databaseExists = _databases.ContainsKey(databaseName.ToLower());
+
             if (databaseExists)
             {
                 return _databases[databaseName.ToLower()];
@@ -65,7 +66,6 @@ namespace Blocks.Genesis
             }
 
             var database = new MongoClient(connectionString).GetDatabase(databaseName);
-
             _databases.Add(databaseName.ToLower(), database);
 
             return database;

@@ -97,7 +97,7 @@ namespace Blocks.Genesis.Configuration
 
         public static void ConfigureCustomMiddleware(IApplicationBuilder app)
         {
-            app.UseMiddleware<TanentValidationMiddleware>();
+            app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
             app.UseMiddleware<TraceContextMiddleware>();
         }
