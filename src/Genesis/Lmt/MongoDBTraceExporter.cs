@@ -32,9 +32,10 @@ namespace Blocks.Genesis
             {
                 { "Timestamp", DateTime.UtcNow },
                 { "TraceId", data.TraceId.ToString() },
-                { "ParentTraceId", data.TraceStateString ?? "Root"},
+                { "ParentTraceId", string.IsNullOrWhiteSpace(data.TraceStateString) ? null : data.TraceStateString},
                 { "SpanId", data.SpanId.ToString() },
                 { "ParentSpanId", data.ParentSpanId.ToString() },
+                { "ParentId", data.ParentId?.ToString() },
                 { "Kind", data.Kind.ToString() },
                 { "ActivitySourceName", data.Source.Name.ToString() },
                 { "OperationName", data.DisplayName },

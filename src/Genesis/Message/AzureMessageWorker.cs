@@ -123,7 +123,7 @@ namespace Blocks.Genesis
 
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
-            var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : null;
+            var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
             var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : null;
             var parentSpanId = args.Message.ApplicationProperties.TryGetValue("ParentSpanId", out var parentSpanIdObj) ? parentSpanIdObj.ToString() : null;
 

@@ -8,6 +8,8 @@ namespace Blocks.Genesis
         public static string LogDatabaseName { get; } = "Logs";
         public static string TraceDatabaseName { get; } = "Traces";
         public static string MetricDatabaseName { get; } = "Metrics";
+        private const string _metaField = "TenantId";
+        private const string _timeField = "Timestamp";
 
 
         public static IMongoDatabase GetMongoDatabase(string connection, string databaseName)
@@ -27,13 +29,13 @@ namespace Blocks.Genesis
             {
                 //Capped = true,
                 //MaxSize = 52428800, // 50MB
-                TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "TenantId", TimeSeriesGranularity.Minutes)
+                TimeSeriesOptions = new TimeSeriesOptions(_timeField, _metaField, TimeSeriesGranularity.Minutes)
             };
 
             try
             {
                 await CreateCollectionIfNotExistsAsync(connection, TraceDatabaseName, collectionName, options);
-                await CreateIndexAsync(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
+                await CreateIndexAsync(connection, TraceDatabaseName, collectionName, new BsonDocument { { _metaField, 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {
@@ -47,13 +49,13 @@ namespace Blocks.Genesis
             {
                 //Capped = true,
                 //MaxSize = 52428800, // 50MB
-                TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "TenantId", TimeSeriesGranularity.Minutes)
+                TimeSeriesOptions = new TimeSeriesOptions(_timeField, _metaField, TimeSeriesGranularity.Minutes)
             };
 
             try
             {
                 await CreateCollectionIfNotExistsAsync(connection, MetricDatabaseName, collectionName, options);
-                await CreateIndexAsync(connection, MetricDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
+                await CreateIndexAsync(connection, MetricDatabaseName, collectionName, new BsonDocument { { _metaField, 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {
@@ -67,13 +69,13 @@ namespace Blocks.Genesis
             {
                 //Capped = true,
                 //MaxSize = 52428800, // 50MB
-                TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "TenantId", TimeSeriesGranularity.Minutes)
+                TimeSeriesOptions = new TimeSeriesOptions(_timeField, _metaField, TimeSeriesGranularity.Minutes)
             };
 
             try
             {
                 await CreateCollectionIfNotExistsAsync(connection, LogDatabaseName, collectionName, options);
-                await CreateIndexAsync(connection, LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } });
+                await CreateIndexAsync(connection, LogDatabaseName, collectionName, new BsonDocument { { _metaField, 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {

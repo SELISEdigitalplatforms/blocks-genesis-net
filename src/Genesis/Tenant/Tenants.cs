@@ -8,13 +8,14 @@ namespace Blocks.Genesis
         private List<Tenant> _tenants = new List<Tenant>();
         private readonly IBlocksSecret _blocksSecret;
         private readonly ICacheClient _cacheClient;
+        private const string _collectionName = "Tenants";
 
         public Tenants(IBlocksSecret blocksSecret, ICacheClient cacheClient)
         {
             _blocksSecret = blocksSecret;
             IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
             _cacheClient = cacheClient;
-            _tenants = database.GetCollection<Tenant>("Tenants").Find((Tenant _) => true).ToList();
+            _tenants = database.GetCollection<Tenant>(_collectionName).Find((Tenant _) => true).ToList();
             CacheTenantInfo(_tenants);
         }
 
@@ -42,32 +43,18 @@ namespace Blocks.Genesis
         public JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId)
         {
             var tenant = _tenants.FirstOrDefault((Tenant t) => t.TenantId.Equals(tenantId, StringComparison.InvariantCultureIgnoreCase));
-            if (tenant == null) return null;
-
-            return new JwtTokenParameters 
-            {
-                Issuer = "https://issuer1.com",
-                Audiences = new List<string> { "audience1" },
-                SigningKeyPassword = "signingKey1",
-                SigningKeyPath = ""
-            };
+            return tenant == null ? null : tenant.JwtTokenParameters;
         }
 
         public IEnumerable<JwtTokenParameters> GetTenantTokenValidationParameters()
         {
-            return _tenants.Select((Tenant t) =>  new JwtTokenParameters
-            {
-                Issuer = "https://issuer1.com",
-                Audiences = new List<string> { "audience1" },
-                SigningKeyPassword = "signingKey1",
-                SigningKeyPath = ""
-            });
+            return _tenants.Select((Tenant t) =>  t.JwtTokenParameters);
         }
 
         public async Task ReloadTenantsAsync()
         {
             IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
-            _tenants = await database.GetCollection<Tenant>("Tenants").Find((Tenant _) => true).ToListAsync();
+            _tenants = await database.GetCollection<Tenant>(_collectionName).Find((Tenant _) => true).ToListAsync();
             CacheTenantInfo(_tenants);
         }
 
