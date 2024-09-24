@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
-using MongoDB.Driver;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -67,7 +66,7 @@ namespace Blocks.Genesis.Configuration
             });
 
             services.AddSingleton(new ActivitySource(_serviceName));
-            
+
 
             services.AddOpenTelemetry()
                 .WithTracing(builder =>

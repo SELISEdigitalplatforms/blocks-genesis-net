@@ -27,11 +27,11 @@ namespace Blocks.Genesis
 
         public override void OnEnd(Activity data)
         {
-            var endTime = DateTime.Now;
+            var endTime = data.StartTimeUtc.Add(data.Duration);
             var document = new BsonDocument
             {
                 {"_id", Guid.NewGuid().ToString()},
-                { "Timestamp", DateTime.UtcNow },
+                { "Timestamp", endTime },
                 { "TraceId", data.TraceId.ToString() },
                 { "ParentTraceId", string.IsNullOrWhiteSpace(data.TraceStateString) ? string.Empty : data.TraceStateString},
                 { "SpanId", data.SpanId.ToString() },
@@ -42,7 +42,7 @@ namespace Blocks.Genesis
                 { "OperationName", data.DisplayName },
                 { "StartTime", data.StartTimeUtc },
                 { "EndTime", endTime },
-                { "Duration", data.Duration.ToString() },
+                { "Duration", data.Duration.TotalSeconds },
                 { "Attributes", new BsonDocument(data?.Tags?.ToDictionary() ?? new Dictionary<string, string?>()) },
                 { "Status", data?.Status.ToString() ?? string.Empty },
                 { "StatusDescription", data?.StatusDescription ?? string.Empty },
@@ -50,7 +50,8 @@ namespace Blocks.Genesis
                 { "ServiceName", _serviceName },
                 { "TenantId", data?.GetCustomProperty("TenantId")?.ToString() ?? string.Empty },
                 { "Request", data?.GetCustomProperty("RequestInfo")?.ToString() ?? string.Empty },
-                { "Response", data?.GetCustomProperty("ResponseInfo")?.ToString() ?? string.Empty }
+                { "Response", data?.GetCustomProperty("ResponseInfo")?.ToString() ?? string.Empty },
+                { "SecurityContext", data?.GetCustomProperty("SecurityContext")?.ToString() ?? string.Empty }
             };
 
             _batch.Enqueue(document);
