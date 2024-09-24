@@ -26,6 +26,7 @@ namespace Blocks.Genesis
                 {
                     var document = new BsonDocument
                     {
+                        {"_id", Guid.NewGuid().ToString()},
                         { "Name", data.Name },
                         { "Description", data.Description },
                         { "Type", data.MetricType.ToString() },

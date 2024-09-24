@@ -52,7 +52,6 @@ namespace Blocks.Genesis.Configuration
 
         public static void ConfigureServices(IServiceCollection services)
         {
-            services.AddScoped<SecurityContext>();
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddTransient<ITenants, Tenants>();

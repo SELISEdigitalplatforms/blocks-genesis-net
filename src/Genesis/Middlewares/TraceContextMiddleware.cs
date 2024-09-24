@@ -16,7 +16,7 @@ namespace Blocks.Genesis.Middlewares
 
         public async Task InvokeAsync(HttpContext context)
         {
-            var activity = new Activity("ProcessingRequest");
+            var activity = Activity.Current;
             activity.Start();
 
             try

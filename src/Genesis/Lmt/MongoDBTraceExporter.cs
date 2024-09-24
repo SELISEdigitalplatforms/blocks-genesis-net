@@ -30,12 +30,13 @@ namespace Blocks.Genesis
             var endTime = DateTime.Now;
             var document = new BsonDocument
             {
+                {"_id", Guid.NewGuid().ToString()},
                 { "Timestamp", DateTime.UtcNow },
                 { "TraceId", data.TraceId.ToString() },
-                { "ParentTraceId", string.IsNullOrWhiteSpace(data.TraceStateString) ? null : data.TraceStateString},
+                { "ParentTraceId", string.IsNullOrWhiteSpace(data.TraceStateString) ? string.Empty : data.TraceStateString},
                 { "SpanId", data.SpanId.ToString() },
                 { "ParentSpanId", data.ParentSpanId.ToString() },
-                { "ParentId", data.ParentId?.ToString() },
+                { "ParentId", data.ParentId?.ToString() ?? string.Empty },
                 { "Kind", data.Kind.ToString() },
                 { "ActivitySourceName", data.Source.Name.ToString() },
                 { "OperationName", data.DisplayName },
@@ -47,9 +48,9 @@ namespace Blocks.Genesis
                 { "StatusDescription", data?.StatusDescription ?? string.Empty },
                 { "Baggage", JsonConvert.SerializeObject(data?.Baggage) },
                 { "ServiceName", _serviceName },
-                { "TenantId", data?.GetCustomProperty("TenantId")?.ToString() },
-                { "Request", data?.GetCustomProperty("RequestInfo")?.ToString() }, 
-                { "Response", data?.GetCustomProperty("ResponseInfo")?.ToString() }
+                { "TenantId", data?.GetCustomProperty("TenantId")?.ToString() ?? string.Empty },
+                { "Request", data?.GetCustomProperty("RequestInfo")?.ToString() ?? string.Empty },
+                { "Response", data?.GetCustomProperty("ResponseInfo")?.ToString() ?? string.Empty }
             };
 
             _batch.Enqueue(document);

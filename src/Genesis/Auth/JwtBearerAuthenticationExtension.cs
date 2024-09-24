@@ -50,7 +50,7 @@ namespace Blocks.Genesis
 
                                     TokenHelper.HandleTokenIssuer(claimsIdentity, requestUri, jwtBearerToken);
 
-                                    SecurityContext.CreateFromClaimsIdentity(claimsIdentity);
+                                    //SecurityContext.CreateFromClaimsIdentity(claimsIdentity);
 
                                     // Custom validation logic for tenant-specific parameters
                                     var tokenParameters = tenants.GetTenantTokenValidationParameter(tenantId);

@@ -39,7 +39,7 @@ namespace Blocks.Genesis
             }
             catch (Exception)
             {
-                throw new Exception("One of the AZURE config or \"CloudConfig\" is missing. Please check your Secret.json file");
+                throw new Exception("One of the AZURE config or \"CloudConfig\" is missing. Please check your env file or windows env variables");
             }
         }
 

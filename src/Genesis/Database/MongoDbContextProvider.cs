@@ -9,13 +9,11 @@ namespace Blocks.Genesis
         private readonly IDictionary<string, IMongoDatabase> _databases = new SortedDictionary<string, IMongoDatabase>();
         private readonly ILogger<MongoDbContextProvider> _logger;
         private readonly ITenants _tenants;
-        private readonly SecurityContext _securityContext;
 
-        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, SecurityContext securityContext)
+        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants)
         {
             _logger = logger;
             _tenants = tenants;
-            _securityContext = securityContext;
 
             foreach (var (tenantId, (dbName, dbConnection)) in tenants.GetTenantDatabaseConnectionStrings())
             {
@@ -53,7 +51,8 @@ namespace Blocks.Genesis
 
         public IMongoDatabase GetDatabase()
         {
-            return GetDatabase(_securityContext.TenantId);
+            //return GetDatabase(_securityContext.TenantId);
+            return null;
         }
 
         public IMongoDatabase GetDatabase(string connectionString, string databaseName)

@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
+using Newtonsoft.Json;
+using System.Diagnostics;
 
 namespace Blocks.Genesis.Middlewares
 {
@@ -7,7 +9,6 @@ namespace Blocks.Genesis.Middlewares
     {
         private readonly RequestDelegate _next;
         private readonly ITenants _tenants;
-        private readonly SecurityContext _securityContext;
 
         public TenantValidationMiddleware(RequestDelegate next, ITenants tenants)
         {
@@ -17,33 +18,59 @@ namespace Blocks.Genesis.Middlewares
 
         public async Task InvokeAsync(HttpContext context)
         {
-            bool apiKeyExist = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out StringValues key);
-            string? origin = context.Request.Headers.Origin;
-
-            if (!apiKeyExist)
+            if (!TryGetApiKey(context.Request.Headers, out StringValues apiKey))
             {
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                await context.Response.WriteAsync("Forbidden: Missing_Blocks_Key");
+                await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Key");
+                return;
             }
 
-            var tenant = _tenants.GetTenantByID(key.ToString());
+            var tenant = _tenants.GetTenantByID(apiKey.ToString());
 
             if (tenant == null)
             {
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                await context.Response.WriteAsync("Forbidden: Not_Allowed");
+                await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Not_Allowed");
+                return;
             }
 
-            if (!string.IsNullOrWhiteSpace(origin) && !tenant.ApplicationDomain.Equals(origin, StringComparison.OrdinalIgnoreCase))
+            if (!IsValidOrigin(context.Request.Headers.Origin, tenant.ApplicationDomain))
             {
-                context.Response.StatusCode = StatusCodes.Status406NotAcceptable;
-                await context.Response.WriteAsync("NotAcceptable: Invalid_Origin");
+                await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin");
+                return;
             }
 
-            SecurityContext.CreateFromTuple((tenant.TenantId, Array.Empty<string>(), string.Empty, string.Empty, true, tenant.ApplicationDomain, string.Empty));
+            StoreTenantDataInActivity(tenant);
 
             await _next(context);
         }
 
+        private static bool TryGetApiKey(IHeaderDictionary headers, out StringValues apiKey)
+        {
+            return headers.TryGetValue(BlocksConstants.BlocksKey, out apiKey);
+        }
+
+        private static bool IsValidOrigin(string? origin, string applicationDomain)
+        {
+            return string.IsNullOrWhiteSpace(origin) || origin.Equals(applicationDomain, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static async Task RejectRequest(HttpContext context, int statusCode, string message)
+        {
+            context.Response.StatusCode = statusCode;
+            await context.Response.WriteAsync(message);
+        }
+
+        private static void StoreTenantDataInActivity(Tenant tenant)
+        {
+            var activity = Activity.Current;
+            if (activity != null)
+            {
+                var securityData = new
+                {
+                    TenantId = tenant.TenantId,
+                    RequestUri = tenant.ApplicationDomain
+                };
+                activity.SetCustomProperty("SecurityContext", JsonConvert.SerializeObject(securityData));
+            }
+        }
     }
 }
