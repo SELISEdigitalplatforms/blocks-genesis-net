@@ -21,7 +21,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args).ConfigureServices((services) =>
         {
 
-            services.AddSingleton<SecurityContext, BlocksContext>();
+          //  services.AddSingleton<SecurityContext, BlocksContext>();
             ApplicationConfigurations.ConfigureServices(services);
             services.AddHttpClient();
 

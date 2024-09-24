@@ -16,7 +16,6 @@ namespace Blocks.Genesis
             var serviceProvider = services.BuildServiceProvider();
             var tenants = serviceProvider.GetRequiredService<ITenants>();
 
-
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
@@ -28,11 +27,13 @@ namespace Blocks.Genesis
                         ValidateLifetime = true,
                         ClockSkew = TimeSpan.Zero
                     };
+
                     options.Events = new JwtBearerEvents
                     {
                         OnTokenValidated = async context =>
                         {
                             var token = context.SecurityToken as JwtSecurityToken;
+
                             if (token != null)
                             {
                                 var isKeyExist = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out StringValues tenantId);
@@ -54,12 +55,15 @@ namespace Blocks.Genesis
 
                                     // Custom validation logic for tenant-specific parameters
                                     var tokenParameters = tenants.GetTenantTokenValidationParameter(tenantId);
+
                                     if (tokenParameters == null || string.IsNullOrWhiteSpace(tokenParameters.SigningKeyPath))
                                     {
                                         throw new SecurityTokenException($"Token parameter for {tenantId} is not found");
                                     }
+
                                     var signingKey = new X509SecurityKey(CreateSecurityKey(tokenParameters.SigningKeyPath, tokenParameters.SigningKeyPassword));
                                     var tokenHandler = new JwtSecurityTokenHandler();
+
                                     try
                                     {
                                         tokenHandler.ValidateToken(token.RawData, new TokenValidationParameters

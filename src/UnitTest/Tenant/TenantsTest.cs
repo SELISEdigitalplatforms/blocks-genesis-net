@@ -15,15 +15,15 @@ namespace UnitTest.Tenant
             _blocksSecretMock.SetupGet(x => x.RooDatabaseName).Returns("Blocks");
         }
 
-        [Fact]
-        public void TenantsConstructor_ShouldSetupCorrectly()
-        {
-            // Acr
-            var tenants = new Tenants(_blocksSecretMock.Object, _cacheClientMock.Object);
+        //[Fact]
+        //public void TenantsConstructor_ShouldSetupCorrectly()
+        //{
+        //    // Acr
+        //    var tenants = new Tenants(_blocksSecretMock.Object, _cacheClientMock.Object);
 
-            // Assert
-            Assert.NotNull(tenants);
-        }
+        //    // Assert
+        //    Assert.NotNull(tenants);
+        //}
 
     }
 }

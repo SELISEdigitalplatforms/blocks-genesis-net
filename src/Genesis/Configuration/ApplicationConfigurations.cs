@@ -54,7 +54,7 @@ namespace Blocks.Genesis.Configuration
         {
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
-            services.AddTransient<ITenants, Tenants>();
+            services.AddSingleton<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
 
             var objectSerializer = new ObjectSerializer(_ => true);
