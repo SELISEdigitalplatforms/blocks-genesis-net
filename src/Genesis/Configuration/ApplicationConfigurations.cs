@@ -52,10 +52,10 @@ namespace Blocks.Genesis.Configuration
 
         public static void ConfigureServices(IServiceCollection services)
         {
-            services.AddScoped<SecurityContext>();
+            services.AddTransient<SecurityContext>();
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
-            services.AddTransient<ITenants, Tenants>();
+            services.AddSingleton<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
 
             var objectSerializer = new ObjectSerializer(_ => true);

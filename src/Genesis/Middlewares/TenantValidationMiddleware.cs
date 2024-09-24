@@ -7,7 +7,6 @@ namespace Blocks.Genesis.Middlewares
     {
         private readonly RequestDelegate _next;
         private readonly ITenants _tenants;
-        private readonly SecurityContext _securityContext;
 
         public TenantValidationMiddleware(RequestDelegate next, ITenants tenants)
         {
