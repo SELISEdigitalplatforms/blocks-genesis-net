@@ -9,22 +9,22 @@ namespace Blocks.Genesis
         private readonly IDictionary<string, IMongoDatabase> _databases = new SortedDictionary<string, IMongoDatabase>();
         private readonly ILogger<MongoDbContextProvider> _logger;
         private readonly ITenants _tenants;
-        private readonly ISecurityContext _securityContext;
+        private readonly SecurityContext _securityContext;
 
-        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, ISecurityContext securityContext)
+        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, SecurityContext securityContext)
         {
             _logger = logger;
             _tenants = tenants;
             _securityContext = securityContext;
 
-            foreach (var (tenantId, tenantDbConnection) in tenants.GetTenantDatabaseConnectionStrings())
+            foreach (var (tenantId, (dbName, dbConnection)) in tenants.GetTenantDatabaseConnectionStrings())
             {
                 try
                 {
-                    if (!string.IsNullOrEmpty(tenantDbConnection))
+                    if (!string.IsNullOrEmpty(dbConnection))
                     {
-                        var database = new MongoClient(tenantDbConnection).GetDatabase(tenantId);
-                        _databases.Add(tenantId.ToLower(), database);
+                        var database = new MongoClient(dbConnection).GetDatabase(dbName);
+                        _databases.Add(tenantId, database);
                     }
                     else
                     {
@@ -39,21 +39,21 @@ namespace Blocks.Genesis
             }
         }
 
-        public IMongoDatabase GetDatabase(string databaseName)
+        public IMongoDatabase GetDatabase(string tenantId)
         {
-            var databaseExists = _databases.ContainsKey(databaseName.ToLower());
+            var databaseExists = _databases.ContainsKey(tenantId);
 
             if (databaseExists)
             {
-                return _databases[databaseName.ToLower()];
+                return _databases[tenantId];
             }
 
-            return  SaveNewTenantDbConnection(databaseName);
+            return SaveNewTenantDbConnection(tenantId);
         }
 
         public IMongoDatabase GetDatabase()
         {
-            return GetDatabase(_securityContext.TenantId.ToLower());
+            return GetDatabase(_securityContext.TenantId);
         }
 
         public IMongoDatabase GetDatabase(string connectionString, string databaseName)
@@ -73,23 +73,37 @@ namespace Blocks.Genesis
 
         public IMongoCollection<T> GetCollection<T>(string collectionName)
         {
-            var database =  GetDatabase();
+            var database = GetDatabase();
             return database.GetCollection<T>(collectionName);
         }
 
-        public IMongoCollection<T> GetCollection<T>(string databaseName, string collectionName)
+        public IMongoCollection<T> GetCollection<T>(string tenantId, string collectionName)
         {
-            var database =  GetDatabase(databaseName);
+            var database = GetDatabase(tenantId);
             return database.GetCollection<T>(collectionName);
         }
 
-        private IMongoDatabase SaveNewTenantDbConnection(string databaseName)
+        private IMongoDatabase SaveNewTenantDbConnection(string tenantId)
         {
-            var tenantDbConnection =  _tenants.GetTenantDatabaseConnectionString(databaseName);
-            var database = new MongoClient(tenantDbConnection).GetDatabase(databaseName);
-            _databases.Add(databaseName.ToLower(), database);
+            try
+            {
+                var (dbName, dbConnection) = _tenants.GetTenantDatabaseConnectionString(tenantId);
 
-            return database;
+                if (string.IsNullOrWhiteSpace(dbConnection))
+                {
+                    throw new KeyNotFoundException($"Database Connection string is not found for {tenantId}");
+                }
+
+                var database = new MongoClient(dbConnection).GetDatabase(dbName);
+                _databases.Add(tenantId, database);
+
+                return database;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, exception.Message);
+                return null;
+            }
         }
     }
 }

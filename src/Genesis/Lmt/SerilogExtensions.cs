@@ -9,7 +9,7 @@ namespace Blocks.Genesis
         {
             return loggerConfiguration.Sink(new MongoDBDynamicSink(serviceName, blocksSecret), new BatchingOptions
             {
-                BufferingTimeLimit = TimeSpan.FromSeconds(23),
+                //BufferingTimeLimit = TimeSpan.FromSeconds(3),
                 BatchSizeLimit = 1000,
                 EagerlyEmitFirstEvent = false
             });

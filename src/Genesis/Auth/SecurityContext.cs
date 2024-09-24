@@ -2,7 +2,7 @@
 
 namespace Blocks.Genesis
 {
-    public record SecurityContext : ISecurityContext
+    public sealed record SecurityContext
     {
         private const string TENANT_ID_CLAIM = "tenantId";
         private const string ROLES_CLAIM = "roles";
@@ -18,12 +18,12 @@ namespace Blocks.Genesis
         public string OauthBearerToken { get; }
         public string UserId { get; }
         public IEnumerable<string> Audiances { get; }
-        public Uri RequestUri { get; }
+        public string RequestUri { get; }
         public string OrganizationId { get; }
         public bool IsAuthenticated { get; }
 
         public SecurityContext() { }
-        private SecurityContext((string TenantId, IEnumerable<string> Roles, string OauthBearerToken, string UserId, bool IsAuthenticated, Uri RequestUri, string OrganizationId) tuple)
+        private SecurityContext((string TenantId, IEnumerable<string> Roles, string OauthBearerToken, string UserId, bool IsAuthenticated, string RequestUri, string OrganizationId) tuple)
         {
             TenantId = tuple.TenantId;
             Roles = tuple.Roles;
@@ -41,21 +41,20 @@ namespace Blocks.Genesis
             OauthBearerToken = claimsIdentity.FindFirst(OAUTH_BEARER_TOKEN_CLAIM)?.Value ?? string.Empty;
             UserId = claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value ?? string.Empty;
             Audiances = claimsIdentity.FindAll(AUDIANCES_CLAIM).Select(c => c.Value);
-            RequestUri = new Uri(claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty);
+            RequestUri = claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty;
             OrganizationId = claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty;
             IsAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var isAuthenticated) && isAuthenticated;
         }
 
-        public static SecurityContext CreateFromTuple((string TenantId, IEnumerable<string> Roles, string OauthBearerToken, string UserId, bool IsAuthenticated, Uri RequestUri, string OrganizationId) tuple)
+        internal static SecurityContext CreateFromTuple((string TenantId, IEnumerable<string> Roles, string OauthBearerToken, string UserId, bool IsAuthenticated, string RequestUri, string OrganizationId) tuple)
         {
             return new SecurityContext(tuple);
         }
 
-        public static SecurityContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
+        internal static SecurityContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
         {
-             return new SecurityContext(claimsIdentity);
+            return new SecurityContext(claimsIdentity);
         }
-
 
     }
 }

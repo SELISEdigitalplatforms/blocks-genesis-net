@@ -19,7 +19,7 @@ namespace Blocks.Genesis
         {
             _serviceName = serviceName;
             _batchSize = batchSize;
-            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(29);            
+            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(3);            
             _batch = new Queue<BsonDocument>();
             _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(blocksSecret.TraceConnectionString, LmtConfiguration.TraceDatabaseName, _serviceName);
             _timer = new Timer(async _ => await FlushBatchAsync(), null, _flushInterval, _flushInterval);        
@@ -47,7 +47,9 @@ namespace Blocks.Genesis
                 { "StatusDescription", data?.StatusDescription ?? string.Empty },
                 { "Baggage", JsonConvert.SerializeObject(data?.Baggage) },
                 { "ServiceName", _serviceName },
-                { "TenantId", "TenantId" }
+                { "TenantId", data?.GetCustomProperty("TenantId")?.ToString() },
+                { "Request", data?.GetCustomProperty("RequestInfo")?.ToString() }, 
+                { "Response", data?.GetCustomProperty("ResponseInfo")?.ToString() }
             };
 
             _batch.Enqueue(document);

@@ -8,12 +8,11 @@ namespace Blocks.Genesis
     {
         public static string GetToken(HttpRequest request)
         {
-            if (request.Headers.TryGetValue("Authorization", out StringValues token) && !StringValues.IsNullOrEmpty(token))
+            if (request.Headers.TryGetValue(BlocksConstants.AuthorizationHeaderName, out StringValues token) && !StringValues.IsNullOrEmpty(token))
             {
-                const string bearerPrefix = "Bearer ";
-                if (token.ToString().StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
+                if (token.ToString().StartsWith(BlocksConstants.Bearer, StringComparison.OrdinalIgnoreCase))
                 {
-                    return token.ToString().Substring(bearerPrefix.Length).Trim();
+                    return token.ToString().Substring(BlocksConstants.Bearer.Length).Trim();
                 }
             }
 
@@ -56,29 +55,5 @@ namespace Blocks.Genesis
             });
         }
 
-        public static string GetBlocksSecret(HttpRequest request)
-        {
-            if (request.Headers.TryGetValue("X-Blocks-Secret", out StringValues secret))
-            {
-                return secret.ToString();
-            }
-
-            return string.Empty;
-        }
-
-        public static string GetOriginOrReferer(HttpRequest request)
-        {
-            if (request.Headers.TryGetValue("Origin", out StringValues origin))
-            {
-                return origin.ToString();
-            }
-
-            if (request.Headers.TryGetValue("Referer", out origin))
-            {
-                return origin.ToString();
-            }
-
-            return string.Empty;
-        }
     }
 }

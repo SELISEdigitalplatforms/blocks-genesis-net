@@ -52,7 +52,7 @@ namespace Blocks.Genesis.Configuration
 
         public static void ConfigureServices(IServiceCollection services)
         {
-
+            services.AddScoped<SecurityContext>();
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddTransient<ITenants, Tenants>();
@@ -68,7 +68,7 @@ namespace Blocks.Genesis.Configuration
             });
 
             services.AddSingleton(new ActivitySource(_serviceName));
-            services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient(_blocksSecret.DatabaseConnectionString));
+            
 
             services.AddOpenTelemetry()
                 .WithTracing(builder =>
@@ -97,9 +97,9 @@ namespace Blocks.Genesis.Configuration
 
         public static void ConfigureCustomMiddleware(IApplicationBuilder app)
         {
+            app.UseMiddleware<TraceContextMiddleware>();
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-            app.UseMiddleware<TraceContextMiddleware>();
         }
 
         public static void ConfigureAuthMiddleware(IApplicationBuilder app)

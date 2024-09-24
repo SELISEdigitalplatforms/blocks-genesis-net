@@ -15,7 +15,7 @@ namespace Blocks.Genesis.Middlewares
 
         public const string EmptyJsonBodyString = "Empty";
         public const string JsonContentType = "application/json";
-        
+
 
         public GlobalExceptionHandlerMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlerMiddleware> logger, IBlocksSecret blocksSecret)
         {

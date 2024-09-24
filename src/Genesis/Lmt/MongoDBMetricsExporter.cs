@@ -33,7 +33,6 @@ namespace Blocks.Genesis
                         { "MeterName", data.MeterName },
                         { "Timestamp", DateTime.UtcNow },
                         { "ServiceName", _serviceName },
-                        { "TenantId", "TenantId" },
                         { "Tags", JsonConvert.SerializeObject(metricPoint.Tags) },
                         { "StartTime", metricPoint.StartTime.ToString() },
                         { "EndTime", metricPoint.EndTime.ToString() }

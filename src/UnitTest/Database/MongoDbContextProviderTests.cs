@@ -13,7 +13,7 @@ namespace Blocks.Genesis.Tests
     {
         private readonly Mock<ILogger<MongoDbContextProvider>> _loggerMock;
         private readonly Mock<ITenants> _tenantsMock;
-        private readonly Mock<ISecurityContext> _securityContextMock;
+        private readonly Mock<SecurityContext> _securityContextMock;
         private readonly MongoDbContextProvider _contextProvider;
         private readonly Dictionary<string, string> _tenantDbConnectionStrings;
 
@@ -21,7 +21,7 @@ namespace Blocks.Genesis.Tests
         {
             _loggerMock = new Mock<ILogger<MongoDbContextProvider>>();
             _tenantsMock = new Mock<ITenants>();
-            _securityContextMock = new Mock<ISecurityContext>();
+            _securityContextMock = new Mock<SecurityContext>();
 
             _tenantDbConnectionStrings = new Dictionary<string, string>
             {

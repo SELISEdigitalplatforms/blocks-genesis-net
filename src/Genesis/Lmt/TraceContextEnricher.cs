@@ -11,10 +11,10 @@ namespace Blocks.Genesis
             var activity = Activity.Current;
             if (activity != null)
             {
-                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", "TenantId"));
-                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TraceId", activity.TraceId));
-                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("SpanId", activity.SpanId));
-                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("ParentSpanId", activity.ParentSpanId));
+                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", activity?.GetCustomProperty("TenantId")?.ToString()));
+                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TraceId", activity?.TraceId));
+                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("SpanId", activity?.SpanId));
+                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("ParentSpanId", activity?.ParentSpanId));
             }
         }
     }
