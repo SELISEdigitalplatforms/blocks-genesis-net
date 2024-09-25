@@ -25,9 +25,15 @@ namespace Blocks.Genesis.Configuration
             _blocksSecret = await BlocksSecret.ProcessBlocksSecret(CloudType.Azure, vaultConfig);
             _blocksSecret.ServiceName = _serviceName;
 
+            // for tracing collection will be created by TenantIds. it will create from tenants caching
+            // create miscellaneous tracing collection if not exist. it is for non tenant tracing.
+            await LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
+            // Service wise collection creation for log
             await LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, _serviceName);
-            await LmtConfiguration.CreateCollectionForTraces(_blocksSecret.TraceConnectionString, _serviceName);
+            // Service wise collection creation for metrics
             await LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, _serviceName);
+
+
 
             Log.Logger = new LoggerConfiguration()
                         .Enrich.FromLogContext()
@@ -71,11 +77,9 @@ namespace Blocks.Genesis.Configuration
             services.AddOpenTelemetry()
                 .WithTracing(builder =>
                 {
-                    builder.AddAspNetCoreInstrumentation()
-                           .AddHttpClientInstrumentation()
-                           .AddMongoDBInstrumentation()
-                           .AddRedisInstrumentation()
-                           .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
+                    builder.SetSampler(new AlwaysOnSampler())
+                    .AddAspNetCoreInstrumentation()
+                    .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
                 });
 
             services.AddOpenTelemetry().WithMetrics(builder =>
@@ -84,6 +88,8 @@ namespace Blocks.Genesis.Configuration
                        .AddRuntimeInstrumentation()
                        .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName, _blocksSecret)));
             });
+
+            services.AddSingleton<IHttpService, HttpService>();
         }
 
         public static void ConfigureAuth(IServiceCollection services)

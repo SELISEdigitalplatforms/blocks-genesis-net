@@ -22,19 +22,19 @@ namespace Blocks.Genesis
             return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
         }
 
-        public static async Task CreateCollectionForTraces(string connection, string collectionName)
+        public static async Task CreateCollectionForTrace(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
             {
                 //Capped = true,
                 //MaxSize = 52428800, // 50MB
-                TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TenantId", TimeSeriesGranularity.Minutes)
+                TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TraceId", TimeSeriesGranularity.Minutes)
             };
 
             try
             {
                 await CreateCollectionIfNotExistsAsync(connection, TraceDatabaseName, collectionName, options);
-                await CreateIndexAsync(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { _timeField, -1 } });
+                await CreateIndexAsync(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TraceId", 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {

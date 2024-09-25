@@ -64,7 +64,7 @@ namespace Blocks.Genesis.Middlewares
             var activity = Activity.Current;
             if (activity != null)
             {
-                var securityData = BlocksContext.CreateFromTuple((tenant.TenantId, Array.Empty<string>(), string.Empty, string.Empty, false, tenant.ApplicationDomain, string.Empty));
+                var securityData = BlocksContext.CreateFromTuple((tenant.TenantId, Array.Empty<string>(), string.Empty, false, tenant.ApplicationDomain, string.Empty));
         
                 activity.SetCustomProperty("SecurityContext", JsonConvert.SerializeObject(securityData));
             }

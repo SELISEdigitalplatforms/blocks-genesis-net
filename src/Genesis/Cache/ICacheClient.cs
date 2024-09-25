@@ -15,6 +15,12 @@ namespace Blocks.Genesis
         public Task<bool> AddStringValueAsync(string key, string value, long keyLifeSpan);
         public Task<string> GetStringValueAsync(string key);
         public Task<bool> RemoveKeyAsync(string key);
+        public bool AddHashValue(string key, IEnumerable<HashEntry> value);
+        public bool AddHashValue(string key, IEnumerable<HashEntry> value, long keyLifeSpan);
+        public HashEntry[] GetHashValue(string key);
+        public Task<bool> AddHashValueAsync(string key, IEnumerable<HashEntry> value);
+        public Task<bool> AddHashValueAsync(string key, IEnumerable<HashEntry> value, long keyLifeSpan);
+        public Task<HashEntry[]> GetHashValueAsync(string key);
 
     }
 }

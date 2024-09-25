@@ -8,7 +8,6 @@ namespace Blocks.Genesis
     {
         private const string TENANT_ID_CLAIM = "tenantId";
         private const string ROLES_CLAIM = "roles";
-        private const string OAUTH_BEARER_TOKEN_CLAIM = "oauthBearerToken";
         private const string USER_ID_CLAIM = "userId";
         private const string AUDIANCES_CLAIM = "audiances";
         private const string ORGANIZATION_ID_CLAIM = "organizationId";
@@ -18,7 +17,6 @@ namespace Blocks.Genesis
         // Properties with private setters
         public string TenantId { get; private init; }
         public IEnumerable<string> Roles { get; private init; }
-        public string OauthBearerToken { get; private init; }
         public string UserId { get; private init; }
         public IEnumerable<string> Audiances { get; private init; }
         public string RequestUri { get; private init; }
@@ -30,7 +28,6 @@ namespace Blocks.Genesis
         private BlocksContext(
             string tenantId,
             IEnumerable<string> roles,
-            string oauthBearerToken,
             string userId,
             bool isAuthenticated,
             string requestUri,
@@ -38,7 +35,6 @@ namespace Blocks.Genesis
         {
             TenantId = tenantId;
             Roles = roles;
-            OauthBearerToken = oauthBearerToken;
             UserId = userId;
             IsAuthenticated = isAuthenticated;
             RequestUri = requestUri;
@@ -50,29 +46,41 @@ namespace Blocks.Genesis
         {
             var tenantId = claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty;
             var roles = claimsIdentity.FindAll(ROLES_CLAIM).Select(c => c.Value);
-            var oauthBearerToken = claimsIdentity.FindFirst(OAUTH_BEARER_TOKEN_CLAIM)?.Value ?? string.Empty;
             var userId = claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value ?? string.Empty;
             var audiances = claimsIdentity.FindAll(AUDIANCES_CLAIM).Select(c => c.Value);
             var requestUri = claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty;
             var organizationId = claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty;
             var isAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var result) && result;
 
-            return new BlocksContext( tenantId, roles, oauthBearerToken, userId, isAuthenticated, requestUri, organizationId);
+            return new BlocksContext( tenantId, roles, userId, isAuthenticated, requestUri, organizationId);
         }
 
-        internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string oauthBearerToken, string userId, bool isAuthenticated, string requestUri, string organizationId) tuple)
+        internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId) tuple)
         {
-            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.oauthBearerToken, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId);
+            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId);
         }
 
         // Static method to retrieve the context from Activity
-        public static BlocksContext? GetContext()
+        public static BlocksContext? GetContext(string? value = null)
         {
-            var activity = Activity.Current;
-            if (activity != null)
+            try
             {
-                var contextJson = activity.GetCustomProperty("SecurityContext")?.ToString();
-                return string.IsNullOrWhiteSpace(contextJson) ? null : JsonConvert.DeserializeObject<BlocksContext>(contextJson);
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    var activity = Activity.Current;
+                    if (activity != null)
+                    {
+                        var contextJson = activity.GetCustomProperty("SecurityContext")?.ToString();
+                        return string.IsNullOrWhiteSpace(contextJson) ? null : JsonConvert.DeserializeObject<BlocksContext>(contextJson);
+                    }
+                }
+
+                return JsonConvert.DeserializeObject<BlocksContext>(value);
+            }
+            catch (Exception ex)
+            {
+
+                Console.WriteLine(ex); ;
             }
 
             return null;

@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using Newtonsoft.Json;
+using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
@@ -9,11 +10,13 @@ namespace Blocks.Genesis
         private readonly IDictionary<string, IMongoDatabase> _databases = new SortedDictionary<string, IMongoDatabase>();
         private readonly ILogger<MongoDbContextProvider> _logger;
         private readonly ITenants _tenants;
+        private readonly ActivitySource _activitySource;
 
-        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants)
+        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, ActivitySource activitySource)
         {
             _logger = logger;
             _tenants = tenants;
+            _activitySource = activitySource;
 
             foreach (var (tenantId, (dbName, dbConnection)) in tenants.GetTenantDatabaseConnectionStrings())
             {
@@ -51,8 +54,8 @@ namespace Blocks.Genesis
 
         public IMongoDatabase GetDatabase()
         {
-            //return GetDatabase(_securityContext.TenantId);
-            return null;
+            var securityContext = BlocksContext.GetContext();
+            return GetDatabase(securityContext?.TenantId);
         }
 
         public IMongoDatabase GetDatabase(string connectionString, string databaseName)
@@ -80,6 +83,65 @@ namespace Blocks.Genesis
         {
             var database = GetDatabase(tenantId);
             return database.GetCollection<T>(collectionName);
+        }
+
+        public T RunMongoCommandWithActivity<T>(string collectionName, string action, Func<T> mongoCommand)
+        {
+            var currentActivity = Activity.Current;
+            var securityContext = BlocksContext.GetContext();
+
+            using var activity = _activitySource.StartActivity($"MongoDb::{action}", ActivityKind.Producer, currentActivity?.Context ?? default);
+
+            activity.AddTag("collectionName", collectionName);
+            activity.AddTag("operationType", action);
+            activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
+
+            try
+            {
+                var result = mongoCommand();
+                activity.AddTag("Status", "Success");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                activity.AddTag("Status", "Failure");
+                activity.AddTag("ExceptionMessage", ex.Message);
+                throw;
+            }
+            finally
+            {
+                activity.Stop();
+            }
+        }
+
+        // Asynchronous method
+        public async Task<T> RunMongoCommandWithActivityAsync<T>(string collectionName, string action, Func<Task<T>> mongoCommand)
+        {
+            var currentActivity = Activity.Current;
+            var securityContext = BlocksContext.GetContext();
+
+            using var activity = _activitySource.StartActivity($"MongoDb::{action}", ActivityKind.Producer, currentActivity?.Context ?? default);
+
+            activity.AddTag("collectionName", collectionName);
+            activity.AddTag("operationType", action);
+            activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
+
+            try
+            {
+                var result = await mongoCommand();
+                activity.AddTag("Status", "Success");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                activity.AddTag("Status", "Failure");
+                activity.AddTag("ExceptionMessage", ex.Message);
+                throw;
+            }
+            finally
+            {
+                activity.Stop();
+            }
         }
 
         private IMongoDatabase SaveNewTenantDbConnection(string tenantId)

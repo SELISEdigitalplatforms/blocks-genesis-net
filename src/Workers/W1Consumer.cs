@@ -5,21 +5,21 @@ namespace WorkerOne
     internal class W1Consumer : IConsumer<W1Context>
     {
         private readonly ILogger<W1Consumer> _logger;
-        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IHttpService _httpService;
 
-        public W1Consumer(ILogger<W1Consumer> logger, IHttpClientFactory httpClientFactory)
+        public W1Consumer(ILogger<W1Consumer> logger, IHttpService httpService)
         {
             _logger = logger;
-            _httpClientFactory = httpClientFactory;
+            _httpService = httpService;
         }
         public async Task Consume(W1Context context)
         {
             _logger.LogInformation("Message recieved from W1");
 
+            var sc = BlocksContext.GetContext();
             // Make HTTP call to S2
-            var client = _httpClientFactory.CreateClient();
-            var response = await client.GetAsync("http://localhost:51846/api/s2/process_1");
-            response.EnsureSuccessStatusCode();
+            var response = await _httpService.MakeGetRequest<object>("http://localhost:51846/api/s2/process",
+                new Dictionary<string, string> { { BlocksConstants.BlocksKey, "***REMOVED***" } });
             _logger.LogInformation("S1 call to S2");
 
         }

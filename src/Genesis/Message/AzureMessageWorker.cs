@@ -2,8 +2,6 @@ using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using OpenTelemetry.Trace;
-using System.ComponentModel;
 using System.Diagnostics;
 
 namespace Blocks.Genesis
@@ -123,27 +121,36 @@ namespace Blocks.Genesis
 
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            // Extract trace context from the message
             var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
-            var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : null;
-            var parentSpanId = args.Message.ApplicationProperties.TryGetValue("ParentSpanId", out var parentSpanIdObj) ? parentSpanIdObj.ToString() : null;
+            var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
+            var traceState = args.Message.ApplicationProperties.TryGetValue("TraceState", out var traceStateObj) ? traceStateObj.ToString() : "";
+
+            var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
+            var securityContext = BlocksContext.GetContext(securityContextString);
 
             var activityContext = new ActivityContext(
-                ActivityTraceId.CreateRandom(),
-                ActivitySpanId.CreateFromString(spanId.AsSpan()),
+                ActivityTraceId.CreateFromString(traceId),
+                spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
                 ActivityTraceFlags.Recorded,
-                traceState: traceId,
+                traceState: null,  // Set the traceState from the incoming message
                 isRemote: true
             );
 
             using var activity = _activitySource.StartActivity("ProcessMessage", ActivityKind.Consumer, activityContext);
-            activity?.SetTag("message.id", args.Message.MessageId);
+            activity?.SetTag("message", args.Message);
+            activity?.SetCustomProperty("SecurityContext", securityContextString);
 
-            // Start timer
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
+            // TenantId is most important perameter, without this we cannot store the trace
+            
+            activity.SetCustomProperty("TenantId", securityContext?.TenantId);
 
             string body = args.Message.Body.ToString();
             _logger.LogInformation($"Message received: {body}");
+            activity.SetCustomProperty("Request", body);
 
             try
             {
@@ -152,10 +159,13 @@ namespace Blocks.Genesis
                 await _consumer.ProcessMessageAsync(message.Type, message.Body);
 
                 await args.CompleteMessageAsync(args.Message);
+
+                activity.SetCustomProperty("Response", "Successfully Completed");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error completing message");
+                activity.SetCustomProperty("Response", JsonConvert.SerializeObject(ex));
             }
             finally
             {

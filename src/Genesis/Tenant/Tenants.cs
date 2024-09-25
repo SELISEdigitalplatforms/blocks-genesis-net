@@ -9,14 +9,15 @@ namespace Blocks.Genesis
         private List<Tenant> _tenants = new List<Tenant>();
         private readonly ILogger<Tenants> _logger;
         private readonly IBlocksSecret _blocksSecret;
-        private readonly IDatabase _redisDb;
+        private readonly ICacheClient _cacheClient;
+        private readonly IMongoDatabase _database;
 
 
         public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
         {
             _logger = logger;
             _blocksSecret = blocksSecret;
-            _redisDb = cacheClient.CacheDatabase();
+            _cacheClient = cacheClient;
 
             CacheTenants();
         }
@@ -37,7 +38,7 @@ namespace Blocks.Genesis
         {
             var tenant = _tenants?.FirstOrDefault(t => t.TenantId == tenantId);
 
-            if(tenant == null)
+            if (tenant == null)
             {
                 tenant = GetTenantFromCache(tenantId);
             }
@@ -55,12 +56,13 @@ namespace Blocks.Genesis
         {
             try
             {
-                IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
-                _tenants = database.GetCollection<Tenant>(BlocksConstants.TenantCollectionName).Find((Tenant _) => true).ToList();
+                IMongoDatabase _database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
+                _tenants = _database.GetCollection<Tenant>(BlocksConstants.TenantCollectionName).Find(_ => true).ToList();
 
                 foreach (var tenant in _tenants)
                 {
                     SaveTenantInCache(tenant);
+                    LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
                 }
             }
             catch (Exception exception)
@@ -75,10 +77,10 @@ namespace Blocks.Genesis
         {
             try
             {
-                IMongoDatabase database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RooDatabaseName);
-                var tenant = database.GetCollection<Tenant>(BlocksConstants.TenantCollectionName).Find((Tenant t) => t.ItemId == tenantId || t.TenantId == tenantId).FirstOrDefault();
+                var tenant = _database.GetCollection<Tenant>(BlocksConstants.TenantCollectionName).Find((Tenant t) => t.ItemId == tenantId || t.TenantId == tenantId).FirstOrDefault();
 
                 SaveTenantInCache(tenant);
+                LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
             }
             catch (Exception exception)
             {
@@ -101,7 +103,7 @@ namespace Blocks.Genesis
                         new HashEntry("DbConnectionString", tenant.DbConnectionString)
                     };
 
-                _redisDb.HashSet(BlocksConstants.TenantInfoCachePrefix + tenant.TenantId, hashEntries.ToArray());
+                _cacheClient.AddHashValue(BlocksConstants.TenantInfoCachePrefix + tenant.TenantId, hashEntries.ToArray());
 
                 SaveTokenParametersInCache(tenant.TenantId, tenant.JwtTokenParameters);
             }
@@ -128,7 +130,7 @@ namespace Blocks.Genesis
                     hashEntries.Add(new HashEntry($"Audience:{audience}", audience));
                 }
 
-                _redisDb.HashSet(BlocksConstants.TenantTokenParametersCachePrefix + tenantId, hashEntries.ToArray());
+                _cacheClient.AddHashValue(BlocksConstants.TenantTokenParametersCachePrefix + tenantId, hashEntries.ToArray());
             }
             catch (Exception exception)
             {
@@ -140,7 +142,7 @@ namespace Blocks.Genesis
         {
             try
             {
-                var hashEntries = _redisDb.HashGetAll(BlocksConstants.TenantInfoCachePrefix + tenantId);
+                var hashEntries = _cacheClient.GetHashValue(BlocksConstants.TenantInfoCachePrefix + tenantId);
 
                 if (hashEntries.Length == 0)
                 {
@@ -173,7 +175,7 @@ namespace Blocks.Genesis
         {
             try
             {
-                var hashEntries = _redisDb.HashGetAll(BlocksConstants.TenantTokenParametersCachePrefix + tenantId);
+                var hashEntries = _cacheClient.GetHashValue(BlocksConstants.TenantTokenParametersCachePrefix + tenantId);
 
                 if (hashEntries.Length == 0)
                 {

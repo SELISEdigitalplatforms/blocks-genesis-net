@@ -12,13 +12,15 @@ namespace Blocks.Genesis
         private readonly MessageConfiguration _messageConfiguration;
         private readonly ServiceBusClient _client;
         private readonly ConcurrentDictionary<string, ServiceBusSender> _senders;
+        private readonly ActivitySource _activitySource;
 
-        public AzureMessageClient(ILogger<AzureMessageClient> logger, MessageConfiguration messageConfiguration)
+        public AzureMessageClient(ILogger<AzureMessageClient> logger, MessageConfiguration messageConfiguration, ActivitySource activitySource)
         {
             _logger = logger;
             _messageConfiguration = messageConfiguration;
             _client = new ServiceBusClient(_messageConfiguration.Connection);
             _senders = new ConcurrentDictionary<string, ServiceBusSender>();
+            _activitySource = activitySource;
 
             foreach (var queue in messageConfiguration.Queues)
             {
@@ -38,8 +40,13 @@ namespace Blocks.Genesis
 
         public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
         {
-            
-            var activity = Activity.Current;
+            var currentActivity = Activity.Current;
+            var securityContext = BlocksContext.GetContext();
+
+            using var activity = _activitySource.StartActivity("SendMessageToConsumer", ActivityKind.Producer, currentActivity?.Context ?? default);
+   
+            activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
+            activity?.SetTag("consumer", JsonConvert.SerializeObject(consumerMessage));
 
             var sender = GetSender(consumerMessage.ConsumerName);
             var messageBody = new Message
@@ -48,38 +55,26 @@ namespace Blocks.Genesis
                 Type = consumerMessage.Payload.GetType().Name
             };
 
-            var message = new ServiceBusMessage(JsonConvert.SerializeObject(messageBody));
-
-            if (activity != null)
+            var message = new ServiceBusMessage(JsonConvert.SerializeObject(messageBody))
             {
-                message.ApplicationProperties["TraceId"] = activity.TraceId.ToString();
-                message.ApplicationProperties["SpanId"] = activity.SpanId.ToString();
-                message.ApplicationProperties["ParentSpanId"] = activity.ParentSpanId.ToString();
-            }
+                ApplicationProperties =
+                    {
+                        ["TraceId"] = activity?.TraceId.ToString(),
+                        ["SpanId"] = activity?.SpanId.ToString(), 
+                        ["SecurityContext"] = JsonConvert.SerializeObject(securityContext)
+                    }
+            };
 
-            await sender.SendMessageAsync(message);  
+            // Send the message
+            await sender.SendMessageAsync(message);
+
+            // Stop activity
+            activity?.Stop();
         }
 
         public async Task SendToMassConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
         {
-            var activity = Activity.Current;
-            var sender = GetSender(consumerMessage.ConsumerName);
-
-            var messageBody = new Message
-            {
-                Body = JsonConvert.SerializeObject(consumerMessage.Payload),
-                Type = consumerMessage.Payload.GetType().Name
-            };
-            var message = new ServiceBusMessage(JsonConvert.SerializeObject(messageBody));
-
-            if (activity != null)
-            {
-                message.ApplicationProperties["TraceId"] = activity.TraceId.ToString();
-                message.ApplicationProperties["SpanId"] = activity.SpanId.ToString();
-                message.ApplicationProperties["ParentSpanId"] = activity.ParentSpanId.ToString();
-            }
-
-            await sender.SendMessageAsync(message);
+            await SendToConsumerAsync(consumerMessage);
         }
     }
 }

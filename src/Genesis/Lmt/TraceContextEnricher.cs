@@ -1,5 +1,5 @@
-﻿    using Serilog.Core;
-    using Serilog.Events;
+﻿using Serilog.Core;
+using Serilog.Events;
     using System.Diagnostics;
 
 namespace Blocks.Genesis
@@ -11,7 +11,12 @@ namespace Blocks.Genesis
             var activity = Activity.Current;
             if (activity != null)
             {
-                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", activity?.GetCustomProperty("TenantId")?.ToString() ?? string.Empty));
+                var tenantId = activity?.GetCustomProperty("TenantId")?.ToString();
+                tenantId = string.IsNullOrWhiteSpace(tenantId) ?
+                string.IsNullOrWhiteSpace(activity?.TraceStateString) ? BlocksConstants.Miscellaneous : activity.TraceStateString
+                    : tenantId;
+
+                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", tenantId));
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TraceId", activity?.TraceId));
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("SpanId", activity?.SpanId));
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("ParentSpanId", activity?.ParentSpanId));

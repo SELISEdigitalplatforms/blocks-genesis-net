@@ -20,19 +20,19 @@ public class S2Controller : ControllerBase
     {
         _logger.LogInformation("Processing request in S2: process");
 
-        await Task.WhenAll(_messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue_1", Payload = new W2Context { Data = "From S2" } }),
-        _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic_1", Payload = new W1Context { Data = "From S2" } }));
+        var sc = BlocksContext.GetContext();
 
-        return Ok();
+        return Ok(sc);
     }
 
     [HttpGet("process_1")]
     public IActionResult Process1Request()
     {
         _logger.LogInformation("Processing request in S2: process_1");
-       
 
-        return Ok();
+        var sc = BlocksContext.GetContext();
+
+        return Ok(sc);
     }
 
     public record W2Context

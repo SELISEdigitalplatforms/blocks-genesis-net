@@ -17,37 +17,31 @@ namespace Blocks.Genesis.Middlewares
         public async Task InvokeAsync(HttpContext context)
         {
             var activity = Activity.Current;
-            activity.Start();
 
-            try
+            // Capture TenantId from headers
+            context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out StringValues tenantId);
+
+            // TenantId is most important perameter, without this we cannot store the trace
+            activity.SetCustomProperty("TenantId", tenantId);
+
+            // Capture Request details: URL and Headers
+            var requestInfo = new
             {
-                // Capture TenantId from headers
-                context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out StringValues tenantId);
-                activity.SetCustomProperty("TenantId", tenantId);
+                Url = context.Request.Path.ToString(),
+                Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
+            };
+            activity.SetCustomProperty("Request", JsonConvert.SerializeObject(requestInfo));
 
-                // Capture Request details: URL and Headers
-                var requestInfo = new
-                {
-                    Url = context.Request.Path.ToString(),
-                    Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
-                };
-                activity.SetCustomProperty("RequestInfo", JsonConvert.SerializeObject(requestInfo));
+            // Process the request
+            await _next(context);
 
-                // Process the request
-                await _next(context);
-
-                // Capture Response details: Status code and Headers
-                var responseInfo = new
-                {
-                    StatusCode = context.Response.StatusCode,
-                    Headers = context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
-                };
-                activity.SetCustomProperty("ResponseInfo", JsonConvert.SerializeObject(responseInfo));
-            }
-            finally
+            // Capture Response details: Status code and Headers
+            var response = new
             {
-                activity.Stop();
-            }
+                StatusCode = context.Response.StatusCode,
+                Headers = context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
+            };
+            activity.SetCustomProperty("Response", JsonConvert.SerializeObject(response));
         }
     }
 }
