@@ -23,7 +23,7 @@ namespace Blocks.Genesis
                 {"_id", Guid.NewGuid().ToString()},
                 { "Timestamp", logEvent?.Timestamp.UtcDateTime },
                 { "MessageTemplate", logEvent?.MessageTemplate.Text },
-                { "Level", logEvent?.Level.ToString()  ?? string.Empty },
+                { "Level", logEvent?.Level.ToString() ?? string.Empty },
                 { "Message", logEvent?.RenderMessage() },
                 { "Exception", logEvent?.Exception?.ToString() ?? string.Empty },
                 { "ServiceName", _serviceName },

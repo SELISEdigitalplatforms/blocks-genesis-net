@@ -1,5 +1,6 @@
 using Blocks.Genesis;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
 namespace ApiOne
@@ -53,7 +54,7 @@ namespace ApiOne
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
             Func<bool> command = () =>
             {
-                collection.InsertOne(new W2Context { Data = "Test" });
+                collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString()});
                 return true;
             };
             var result = _dbContextProvider.RunMongoCommandWithActivity("W2Context", "Insert", command);
@@ -64,7 +65,8 @@ namespace ApiOne
 
     public record W2Context
     {
-
+        [BsonId]
+        public string Id { get; set; }
         public string Data { get; set; }
     }
 

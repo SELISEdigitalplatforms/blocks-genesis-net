@@ -125,6 +125,7 @@ namespace Blocks.Genesis.Configuration
         {
             services.AddSingleton(messageConfiguration);
             services.AddSingleton<IMessageClient, AzureMessageClient>();
+            services.AddHostedService<HealthServiceWorker>();
         }
     }
 }

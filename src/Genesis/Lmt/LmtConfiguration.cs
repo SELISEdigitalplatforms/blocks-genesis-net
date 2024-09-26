@@ -8,6 +8,8 @@ namespace Blocks.Genesis
         public static string LogDatabaseName { get; } = "Logs";
         public static string TraceDatabaseName { get; } = "Traces";
         public static string MetricDatabaseName { get; } = "Metrics";
+        public static string HealthDatabaseName { get; } = "Healths";
+
         private const string _timeField = "Timestamp";
 
 
@@ -22,12 +24,33 @@ namespace Blocks.Genesis
             return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
         }
 
+        public static async Task CreateCollectionForHealth(string connection)
+        {
+            var options = new CreateCollectionOptions
+            {
+                //Capped = true,
+                //ExpireAfter = TimeSpan.FromDays(90), // 90 days expiration for each document
+                TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "ServiceName", TimeSeriesGranularity.Minutes),
+            };
+
+            try
+            {
+                await CreateCollectionIfNotExistsAsync(connection, HealthDatabaseName, HealthDatabaseName, options);
+                await CreateIndexAsync(connection, HealthDatabaseName, HealthDatabaseName, new BsonDocument { { "ServiceName", 1 }, { _timeField, -1 } });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
+        }
+
         public static async Task CreateCollectionForTrace(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
             {
                 //Capped = true,
                 //MaxSize = 52428800, // 50MB
+                //ExpireAfter = TimeSpan.FromDays(90),
                 TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TraceId", TimeSeriesGranularity.Minutes)
             };
 
@@ -48,6 +71,7 @@ namespace Blocks.Genesis
             {
                 //Capped = true,
                 //MaxSize = 52428800, // 50MB
+                //ExpireAfter = TimeSpan.FromDays(90),
                 TimeSeriesOptions = new TimeSeriesOptions(_timeField, "MeterName", TimeSeriesGranularity.Minutes)
             };
 
@@ -68,6 +92,7 @@ namespace Blocks.Genesis
             {
                 //Capped = true,
                 //MaxSize = 52428800, // 50MB
+                //ExpireAfter = TimeSpan.FromDays(90),
                 TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TenantId", TimeSeriesGranularity.Minutes)
             };
 

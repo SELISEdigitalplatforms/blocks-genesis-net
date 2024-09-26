@@ -12,9 +12,7 @@ namespace Blocks.Genesis
             if (activity != null)
             {
                 var tenantId = activity?.GetCustomProperty("TenantId")?.ToString();
-                tenantId = string.IsNullOrWhiteSpace(tenantId) ?
-                string.IsNullOrWhiteSpace(activity?.TraceStateString) ? BlocksConstants.Miscellaneous : activity.TraceStateString
-                    : tenantId;
+                tenantId = string.IsNullOrWhiteSpace(tenantId) ? BlocksConstants.Miscellaneous : tenantId;
 
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", tenantId));
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TraceId", activity?.TraceId));
