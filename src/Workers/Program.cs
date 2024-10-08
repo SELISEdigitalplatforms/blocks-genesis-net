@@ -22,11 +22,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         {
 
           //  services.AddSingleton<SecurityContext, BlocksContext>();
-            ApplicationConfigurations.ConfigureServices(services);
+            ApplicationConfigurations.ConfigureServices(services, messageConfiguration);
             services.AddHttpClient();
 
             services.AddSingleton<IConsumer<W1Context>, W1Consumer>();
             services.AddSingleton<IConsumer<W2Context>, W2Consumer>();
-
-            ApplicationConfigurations.ConfigureMessageConsumerAsync(services, messageConfiguration);
         });

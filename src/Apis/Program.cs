@@ -1,6 +1,5 @@
 using Blocks.Genesis;
 using Blocks.Genesis.Configuration;
-using MongoDB.Driver;
 
 
 
@@ -10,37 +9,20 @@ var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure services
 var services = builder.Services;
 
-//services.AddSingleton<IMongoClient, MongoClient>(sp => new MongoClient("mongodb://localhost:27017"));
-
-ApplicationConfigurations.ConfigureServices(services);
-ApplicationConfigurations.ConfigureAuth(services);
-
-ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
+ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
     Connection = blocksSecret.MessageConnectionString,
     Queues = new List<string> { "demo_queue_1" },
     Topics = new List<string> { "demo_topic_1" },
     ServiceName = _serviceName,
 });
+ApplicationConfigurations.ConfigureApi(services);
 
 var app = builder.Build();
 
-// Configure middleware
-if (app.Environment.IsDevelopment())
-{
-    app.UseDeveloperExceptionPage();
-}
-
-ApplicationConfigurations.ConfigureCustomMiddleware(app);
-
-app.UseRouting();
-
-ApplicationConfigurations.ConfigureAuthMiddleware(app);
-
-app.MapControllers();
+ApplicationConfigurations.ConfigureMiddleware(app);
 
 app.Run();
 

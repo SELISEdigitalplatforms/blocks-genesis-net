@@ -1,5 +1,7 @@
 ﻿using Blocks.Genesis.Middlewares;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -16,6 +18,7 @@ namespace Blocks.Genesis.Configuration
     {
         static string _serviceName = string.Empty;
         static IBlocksSecret _blocksSecret;
+        static BlocksSwaggerOptions _blocksSwaggerOptions;
 
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName) // initiateConfiguration(serviceName) this will be called before builder
         {
@@ -55,9 +58,20 @@ namespace Blocks.Genesis.Configuration
             return keyVaultConfig;
         }
 
-        public static void ConfigureServices(IServiceCollection services)
+        public static void ConfigureAppConfigs(WebApplicationBuilder builder, string[] args)
+        {
+            builder.Configuration
+            .AddCommandLine(args)
+            .AddEnvironmentVariables()
+            .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
+
+            _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
+        }
+
+        public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
+
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddSingleton<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
@@ -90,42 +104,96 @@ namespace Blocks.Genesis.Configuration
             });
 
             services.AddSingleton<IHttpService, HttpService>();
+
+            ConfigureMessageClient(services, messageConfiguration);
+
+            if(_blocksSwaggerOptions != null) services.AddBlocksSwagger(_blocksSwaggerOptions);
         }
 
-        public static void ConfigureAuth(IServiceCollection services)
+        public static void ConfigureApi(IServiceCollection services)
         {
             services.JwtBearerAuthentication();
             services.AddControllers();
             services.AddHttpClient();
         }
 
-        public static void ConfigureCustomMiddleware(IApplicationBuilder app)
+        public static void ConfigureMiddleware(WebApplication app)
         {
+            var enableHsts = app.Configuration.GetValue<bool>("EnableHsts");
+            if (enableHsts)
+            {
+                app.UseHsts();
+            }
+
+            app.UseHealthChecks("/ping", new HealthCheckOptions
+            {
+                Predicate = _ => true,
+                ResponseWriter = async (context, _) =>
+                {
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsJsonAsync(new { message = $"pong from {_serviceName}" });
+                }
+            });
+
+            // Enable CORS with specified configuration
+            app.UseCors(corsPolicyBuilder =>
+                corsPolicyBuilder
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .SetIsOriginAllowed(origin => true)
+                    .AllowCredentials()
+                    .SetPreflightMaxAge(TimeSpan.FromDays(365)));
+
+
+            // Custom middlewares
             app.UseMiddleware<TraceContextMiddleware>();
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-        }
 
-        public static void ConfigureAuthMiddleware(IApplicationBuilder app)
-        {
+            // Authentication and Authorization
             app.UseAuthentication();
             app.UseAuthorization();
+
+            // Routing must be called before mapping endpoints
+            app.UseRouting();
+
+
+            if(_blocksSwaggerOptions != null)
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI(options =>
+                {
+                    options.SwaggerEndpoint(_blocksSwaggerOptions.EndpointUrl, _blocksSwaggerOptions.Title);
+                    options.RoutePrefix = string.Empty;
+                    options.DisplayRequestDuration();
+                    options.EnableDeepLinking();
+                    options.EnableFilter();
+                });
+            }
+
+            // Map controllers or endpoints
+            app.MapControllers();
         }
 
-        public static void ConfigureMessageConsumerAsync(IServiceCollection services, MessageConfiguration messageConfiguration)
-        {
-            ConfigureMessage(services, messageConfiguration);
+        public static void ConfigureWorker(IServiceCollection services)
+        { 
             services.AddHostedService<AzureMessageWorker>();
             services.AddSingleton<Consumer>();
             var routingTable = new RoutingTable(services);
             services.AddSingleton(routingTable);
         }
 
-        public static void ConfigureMessage(IServiceCollection services, MessageConfiguration messageConfiguration)
+        private static void ConfigureMessageClient(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             services.AddSingleton(messageConfiguration);
             services.AddSingleton<IMessageClient, AzureMessageClient>();
             services.AddHostedService<HealthServiceWorker>();
+        }
+
+        private static string GetAppSettingsFileName()
+        {
+            var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            return string.IsNullOrWhiteSpace(currentEnvironment) ? "appsettings.json" : $"appsettings.{currentEnvironment}.json";
         }
     }
 }

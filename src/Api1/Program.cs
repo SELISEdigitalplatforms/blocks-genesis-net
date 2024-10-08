@@ -6,13 +6,12 @@ const string _serviceName = "Service-API-Test_One";
 var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName);
 var builder = WebApplication.CreateBuilder(args);
 
+ApplicationConfigurations.ConfigureAppConfigs(builder, args);
+
 // Configure services
 var services = builder.Services;
 
-ApplicationConfigurations.ConfigureServices(services);
-ApplicationConfigurations.ConfigureAuth(services);
-
-ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
+ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
     Connection = blocksSecret.MessageConnectionString,
     Queues = new List<string> { "demo_queue" },
@@ -20,20 +19,11 @@ ApplicationConfigurations.ConfigureMessage(services, new MessageConfiguration
     ServiceName = blocksSecret.ServiceName,
 });
 
+ApplicationConfigurations.ConfigureApi(services);
+
 var app = builder.Build();
 
-// Configure middleware
-if (app.Environment.IsDevelopment())
-{
-    app.UseDeveloperExceptionPage();
-}
 
-ApplicationConfigurations.ConfigureCustomMiddleware(app);
-
-app.UseRouting();
-
-ApplicationConfigurations.ConfigureAuthMiddleware(app);
-
-app.MapControllers();
+ApplicationConfigurations.ConfigureMiddleware(app);
 
 app.Run();
