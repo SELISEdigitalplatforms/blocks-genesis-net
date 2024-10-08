@@ -52,10 +52,10 @@ namespace Blocks.Genesis
             return SaveNewTenantDbConnection(tenantId);
         }
 
-        public IMongoDatabase GetDatabase()
+        public IMongoDatabase? GetDatabase()
         {
             var securityContext = BlocksContext.GetContext();
-            return GetDatabase(securityContext?.TenantId);
+            return securityContext == null || securityContext.TenantId == null ? null : GetDatabase(securityContext.TenantId);
         }
 
         public IMongoDatabase GetDatabase(string connectionString, string databaseName)
@@ -92,25 +92,25 @@ namespace Blocks.Genesis
 
             using var activity = _activitySource.StartActivity($"MongoDb::{action}", ActivityKind.Producer, currentActivity?.Context ?? default);
 
-            activity.AddTag("collectionName", collectionName);
-            activity.AddTag("operationType", action);
+            activity?.AddTag("collectionName", collectionName);
+            activity?.AddTag("operationType", action);
             activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
 
             try
             {
                 var result = mongoCommand();
-                activity.AddTag("Status", "Success");
+                activity?.AddTag("Status", "Success");
                 return result;
             }
             catch (Exception ex)
             {
-                activity.AddTag("Status", "Failure");
-                activity.AddTag("ExceptionMessage", ex.Message);
+                activity?.AddTag("Status", "Failure");
+                activity?.AddTag("ExceptionMessage", ex.Message);
                 throw;
             }
             finally
             {
-                activity.Stop();
+                activity?.Stop();
             }
         }
 
@@ -122,25 +122,25 @@ namespace Blocks.Genesis
 
             using var activity = _activitySource.StartActivity($"MongoDb::{action}", ActivityKind.Producer, currentActivity?.Context ?? default);
 
-            activity.AddTag("collectionName", collectionName);
-            activity.AddTag("operationType", action);
+            activity?.AddTag("collectionName", collectionName);
+            activity?.AddTag("operationType", action);
             activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
 
             try
             {
                 var result = await mongoCommand();
-                activity.AddTag("Status", "Success");
+                activity?.AddTag("Status", "Success");
                 return result;
             }
             catch (Exception ex)
             {
-                activity.AddTag("Status", "Failure");
-                activity.AddTag("ExceptionMessage", ex.Message);
+                activity?.AddTag("Status", "Failure");
+                activity?.AddTag("ExceptionMessage", ex.Message);
                 throw;
             }
             finally
             {
-                activity.Stop();
+                activity?.Stop();
             }
         }
 
