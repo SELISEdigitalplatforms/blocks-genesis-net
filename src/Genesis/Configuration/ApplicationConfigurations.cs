@@ -107,6 +107,8 @@ namespace Blocks.Genesis.Configuration
 
             ConfigureMessageClient(services, messageConfiguration);
 
+            services.AddHealthChecks();
+
             if(_blocksSwaggerOptions != null) services.AddBlocksSwagger(_blocksSwaggerOptions);
         }
 
@@ -144,6 +146,12 @@ namespace Blocks.Genesis.Configuration
                     .AllowCredentials()
                     .SetPreflightMaxAge(TimeSpan.FromDays(365)));
 
+            if (_blocksSwaggerOptions != null)
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI();
+            }
+
 
             // Custom middlewares
             app.UseMiddleware<TraceContextMiddleware>();
@@ -156,20 +164,6 @@ namespace Blocks.Genesis.Configuration
 
             // Routing must be called before mapping endpoints
             app.UseRouting();
-
-
-            if(_blocksSwaggerOptions != null)
-            {
-                app.UseSwagger();
-                app.UseSwaggerUI(options =>
-                {
-                    options.SwaggerEndpoint(_blocksSwaggerOptions.EndpointUrl, _blocksSwaggerOptions.Title);
-                    options.RoutePrefix = string.Empty;
-                    options.DisplayRequestDuration();
-                    options.EnableDeepLinking();
-                    options.EnableFilter();
-                });
-            }
 
             // Map controllers or endpoints
             app.MapControllers();

@@ -11,7 +11,13 @@
     <Version>1.0.0</Version>
   </PropertyGroup>
 
-	
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DocumentationFile>Blocks.Genesis.xml</DocumentationFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DocumentationFile>Blocks.Genesis.xml</DocumentationFile>
+  </PropertyGroup>
+
 
   <ItemGroup>
     <ProjectReference Include="..\Genesis\Blocks.Genesis.csproj" />
