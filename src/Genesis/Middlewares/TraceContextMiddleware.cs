@@ -3,7 +3,7 @@ using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.Diagnostics;
 
-namespace Blocks.Genesis.Middlewares
+namespace Blocks.Genesis
 {
     public class TraceContextMiddleware
     {

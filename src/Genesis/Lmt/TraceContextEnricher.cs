@@ -1,6 +1,6 @@
 ﻿using Serilog.Core;
 using Serilog.Events;
-    using System.Diagnostics;
+using System.Diagnostics;
 
 namespace Blocks.Genesis
 {

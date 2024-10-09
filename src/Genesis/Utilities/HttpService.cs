@@ -1,5 +1,4 @@
-﻿using Azure.Core;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Polly;
 using Polly.Retry;

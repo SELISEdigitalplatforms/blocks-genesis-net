@@ -1,5 +1,4 @@
-﻿using Blocks.Genesis.Middlewares;
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -12,7 +11,7 @@ using OpenTelemetry.Trace;
 using Serilog;
 using System.Diagnostics;
 
-namespace Blocks.Genesis.Configuration
+namespace Blocks.Genesis
 {
     public static class ApplicationConfigurations
     {
@@ -109,7 +108,7 @@ namespace Blocks.Genesis.Configuration
 
             services.AddHealthChecks();
 
-            if(_blocksSwaggerOptions != null) services.AddBlocksSwagger(_blocksSwaggerOptions);
+            if (_blocksSwaggerOptions != null) services.AddBlocksSwagger(_blocksSwaggerOptions);
         }
 
         public static void ConfigureApi(IServiceCollection services)
@@ -170,7 +169,7 @@ namespace Blocks.Genesis.Configuration
         }
 
         public static void ConfigureWorker(IServiceCollection services)
-        { 
+        {
             services.AddHostedService<AzureMessageWorker>();
             services.AddSingleton<Consumer>();
             var routingTable = new RoutingTable(services);
