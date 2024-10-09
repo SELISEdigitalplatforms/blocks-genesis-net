@@ -11,7 +11,6 @@ var messageConfiguration = new MessageConfiguration
     Topics = new List<string> { "demo_topic", "demo_topic_1" }
 };
 
-await ConfigerAzureServiceBus.ConfigerQueueAndTopicAsync(messageConfiguration);
 await CreateHostBuilder(args).Build().RunAsync();
 
 IHostBuilder CreateHostBuilder(string[] args) =>
@@ -24,4 +23,6 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.AddSingleton<IConsumer<W1Context>, W1Consumer>();
             services.AddSingleton<IConsumer<W2Context>, W2Consumer>();
+
+            ApplicationConfigurations.ConfigureWorker(services);
         });

@@ -1,5 +1,4 @@
 using Blocks.Genesis;
-using Blocks.Genesis.Configuration;
 using WorkerTwo;
 
 
@@ -14,7 +13,6 @@ var messageConfiguration = new MessageConfiguration
     ServiceName = blocksSecrets.ServiceName,
 };
 
-await ConfigerAzureServiceBus.ConfigerQueueAndTopicAsync(messageConfiguration); 
 await CreateHostBuilder(args).Build().RunAsync();
 
 IHostBuilder CreateHostBuilder(string[] args) =>
@@ -26,4 +24,6 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.AddSingleton<IConsumer<W1Context>, W1Consumer>();
             services.AddSingleton<IConsumer<W2Context>, W2Consumer>();
+
+            ApplicationConfigurations.ConfigureWorker(services);
         });
