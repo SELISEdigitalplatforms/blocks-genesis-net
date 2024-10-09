@@ -75,7 +75,7 @@ namespace Blocks.Genesis
                     }
                 }
 
-                return JsonConvert.DeserializeObject<BlocksContext>(value);
+                return JsonConvert.DeserializeObject<BlocksContext>(value ?? "");
             }
             catch (Exception ex)
             {

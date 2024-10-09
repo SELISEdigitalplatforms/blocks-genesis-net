@@ -30,11 +30,11 @@ namespace Blocks.Genesis.Configuration
 
             // for tracing collection will be created by TenantIds. it will create from tenants caching
             // create miscellaneous tracing collection if not exist. it is for non tenant tracing.
-            await LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
+            LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
             // Service wise collection creation for log
-            await LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, _serviceName);
+            LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, _serviceName);
             // Service wise collection creation for metrics
-            await LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, _serviceName);
+            LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, _serviceName);
 
 
 

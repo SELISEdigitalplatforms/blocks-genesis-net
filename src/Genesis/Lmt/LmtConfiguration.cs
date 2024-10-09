@@ -24,7 +24,7 @@ namespace Blocks.Genesis
             return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
         }
 
-        public static async Task CreateCollectionForHealth(string connection)
+        public static void CreateCollectionForHealth(string connection)
         {
             var options = new CreateCollectionOptions
             {
@@ -35,8 +35,8 @@ namespace Blocks.Genesis
 
             try
             {
-                await CreateCollectionIfNotExistsAsync(connection, HealthDatabaseName, HealthDatabaseName, options);
-                await CreateIndexAsync(connection, HealthDatabaseName, HealthDatabaseName, new BsonDocument { { "ServiceName", 1 }, { _timeField, -1 } });
+                CreateCollectionIfNotExists(connection, HealthDatabaseName, HealthDatabaseName, options);
+                CreateIndex(connection, HealthDatabaseName, HealthDatabaseName, new BsonDocument { { "ServiceName", 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {
@@ -44,7 +44,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public static async Task CreateCollectionForTrace(string connection, string collectionName)
+        public static void CreateCollectionForTrace(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
             {
@@ -56,8 +56,8 @@ namespace Blocks.Genesis
 
             try
             {
-                await CreateCollectionIfNotExistsAsync(connection, TraceDatabaseName, collectionName, options);
-                await CreateIndexAsync(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TraceId", 1 }, { _timeField, -1 } });
+                CreateCollectionIfNotExists(connection, TraceDatabaseName, collectionName, options);
+                CreateIndex(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TraceId", 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {
@@ -65,7 +65,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public static async Task CreateCollectionForMetrics(string connection, string collectionName)
+        public static void CreateCollectionForMetrics(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
             {
@@ -77,8 +77,8 @@ namespace Blocks.Genesis
 
             try
             {
-                await CreateCollectionIfNotExistsAsync(connection, MetricDatabaseName, collectionName, options);
-                await CreateIndexAsync(connection, MetricDatabaseName, collectionName, new BsonDocument { { "MeterName", 1 }, { _timeField, -1 } });
+                CreateCollectionIfNotExists(connection, MetricDatabaseName, collectionName, options);
+                CreateIndex(connection, MetricDatabaseName, collectionName, new BsonDocument { { "MeterName", 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {
@@ -86,7 +86,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public static async Task CreateCollectionForLogs(string connection, string collectionName)
+        public static void CreateCollectionForLogs(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
             {
@@ -98,8 +98,8 @@ namespace Blocks.Genesis
 
             try
             {
-                await CreateCollectionIfNotExistsAsync(connection, LogDatabaseName, collectionName, options);
-                await CreateIndexAsync(connection, LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { _timeField, -1 } });
+                CreateCollectionIfNotExists(connection, LogDatabaseName, collectionName, options);
+                CreateIndex(connection, LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { _timeField, -1 } });
             }
             catch (Exception ex)
             {
@@ -107,16 +107,16 @@ namespace Blocks.Genesis
             }
         }
 
-        private static async Task CreateCollectionIfNotExistsAsync(string connection, string databaseName, string collectionName, CreateCollectionOptions options)
+        private static void CreateCollectionIfNotExists(string connection, string databaseName, string collectionName, CreateCollectionOptions options)
         {
             try
             {
                 var database = GetMongoDatabase(connection, databaseName);
-                var collectionExists = await CollectionExistsAsync(database, collectionName);
+                var collectionExists = CollectionExists(database, collectionName);
 
                 if (!collectionExists)
                 {
-                    await database.CreateCollectionAsync(collectionName, options);
+                    database.CreateCollection(collectionName, options);
                     Console.WriteLine($"Created collection '{collectionName}' in database '{databaseName}'");
                 }
                 else
@@ -131,20 +131,20 @@ namespace Blocks.Genesis
             }
         }
 
-        private static async Task<bool> CollectionExistsAsync(IMongoDatabase database, string collectionName)
+        private static bool CollectionExists(IMongoDatabase database, string collectionName)
         {
             var filter = new BsonDocument("name", collectionName);
             var options = new ListCollectionNamesOptions { Filter = filter };
 
-            var collections = await database.ListCollectionNamesAsync(options);
-            return await collections.AnyAsync();
+            var collections = database.ListCollectionNames(options);
+            return collections.Any();
         }
 
-        public static async Task CreateIndexAsync(string connection, string databaseName, string collectionName, BsonDocument indexKeys)
+        public static void CreateIndex(string connection, string databaseName, string collectionName, BsonDocument indexKeys)
         {
             var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
             var indexModel = new CreateIndexModel<BsonDocument>(indexKeys);
-            await collection.Indexes.CreateOneAsync(indexModel);
+            collection.Indexes.CreateOne(indexModel);
             Console.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
         }
     }

@@ -11,7 +11,7 @@ namespace Blocks.Genesis
             {
                 //BufferingTimeLimit = TimeSpan.FromSeconds(3),
                 BatchSizeLimit = 1000,
-                EagerlyEmitFirstEvent = false
+                //EagerlyEmitFirstEvent = false
             });
         }
     }

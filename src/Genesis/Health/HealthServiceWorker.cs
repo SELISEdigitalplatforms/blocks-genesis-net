@@ -25,7 +25,7 @@ namespace Blocks.Genesis
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            await LmtConfiguration.CreateCollectionForHealth(_blocksSecret.DatabaseConnectionString);
+            LmtConfiguration.CreateCollectionForHealth(_blocksSecret.DatabaseConnectionString);
             await CheckServiceBusHealth();
 
             while (!stoppingToken.IsCancellationRequested)
