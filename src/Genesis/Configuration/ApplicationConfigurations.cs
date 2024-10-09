@@ -178,6 +178,8 @@ namespace Blocks.Genesis
 
         private static void ConfigureMessageClient(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
+            messageConfiguration.Connection = string.IsNullOrWhiteSpace(messageConfiguration.Connection) ? _blocksSecret.MessageConnectionString : messageConfiguration.Connection;
+            messageConfiguration.ServiceName = string.IsNullOrWhiteSpace(messageConfiguration.ServiceName) ? _serviceName : messageConfiguration.ServiceName;
             services.AddSingleton(messageConfiguration);
             services.AddSingleton<IMessageClient, AzureMessageClient>();
             services.AddHostedService<HealthServiceWorker>();

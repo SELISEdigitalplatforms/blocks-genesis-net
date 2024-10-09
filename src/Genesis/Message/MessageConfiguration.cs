@@ -1,11 +1,11 @@
 ﻿namespace Blocks.Genesis
 {
-    public record MessageConfiguration
+    public class MessageConfiguration
     {
         private List<string> _queues = new List<string>();
         private List<string> _topics = new List<string>();
 
-        public required string Connection { get; init; }
+        public string Connection { get; set; }
         public List<string> Queues
         {
             get => _queues;
@@ -36,7 +36,7 @@
         public TimeSpan TopicDefaultMessageTimeToLive { get; set; } = TimeSpan.FromMinutes(60 * 24 * 30);
         public int TopicSubscriptionMaxDeliveryCount { get; set; } = 5;
         public TimeSpan TopicSubscriptionDefaultMessageTimeToLive { get; set; } = TimeSpan.FromMinutes(60 * 24 * 7);
-        public required string ServiceName { get; init; }
+        public string ServiceName { get; set; }
 
         public string GetSubscriptionName(string topicName)
         {

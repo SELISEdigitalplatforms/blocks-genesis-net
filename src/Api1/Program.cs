@@ -1,5 +1,4 @@
 ﻿using Blocks.Genesis;
-using Blocks.Genesis.Configuration;
 
 const string _serviceName = "Service-API-Test_One";
 
@@ -13,10 +12,8 @@ var services = builder.Services;
 
 ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
-    Connection = blocksSecret.MessageConnectionString,
     Queues = new List<string> { "demo_queue" },
-    Topics = new List<string> { "demo_topic" },
-    ServiceName = blocksSecret.ServiceName,
+    Topics = new List<string> { "demo_topic" }
 });
 
 ApplicationConfigurations.ConfigureApi(services);

@@ -1,5 +1,4 @@
 using Blocks.Genesis;
-using Blocks.Genesis.Configuration;
 using WorkerOne;
 
 
@@ -8,10 +7,8 @@ var blocksSecrets = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(
 
 var messageConfiguration = new MessageConfiguration
 {
-    Connection = blocksSecrets.MessageConnectionString,
     Queues = new List<string> { "demo_queue" },
-    Topics = new List<string> { "demo_topic", "demo_topic_1" },
-    ServiceName = blocksSecrets.ServiceName,
+    Topics = new List<string> { "demo_topic", "demo_topic_1" }
 };
 
 await ConfigerAzureServiceBus.ConfigerQueueAndTopicAsync(messageConfiguration);
@@ -21,7 +18,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args).ConfigureServices((services) =>
         {
 
-          //  services.AddSingleton<SecurityContext, BlocksContext>();
+            //  services.AddSingleton<SecurityContext, BlocksContext>();
             ApplicationConfigurations.ConfigureServices(services, messageConfiguration);
             services.AddHttpClient();
 
