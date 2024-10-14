@@ -54,6 +54,8 @@ namespace Blocks.Genesis
                 // Add support for JWT Bearer token authentication
                 EnableAuthorization(options, blocksSwaggerOptions.EnableBearerAuth);
 
+                // Add custom header support for API key
+                AddCustomHeader(options, BlocksConstants.BlocksKey, "API key needed to access the endpoints.");
             });
         }
 
@@ -84,7 +86,7 @@ namespace Blocks.Genesis
                         Reference = new OpenApiReference
                         {
                             Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
+                            Id = JwtBearerDefaults.AuthenticationScheme
                         }
                     },
                     Array.Empty<string>()
@@ -92,5 +94,38 @@ namespace Blocks.Genesis
             });
         }
 
+        private static void AddCustomHeader(SwaggerGenOptions options, string headerName, string description)
+        {
+            var securityScheme = new OpenApiSecurityScheme
+            {
+                Name = headerName,
+                Description = description,
+                In = ParameterLocation.Header,
+                Type = SecuritySchemeType.ApiKey,
+                Scheme = headerName,
+                Reference = new OpenApiReference
+                {
+                    Id = headerName,
+                    Type = ReferenceType.SecurityScheme
+                }
+            };
+
+            options.AddSecurityDefinition(headerName, securityScheme);
+
+            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+            {
+                {
+                    new OpenApiSecurityScheme
+                    {
+                        Reference = new OpenApiReference
+                        {
+                            Type = ReferenceType.SecurityScheme,
+                            Id = headerName
+                        }
+                    },
+                    Array.Empty<string>()
+                }
+            });
+        }
     }
 }

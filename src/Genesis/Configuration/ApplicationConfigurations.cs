@@ -52,7 +52,7 @@ namespace Blocks.Genesis
         {
             var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
             var keyVaultConfig = new Dictionary<string, string>();
-            configuration.GetSection("KeyVault").Bind(keyVaultConfig);
+            configuration.GetSection(BlocksConstants.KeyVault).Bind(keyVaultConfig);
 
             return keyVaultConfig;
         }
