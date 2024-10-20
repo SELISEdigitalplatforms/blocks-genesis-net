@@ -1,23 +1,19 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using System.Text;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
     public class GlobalExceptionHandlerMiddleware
     {
         private readonly RequestDelegate _next;
-        private static readonly JsonSerializer jsonSerializer = new JsonSerializer();
         private readonly ILogger<GlobalExceptionHandlerMiddleware> _logger;
 
         public const string EmptyJsonBodyString = "Empty";
         public const string JsonContentType = "application/json";
 
-
-        public GlobalExceptionHandlerMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlerMiddleware> logger, IBlocksSecret blocksSecret)
+        public GlobalExceptionHandlerMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlerMiddleware> logger)
         {
             _next = next;
             _logger = logger;
@@ -37,26 +33,20 @@ namespace Blocks.Genesis
 
         private async Task HandleExceptionAsync(HttpContext context, Exception exception)
         {
-            var jwtToken = GetJwtToken(context);
             var requestPayload = EmptyJsonBodyString;
-            var logMessage = $"Unhandled exception thrown on request Trace: [{context.TraceIdentifier}] Method: [{context.Request.Method}] {context.Request.GetDisplayUrl()} : {exception.Message}.\r\nPayload: {requestPayload}\r\nToken: {jwtToken}";
+
+            var logMessage = $"Unhandled exception thrown on request Trace: [{context.TraceIdentifier}] " +
+                             $"Method: [{context.Request.Method}] {context.Request.GetDisplayUrl()} : {exception.Message}.\r\n" +
+                             $"Payload: {requestPayload}";
+
             _logger.LogError(exception, "{Message}", logMessage);
+
             context.Response.ContentType = JsonContentType;
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
 
-            using (var writer = new HttpResponseStreamWriter(context.Response.Body, Encoding.UTF8))
-            {
-                jsonSerializer.Serialize(writer, exception.Message);
-                await writer.FlushAsync();
-            }
-        }
+            var errorResponse = new { Message = "An error occurred while processing your request." };
 
-        private static string GetJwtToken(HttpContext context)
-        {
-            return context.User.HasClaim(claim => claim.Type.Equals("OauthBearerToken")) ?
-                context.User.Claims.First(c => c.Type.Equals("OauthBearerToken")).Value : string.Empty;
+            await JsonSerializer.SerializeAsync(context.Response.Body, errorResponse, new JsonSerializerOptions { WriteIndented = true });
         }
     }
 }
-
-

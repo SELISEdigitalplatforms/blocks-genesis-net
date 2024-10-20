@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
-using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -30,7 +30,7 @@ namespace Blocks.Genesis
                 Url = context.Request.Path.ToString(),
                 Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
             };
-            activity.SetCustomProperty("Request", JsonConvert.SerializeObject(requestInfo));
+            activity.SetCustomProperty("Request", JsonSerializer.Serialize(requestInfo));
 
             // Process the request
             await _next(context);
@@ -41,7 +41,7 @@ namespace Blocks.Genesis
                 StatusCode = context.Response.StatusCode,
                 Headers = context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
             };
-            activity.SetCustomProperty("Response", JsonConvert.SerializeObject(response));
+            activity.SetCustomProperty("Response", JsonSerializer.Serialize(response));
         }
     }
 }

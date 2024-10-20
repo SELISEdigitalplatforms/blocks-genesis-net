@@ -1,9 +1,9 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Driver;
-using Newtonsoft.Json;
 using OpenTelemetry;
-using System.Diagnostics;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -52,7 +52,7 @@ namespace Blocks.Genesis
                 { "Attributes", new BsonDocument(data?.Tags?.ToDictionary() ?? new Dictionary<string, string?>()) },
                 { "Status", data?.Status.ToString() ?? string.Empty },
                 { "StatusDescription", data?.StatusDescription ?? string.Empty },
-                { "Baggage", JsonConvert.SerializeObject(data?.Baggage) },
+                { "Baggage", JsonSerializer.Serialize(data?.Baggage) },
                 { "ServiceName", _serviceName },
                 { "TenantId", tenantId },
                 { "Request", data?.GetCustomProperty("Request")?.ToString() ?? string.Empty },

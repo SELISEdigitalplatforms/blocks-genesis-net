@@ -41,8 +41,8 @@ namespace Blocks.Genesis
                             { "_id", Guid.NewGuid().ToString() },
                             { "ServiceName", _blocksSecret.ServiceName },
                             { "Timestamp", DateTime.UtcNow },
-                            {"ServiceStatus", true },
-                            {"DatabaseStatus", isMongoDbHealthy },
+                            { "ServiceStatus", true },
+                            { "DatabaseStatus", isMongoDbHealthy },
                             { "CacheStatus", isRedisHealthy },
                             { "EventStatus", isServiceBusHealthy }
                         };

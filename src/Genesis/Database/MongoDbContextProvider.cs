@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
-using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -35,7 +35,7 @@ namespace Blocks.Genesis
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError("Unable to load tenant Data context for: {tenantId} due to an exception. Exception details: {ex}", tenantId, JsonConvert.SerializeObject(ex));
+                    _logger.LogError("Unable to load tenant Data context for: {tenantId} due to an exception. Exception details: {ex}", tenantId, JsonSerializer.Serialize(ex));
                 }
             }
         }

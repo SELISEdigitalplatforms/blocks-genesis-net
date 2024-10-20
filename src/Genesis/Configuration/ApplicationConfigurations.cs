@@ -120,7 +120,7 @@ namespace Blocks.Genesis
 
         public static void ConfigureMiddleware(WebApplication app)
         {
-            var enableHsts = app.Configuration.GetValue<bool>("EnableHsts");
+            var enableHsts = _blocksSecret.EnableHsts || app.Configuration.GetValue<bool>("EnableHsts");
             if (enableHsts)
             {
                 app.UseHsts();

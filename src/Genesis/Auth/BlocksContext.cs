@@ -1,6 +1,6 @@
-﻿using Newtonsoft.Json;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -23,8 +23,7 @@ namespace Blocks.Genesis
         public string OrganizationId { get; private init; }
         public bool IsAuthenticated { get; private init; }
 
-        // Constructor for JSON deserialization
-        [JsonConstructor]
+
         private BlocksContext(
             string tenantId,
             IEnumerable<string> roles,
@@ -52,7 +51,7 @@ namespace Blocks.Genesis
             var organizationId = claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty;
             var isAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var result) && result;
 
-            return new BlocksContext( tenantId, roles, userId, isAuthenticated, requestUri, organizationId);
+            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId);
         }
 
         internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId) tuple)
@@ -71,11 +70,11 @@ namespace Blocks.Genesis
                     if (activity != null)
                     {
                         var contextJson = activity.GetCustomProperty("SecurityContext")?.ToString();
-                        return string.IsNullOrWhiteSpace(contextJson) ? null : JsonConvert.DeserializeObject<BlocksContext>(contextJson);
+                        return string.IsNullOrWhiteSpace(contextJson) ? null : JsonSerializer.Deserialize<BlocksContext>(contextJson);
                     }
                 }
 
-                return JsonConvert.DeserializeObject<BlocksContext>(value ?? "");
+                return JsonSerializer.Deserialize<BlocksContext>(value ?? "");
             }
             catch (Exception ex)
             {

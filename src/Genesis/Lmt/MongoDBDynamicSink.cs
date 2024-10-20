@@ -1,5 +1,4 @@
 ﻿using MongoDB.Bson;
-using Newtonsoft.Json;
 using Serilog.Core;
 using Serilog.Events;
 
@@ -34,15 +33,7 @@ namespace Blocks.Genesis
                 foreach (var property in logEvent.Properties)
                 {
                     var prop = property.Value.ToString();
-                    try
-                    {
-                        document[property.Key] = JsonConvert.DeserializeObject<string>(prop);
-                    }
-                    catch (Exception)
-                    {
-                        document[property.Key] = prop;
-                    }
-
+                    document[property.Key] = prop;
                 }
             }
 

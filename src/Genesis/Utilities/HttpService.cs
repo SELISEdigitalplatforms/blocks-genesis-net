@@ -1,13 +1,13 @@
 ﻿using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using Polly;
 using Polly.Retry;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
-    internal class HttpService : IHttpService
+    public class HttpService : IHttpService
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<HttpService> _logger;
@@ -22,90 +22,68 @@ namespace Blocks.Genesis
 
             // Define the Polly retry policy (3 retries with exponential backoff)
             _retryPolicy = Policy
-                .HandleResult<HttpResponseMessage>(r => !r.IsSuccessStatusCode) // Retry on any non-success HTTP status code
+                .HandleResult<HttpResponseMessage>(r => !r.IsSuccessStatusCode)
                 .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                     (result, timeSpan, retryCount, context) =>
                     {
                         _logger.LogWarning($"Request failed. Waiting {timeSpan} before retry {retryCount}. Status code: {result.Result.StatusCode}");
+
+                        // Add activity for each retry attempt
+                        using (var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal))
+                        {
+                            retryActivity?.AddTag("retry.count", retryCount.ToString());
+                            retryActivity?.AddTag("retry.waitTime", timeSpan.ToString());
+                            retryActivity?.AddTag("retry.statusCode", result.Result.StatusCode.ToString());
+                            retryActivity?.AddTag("url.full", context["url"]?.ToString());
+                            retryActivity?.Stop();
+                        }
                     });
         }
 
         public async Task<(T, string)> MakePostRequest<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
         {
-            var securityContext = BlocksContext.GetContext();
-            using (var client = _httpClientFactory.CreateClient())
-            using (var activity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client))
-            {
-                activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
-                activity?.SetCustomProperty("SecurityContext", JsonConvert.SerializeObject(securityContext));
-                // Set custom parameters in the activity
-                activity?.AddTag("url.full", url);
-                activity?.AddTag("payloadType", payload.GetType().Name);
-                activity?.AddTag("server.address", new Uri(url).Host);
-
-                using (var request = new HttpRequestMessage(HttpMethod.Post, url))
-                {
-                    activity?.AddTag("http.request.method", request.Method.ToString());
-                    // Set the request content and headers
-                    request.Content = new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, contentType);
-
-                    if (header != null)
-                    {
-                        foreach (var key in header.Keys)
-                        {
-                            request.Headers.Add(key, header[key]);
-                        }
-                    }
-
-                    request.Headers.Add("traceparent", activity.Id);
-
-                    try
-                    {
-                        // Send the HTTP request with Polly retry policy
-                        var response = await _retryPolicy.ExecuteAsync(() => client.SendAsync(request));
-
-                        // Handle success
-                        if (response.IsSuccessStatusCode)
-                        {
-                            var result = JsonConvert.DeserializeObject<T>(await response.Content.ReadAsStringAsync());
-                            _logger.LogInformation("Result:  {result}", JsonConvert.SerializeObject(result));
-                            return (result, string.Empty);
-                        }
-                        else
-                        {
-                            // Log and return failure
-                            _logger.LogError("Error: {response}", JsonConvert.SerializeObject(response));
-                            return (null, "Operation failed");
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        _logger.LogError("Error: {error}", JsonConvert.SerializeObject(e));
-                        return (null, e.Message);
-                    }
-                    finally
-                    {
-                        activity?.Stop(); // Stop the activity
-                    }
-                }
-            }
+            return await MakeRequest<T>(HttpMethod.Post, url, payload, contentType, header);
         }
 
         public async Task<(T, string)> MakeGetRequest<T>(string url, Dictionary<string, string> header = null) where T : class
         {
+            return await MakeRequest<T>(HttpMethod.Get, url, null, null, header);
+        }
+
+        public async Task<(T, string)> MakePutRequest<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        {
+            return await MakeRequest<T>(HttpMethod.Put, url, payload, contentType, header);
+        }
+
+        public async Task<(T, string)> MakeDeleteRequest<T>(string url, Dictionary<string, string> header = null) where T : class
+        {
+            return await MakeRequest<T>(HttpMethod.Delete, url, null, null, header);
+        }
+
+        public async Task<(T, string)> MakePatchRequest<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        {
+            return await MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, header);
+        }
+
+        private async Task<(T, string)> MakeRequest<T>(HttpMethod method, string url, object payload = null, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        {
             var securityContext = BlocksContext.GetContext();
             using (var client = _httpClientFactory.CreateClient())
-            using (var activity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client))
+            using (var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client))
             {
-                activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
-                activity?.SetCustomProperty("SecurityContext", JsonConvert.SerializeObject(securityContext));
-                // Set custom parameters in the activity
-                activity?.AddTag("url.full", url);
-                activity?.AddTag("server.address", new Uri(url).Host);
+                requestActivity?.SetCustomProperty("TenantId", securityContext?.TenantId);
+                requestActivity?.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityContext));
+                requestActivity?.AddTag("url.full", url);
+                requestActivity?.AddTag("server.address", new Uri(url).Host);
+                requestActivity?.AddTag("http.request.method", method.Method);
 
-                using (var request = new HttpRequestMessage(HttpMethod.Get, url))
+                using (var request = new HttpRequestMessage(method, url))
                 {
-                    activity?.AddTag("http.request.method", request.Method.ToString());
+                    if (payload != null)
+                    {
+                        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, contentType);
+                        requestActivity?.AddTag("payload.size", request.Content.Headers.ContentLength.ToString());
+                    }
 
                     if (header != null)
                     {
@@ -114,34 +92,47 @@ namespace Blocks.Genesis
                             request.Headers.Add(key, header[key]);
                         }
                     }
-                    request.Headers.Add("traceparent", activity.Id);
 
+                    request.Headers.Add("traceparent", requestActivity?.Id);
 
                     try
                     {
-                        // Send the HTTP GET request with Polly retry policy
-                        var response = await _retryPolicy.ExecuteAsync(() => client.SendAsync(request));
+                        requestActivity?.Start();
+
+                        var response = await _retryPolicy.ExecuteAsync(context =>
+                        {
+                            context["url"] = url; // Add context for the retry activity
+                            return client.SendAsync(request);
+                        }, new Context());
+
+                        requestActivity?.AddTag("http.response.status_code", response.StatusCode.ToString());
+                        requestActivity?.AddTag("http.response.size", response.Content.Headers.ContentLength.ToString());
 
                         if (response.IsSuccessStatusCode)
                         {
-                            var result = JsonConvert.DeserializeObject<T>(await response.Content.ReadAsStringAsync());
-                            _logger.LogInformation("Result:  {result}", JsonConvert.SerializeObject(result));
+                            var result = JsonSerializer.Deserialize<T>(await response.Content.ReadAsStringAsync());
+                            requestActivity?.AddTag("response.type", typeof(T).Name);
+
+                            _logger.LogInformation("Result: {result}", JsonSerializer.Serialize(result));
                             return (result, string.Empty);
                         }
                         else
                         {
-                            _logger.LogError("Error: {response}", JsonConvert.SerializeObject(response));
+                            _logger.LogError("Error: {response}", JsonSerializer.Serialize(response));
                             return (null, "Operation failed");
                         }
                     }
                     catch (Exception e)
                     {
-                        _logger.LogError("Error: {error}", JsonConvert.SerializeObject(e));
+                        requestActivity?.AddTag("error.message", e.Message);
+                        requestActivity?.AddTag("error.type", e.GetType().Name);
+
+                        _logger.LogError("Error: {error}", e);
                         return (null, e.Message);
                     }
                     finally
                     {
-                        activity.Stop(); // Stop the activity
+                        requestActivity?.Stop();
                     }
                 }
             }

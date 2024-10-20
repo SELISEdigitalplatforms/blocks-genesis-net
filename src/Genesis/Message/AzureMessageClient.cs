@@ -1,8 +1,8 @@
 ﻿using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -44,24 +44,24 @@ namespace Blocks.Genesis
             var securityContext = BlocksContext.GetContext();
 
             using var activity = _activitySource.StartActivity("SendMessageToConsumer", ActivityKind.Producer, currentActivity?.Context ?? default);
-   
+
             activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
-            activity?.SetTag("consumer", JsonConvert.SerializeObject(consumerMessage));
+            activity?.SetTag("consumer", JsonSerializer.Serialize(consumerMessage));
 
             var sender = GetSender(consumerMessage.ConsumerName);
             var messageBody = new Message
             {
-                Body = JsonConvert.SerializeObject(consumerMessage.Payload),
+                Body = JsonSerializer.Serialize(consumerMessage.Payload),
                 Type = consumerMessage.Payload.GetType().Name
             };
 
-            var message = new ServiceBusMessage(JsonConvert.SerializeObject(messageBody))
+            var message = new ServiceBusMessage(JsonSerializer.Serialize(messageBody))
             {
                 ApplicationProperties =
                     {
                         ["TraceId"] = activity?.TraceId.ToString(),
-                        ["SpanId"] = activity?.SpanId.ToString(), 
-                        ["SecurityContext"] = JsonConvert.SerializeObject(securityContext)
+                        ["SpanId"] = activity?.SpanId.ToString(),
+                        ["SecurityContext"] = JsonSerializer.Serialize(securityContext)
                     }
             };
 

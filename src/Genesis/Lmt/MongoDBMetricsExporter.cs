@@ -1,8 +1,8 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Driver;
-using Newtonsoft.Json;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -34,7 +34,7 @@ namespace Blocks.Genesis
                         { "MeterName", data.MeterName },
                         { "Timestamp", DateTime.UtcNow },
                         { "ServiceName", _serviceName },
-                        { "Tags", JsonConvert.SerializeObject(metricPoint.Tags) },
+                        { "Tags", JsonSerializer.Serialize(metricPoint.Tags) },
                         { "StartTime", metricPoint.StartTime.ToString() },
                         { "EndTime", metricPoint.EndTime.ToString() }
                     };

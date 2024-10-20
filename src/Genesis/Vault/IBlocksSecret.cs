@@ -13,5 +13,6 @@
         public string ServiceName { get; set; }
         public string DatabaseConnectionString { get; set; }
         public string RooDatabaseName { get; set; }
+        public bool EnableHsts { get; set; }
     }
 }

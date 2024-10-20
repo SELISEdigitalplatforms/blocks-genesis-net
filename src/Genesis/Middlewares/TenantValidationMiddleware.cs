@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
-using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -65,8 +65,8 @@ namespace Blocks.Genesis
             if (activity != null)
             {
                 var securityData = BlocksContext.CreateFromTuple((tenant.TenantId, Array.Empty<string>(), string.Empty, false, tenant.ApplicationDomain, string.Empty));
-        
-                activity.SetCustomProperty("SecurityContext", JsonConvert.SerializeObject(securityData));
+
+                activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
             }
         }
     }

@@ -1,5 +1,5 @@
 ﻿using Blocks.Genesis;
-using Newtonsoft.Json;
+using System.Text.Json;
 
 namespace WorkerOne
 {
@@ -15,7 +15,7 @@ namespace WorkerOne
         public async Task Consume(W2Context context)
         {
             var sc = BlocksContext.GetContext();
-            _logger.LogInformation("Message recieved in W2 Worker One: {message} ", JsonConvert.SerializeObject(sc) );
+            _logger.LogInformation("Message recieved in W2 Worker One: {message} ", JsonSerializer.Serialize(sc));
         }
     }
 

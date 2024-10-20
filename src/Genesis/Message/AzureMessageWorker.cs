@@ -1,8 +1,8 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -145,7 +145,7 @@ namespace Blocks.Genesis
             activity?.SetCustomProperty("SecurityContext", securityContextString);
 
             // TenantId is most important perameter, without this we cannot store the trace
-            
+
             activity.SetCustomProperty("TenantId", securityContext?.TenantId);
 
             string body = args.Message.Body.ToString();
@@ -154,7 +154,7 @@ namespace Blocks.Genesis
 
             try
             {
-                var message = JsonConvert.DeserializeObject<Message>(body);
+                var message = JsonSerializer.Deserialize<Message>(body);
 
                 await _consumer.ProcessMessageAsync(message.Type, message.Body);
 
@@ -165,7 +165,7 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error completing message");
-                activity.SetCustomProperty("Response", JsonConvert.SerializeObject(ex));
+                activity.SetCustomProperty("Response", JsonSerializer.Serialize(ex));
             }
             finally
             {
