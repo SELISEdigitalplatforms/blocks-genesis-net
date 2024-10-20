@@ -38,9 +38,7 @@ namespace ApiOne
             _logger.LogInformation("S1 send an event to B1");
 
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
-            Func<Task<List<W2Context>>> command = async () => await collection.Find(_ => true).ToListAsync();
-
-            var result = await _dbContextProvider.RunMongoCommandWithActivityAsync("W2Context", "Find", command);
+            var result = await collection.Find(_ => true).ToListAsync();
 
             return Ok(result);
         }
@@ -52,14 +50,10 @@ namespace ApiOne
                 new Dictionary<string, string> { { BlocksConstants.BlocksKey, "***REMOVED***" } });
 
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
-            Func<bool> command = () =>
-            {
-                collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString()});
-                return true;
-            };
-            var result = _dbContextProvider.RunMongoCommandWithActivity("W2Context", "Insert", command);
 
-            _logger.LogInformation("S1 call to S2 {r}", result);
+            collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString() });
+
+            _logger.LogInformation("S1 call to S2 {r}", true);
         }
     }
 
