@@ -100,6 +100,8 @@ namespace Blocks.Genesis
                         new HashEntry("DBName", tenant.DBName),
                         new HashEntry("ApplicationDomain", tenant.ApplicationDomain),
                         new HashEntry("IsDisabled", tenant.IsDisabled),
+                        new HashEntry("PasswordStrengthCheckerRegex", tenant.PasswordStrengthCheckerRegex),
+                        new HashEntry("PasswordSalt", tenant.PasswordSalt),
                         new HashEntry("DbConnectionString", tenant.DbConnectionString)
                     };
 
@@ -157,6 +159,8 @@ namespace Blocks.Genesis
                     ApplicationDomain = hashEntries.FirstOrDefault(e => e.Name == "ApplicationDomain").Value,
                     IsDisabled = hashEntries.FirstOrDefault(e => e.Name == "IsDisabled").Value == "true",
                     DbConnectionString = hashEntries.FirstOrDefault(e => e.Name == "DbConnectionString").Value,
+                    PasswordStrengthCheckerRegex = hashEntries.FirstOrDefault(e => e.Name == "PasswordStrengthCheckerRegex").Value,
+                    PasswordSalt = hashEntries.FirstOrDefault(e => e.Name == "PasswordSalt").Value,
                     JwtTokenParameters = GetTokenParametersFromCache(tenantId),
                 };
 
