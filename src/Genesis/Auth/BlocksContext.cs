@@ -72,9 +72,11 @@ namespace Blocks.Genesis
                         var contextJson = activity.GetCustomProperty("SecurityContext")?.ToString();
                         return string.IsNullOrWhiteSpace(contextJson) ? null : JsonSerializer.Deserialize<BlocksContext>(contextJson);
                     }
+
+                    return null;
                 }
 
-                return JsonSerializer.Deserialize<BlocksContext>(value ?? "{}");
+                return JsonSerializer.Deserialize<BlocksContext>(value);
             }
             catch (Exception ex)
             {

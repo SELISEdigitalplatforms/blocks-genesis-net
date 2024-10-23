@@ -100,8 +100,8 @@ namespace Blocks.Genesis
                         new HashEntry("DBName", tenant.DBName),
                         new HashEntry("ApplicationDomain", tenant.ApplicationDomain),
                         new HashEntry("IsDisabled", tenant.IsDisabled),
-                        new HashEntry("PasswordStrengthCheckerRegex", tenant.PasswordStrengthCheckerRegex),
-                        new HashEntry("PasswordSalt", tenant.PasswordSalt),
+                        new HashEntry("PasswordStrengthCheckerRegex", tenant.PasswordStrengthCheckerRegex?? ""),
+                        new HashEntry("PasswordSalt", tenant.PasswordSalt ?? ""),
                         new HashEntry("DbConnectionString", tenant.DbConnectionString)
                     };
 
