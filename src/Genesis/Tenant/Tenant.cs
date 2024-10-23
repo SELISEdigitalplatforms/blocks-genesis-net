@@ -3,7 +3,7 @@
 namespace Blocks.Genesis
 {
     [BsonIgnoreExtraElements]
-    public record Tenant
+    public class Tenant
     {
         [BsonId]
         public string ItemId { get; set; }  
