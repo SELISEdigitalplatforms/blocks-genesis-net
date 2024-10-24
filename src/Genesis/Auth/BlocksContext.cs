@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Blocks.Genesis
 {
@@ -23,7 +24,7 @@ namespace Blocks.Genesis
         public string OrganizationId { get; private init; }
         public bool IsAuthenticated { get; private init; }
 
-
+        [JsonConstructor]
         private BlocksContext(
             string tenantId,
             IEnumerable<string> roles,
