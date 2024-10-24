@@ -38,7 +38,6 @@ namespace Blocks.Genesis
 
                     var log = new BsonDocument
                         {
-                            { "_id", Guid.NewGuid().ToString() },
                             { "ServiceName", _blocksSecret.ServiceName },
                             { "Timestamp", DateTime.UtcNow },
                             { "ServiceStatus", true },

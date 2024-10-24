@@ -19,7 +19,6 @@ namespace Blocks.Genesis
         {
             var document = new BsonDocument
             {
-                {"_id", Guid.NewGuid().ToString()},
                 { "Timestamp", logEvent?.Timestamp.UtcDateTime },
                 { "MessageTemplate", logEvent?.MessageTemplate.Text },
                 { "Level", logEvent?.Level.ToString() ?? string.Empty },

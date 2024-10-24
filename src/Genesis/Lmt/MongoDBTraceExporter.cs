@@ -37,7 +37,6 @@ namespace Blocks.Genesis
 
             var document = new BsonDocument
             {
-                { "_id", Guid.NewGuid().ToString() },
                 { "Timestamp", endTime },
                 { "TraceId", data.TraceId.ToString() },
                 { "SpanId", data.SpanId.ToString() },
