@@ -40,10 +40,9 @@ namespace Blocks.Genesis
 
         public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
         {
-            var currentActivity = Activity.Current;
             var securityContext = BlocksContext.GetContext();
 
-            using var activity = _activitySource.StartActivity("SendMessageToConsumer", ActivityKind.Producer, currentActivity?.Context ?? default);
+            using var activity = _activitySource.StartActivity("SendMessageToConsumer", ActivityKind.Producer, Activity.Current?.Context ?? default);
 
             activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
             activity?.SetTag("consumer", JsonSerializer.Serialize(consumerMessage));

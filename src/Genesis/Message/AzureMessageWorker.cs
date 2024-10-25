@@ -121,9 +121,6 @@ namespace Blocks.Genesis
 
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-
             // Extract trace context from the message
             var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
             var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
@@ -132,7 +129,7 @@ namespace Blocks.Genesis
             var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
             var securityContext = BlocksContext.GetContext(securityContextString);
 
-            var activityContext = new ActivityContext(
+            var parentActivityContext = new ActivityContext(
                 ActivityTraceId.CreateFromString(traceId),
                 spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
                 ActivityTraceFlags.Recorded,
@@ -140,7 +137,7 @@ namespace Blocks.Genesis
                 isRemote: true
             );
 
-            using var activity = _activitySource.StartActivity("ProcessMessage", ActivityKind.Consumer, activityContext);
+            using var activity = _activitySource.StartActivity("ProcessMessage", ActivityKind.Consumer, parentActivityContext);
             activity?.SetTag("message", args.Message);
             activity?.SetCustomProperty("SecurityContext", securityContextString);
 
@@ -169,9 +166,7 @@ namespace Blocks.Genesis
             }
             finally
             {
-                // Stop timer and log execution time
-                stopwatch.Stop();
-                _logger.LogInformation($"Message processing time: {stopwatch.ElapsedMilliseconds} ms");
+                _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
                 activity?.Stop();
             }
         }

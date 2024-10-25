@@ -24,13 +24,12 @@ namespace Blocks.Genesis
         // Event for when a command starts
         public void Handle(CommandStartedEvent commandStartedEvent)
         {
-            var currentActivity = Activity.Current;
             var securityContext = BlocksContext.GetContext();
 
             var activity = _activitySource.StartActivity(
                 $"MongoDb::{commandStartedEvent.CommandName}",
                 ActivityKind.Producer,
-                currentActivity?.Context ?? default
+                Activity.Current?.Context ?? default
             );
 
             if (activity != null)

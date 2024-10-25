@@ -29,7 +29,7 @@ namespace Blocks.Genesis
                         _logger.LogWarning($"Request failed. Waiting {timeSpan} before retry {retryCount}. Status code: {result.Result.StatusCode}");
 
                         // Add activity for each retry attempt
-                        using (var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal))
+                        using (var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal, Activity.Current?.Context ?? default))
                         {
                             retryActivity?.AddTag("retry.count", retryCount.ToString());
                             retryActivity?.AddTag("retry.waitTime", timeSpan.ToString());
@@ -40,27 +40,27 @@ namespace Blocks.Genesis
                     });
         }
 
-        public async Task<(T, string)> MakePostRequest<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Post<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Post, url, payload, contentType, header);
         }
 
-        public async Task<(T, string)> MakeGetRequest<T>(string url, Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Get<T>(string url, Dictionary<string, string> header = null) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Get, url, null, null, header);
         }
 
-        public async Task<(T, string)> MakePutRequest<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Put<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Put, url, payload, contentType, header);
         }
 
-        public async Task<(T, string)> MakeDeleteRequest<T>(string url, Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Delete<T>(string url, Dictionary<string, string> header = null) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Delete, url, null, null, header);
         }
 
-        public async Task<(T, string)> MakePatchRequest<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Patch<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, header);
         }
@@ -69,7 +69,7 @@ namespace Blocks.Genesis
         {
             var securityContext = BlocksContext.GetContext();
             using (var client = _httpClientFactory.CreateClient())
-            using (var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client))
+            using (var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client, Activity.Current?.Context ?? default))
             {
                 requestActivity?.SetCustomProperty("TenantId", securityContext?.TenantId);
                 requestActivity?.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityContext));
@@ -105,8 +105,8 @@ namespace Blocks.Genesis
                             return client.SendAsync(request);
                         }, new Context());
 
-                        requestActivity?.AddTag("http.response.status_code", response.StatusCode.ToString());
-                        requestActivity?.AddTag("http.response.size", response.Content.Headers.ContentLength.ToString());
+                        requestActivity?.AddTag("http.response.status_code", response.StatusCode);
+                        requestActivity?.AddTag("http.response.size", response.Content.Headers.ContentLength);
 
                         if (response.IsSuccessStatusCode)
                         {
