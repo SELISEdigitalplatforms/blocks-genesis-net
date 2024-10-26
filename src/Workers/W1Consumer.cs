@@ -18,7 +18,7 @@ namespace WorkerOne
 
             var sc = BlocksContext.GetContext();
             // Make HTTP call to S2
-            var response = await _httpService.MakeGetRequest<object>("http://localhost:51846/api/s2/process",
+            var response = await _httpService.Get<object>("http://localhost:51846/api/s2/process",
                 new Dictionary<string, string> { { BlocksConstants.BlocksKey, "***REMOVED***" } });
             _logger.LogInformation("S1 call to S2");
 

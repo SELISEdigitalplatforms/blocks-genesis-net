@@ -46,7 +46,7 @@ namespace ApiOne
         private async Task CallApi()
         {
             // Make HTTP call to S2
-            var response = await _httpService.MakeGetRequest<object>("http://localhost:51846/api/s2/process", 
+            var response = await _httpService.Get<object>("http://localhost:51846/api/s2/process", 
                 new Dictionary<string, string> { { BlocksConstants.BlocksKey, "***REMOVED***" } });
 
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
