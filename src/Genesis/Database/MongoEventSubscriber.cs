@@ -4,7 +4,7 @@ using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
-    internal class MongoEventSubscriber : IEventSubscriber
+    public class MongoEventSubscriber : IEventSubscriber
     {
         private readonly ActivitySource _activitySource;
         private readonly ReflectionEventSubscriber _subscriber;
