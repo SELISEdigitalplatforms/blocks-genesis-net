@@ -10,5 +10,6 @@ namespace Blocks.Genesis
         public DateTime LastUpdatedDate { get; set; }
         public string? CreatedBy { get; set; }
         public string? LastUpdatedBy { get; set; }
+        public List<string> OrganizationIds { get; set; } = new List<string>();
     }
 }
