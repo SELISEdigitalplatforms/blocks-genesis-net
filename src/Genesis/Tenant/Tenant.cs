@@ -17,5 +17,6 @@ namespace Blocks.Genesis
         public string PasswordStrengthCheckerRegex { get; set; }
         public string PasswordSalt { get; set; }
         public JwtTokenParameters JwtTokenParameters { get; set; }
+        
     }
 }
