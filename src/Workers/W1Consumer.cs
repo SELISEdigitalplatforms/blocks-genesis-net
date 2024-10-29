@@ -17,6 +17,8 @@ namespace WorkerOne
             _logger.LogInformation("Message recieved from W1");
 
             var sc = BlocksContext.GetContext();
+            sc = null;
+            Console.WriteLine(sc.IsAuthenticated);
             // Make HTTP call to S2
             var response = await _httpService.Get<object>("http://localhost:51846/api/s2/process",
                 new Dictionary<string, string> { { BlocksConstants.BlocksKey, "***REMOVED***" } });

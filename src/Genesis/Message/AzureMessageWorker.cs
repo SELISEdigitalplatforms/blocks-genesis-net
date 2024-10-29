@@ -155,17 +155,17 @@ namespace Blocks.Genesis
 
                 await _consumer.ProcessMessageAsync(message.Type, message.Body);
 
-                await args.CompleteMessageAsync(args.Message);
-
                 activity.SetCustomProperty("Response", "Successfully Completed");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error completing message");
+                _logger.LogError(ex, ex.Message);
                 activity.SetCustomProperty("Response", JsonSerializer.Serialize(ex));
             }
             finally
             {
+                await args.CompleteMessageAsync(args.Message);
+
                 _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
                 activity?.Stop();
             }
@@ -173,7 +173,7 @@ namespace Blocks.Genesis
 
         private Task ErrorHandler(ProcessErrorEventArgs args)
         {
-            _logger.LogError(args.Exception, "Error processing message");
+            _logger.LogError(args.Exception, args.Exception.Message);
             return Task.CompletedTask;
         }
     }

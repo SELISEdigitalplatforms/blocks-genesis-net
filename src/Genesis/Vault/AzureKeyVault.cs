@@ -78,7 +78,7 @@ namespace Blocks.Genesis
 
                 return secret.Value.Value;
             }
-            catch (Exception)
+            catch (Exception e)
             {
                 return null;
             }
