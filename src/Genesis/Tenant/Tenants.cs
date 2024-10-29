@@ -138,7 +138,9 @@ namespace Blocks.Genesis
                     new HashEntry("Subject", parameters.Subject),
                     new HashEntry("AccessTokenValidForNumberMinute", parameters.AccessTokenValidForNumberMinute),
                     new HashEntry("RefreshTokenValidForNumberMinute", parameters.RefreshTokenValidForNumberMinute),
-                    new HashEntry("RememberMeRefreshTokenValidForNumberMinute", parameters.RememberMeRefreshTokenValidForNumberMinute)
+                    new HashEntry("RememberMeRefreshTokenValidForNumberMinute", parameters.RememberMeRefreshTokenValidForNumberMinute),
+                    new HashEntry("CertificateValidForNumberOfDays", parameters.CertificateValidForNumberOfDays),
+                    new HashEntry("IssueDate", parameters.IssueDate.ToString())
                 };
 
                 foreach (var audience in parameters.Audiences)
@@ -211,7 +213,9 @@ namespace Blocks.Genesis
                     Subject = hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
                     AccessTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
                     RefreshTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
-                    RememberMeRefreshTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "RememberMeRefreshTokenValidForNumberMinute").Value
+                    RememberMeRefreshTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "RememberMeRefreshTokenValidForNumberMinute").Value,
+                    CertificateValidForNumberOfDays = (int)hashEntries.FirstOrDefault(e => e.Name == "CertificateValidForNumberOfDays").Value,
+                    IssueDate = DateTime.Parse(hashEntries.FirstOrDefault(e => e.Name == "IssueDate").Value)
                 };
 
                 return tokenParameters;
