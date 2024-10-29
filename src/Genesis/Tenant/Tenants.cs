@@ -135,7 +135,10 @@ namespace Blocks.Genesis
                     new HashEntry("PublicCertificatePath", parameters.PublicCertificatePath),
                     new HashEntry("PublicCertificatePassword", parameters.PublicCertificatePassword),
                     new HashEntry("PrivateCertificatePassword", parameters.PrivateCertificatePassword),
-                    new HashEntry("Subject", parameters.Subject)
+                    new HashEntry("Subject", parameters.Subject),
+                    new HashEntry("AccessTokenValidForNumberMinute", parameters.AccessTokenValidForNumberMinute),
+                    new HashEntry("RefreshTokenValidForNumberMinute", parameters.RefreshTokenValidForNumberMinute),
+                    new HashEntry("RememberMeRefreshTokenValidForNumberMinute", parameters.RememberMeRefreshTokenValidForNumberMinute)
                 };
 
                 foreach (var audience in parameters.Audiences)
@@ -205,7 +208,10 @@ namespace Blocks.Genesis
                     PublicCertificatePath = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePath").Value,
                     PublicCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePassword").Value,
                     PrivateCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PrivateCertificatePassword").Value,
-                    Subject = hashEntries.FirstOrDefault(e => e.Name == "Subject").Value
+                    Subject = hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
+                    AccessTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
+                    RefreshTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
+                    RememberMeRefreshTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "RememberMeRefreshTokenValidForNumberMinute").Value
                 };
 
                 return tokenParameters;
