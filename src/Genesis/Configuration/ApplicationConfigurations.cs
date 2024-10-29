@@ -22,9 +22,8 @@ namespace Blocks.Genesis
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName) // initiateConfiguration(serviceName) this will be called before builder
         {
             _serviceName = serviceName;
-            var vaultConfig = GetVaultConfig();
 
-            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(CloudType.Azure, vaultConfig);
+            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(CloudType.Azure);
             _blocksSecret.ServiceName = _serviceName;
 
             // for tracing collection will be created by TenantIds. it will create from tenants caching
@@ -46,15 +45,6 @@ namespace Blocks.Genesis
                         .CreateLogger();
 
             return _blocksSecret;
-        }
-
-        private static Dictionary<string, string> GetVaultConfig()
-        {
-            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
-            var keyVaultConfig = new Dictionary<string, string>();
-            configuration.GetSection(BlocksConstants.KeyVault).Bind(keyVaultConfig);
-
-            return keyVaultConfig;
         }
 
         public static void ConfigureAppConfigs(WebApplicationBuilder builder, string[] args)

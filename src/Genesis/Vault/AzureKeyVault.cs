@@ -1,6 +1,5 @@
 ﻿using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
-using System.Reflection;
 
 namespace Blocks.Genesis
 {
@@ -11,19 +10,23 @@ namespace Blocks.Genesis
         private string _tenantId;
         private string _clientId;
         private string _clientSecret;
-        private BlocksSecret _blocksSecret;
 
-        public async Task<BlocksSecret> ProcessSecrets(BlocksSecret blocksSecret, Dictionary<string, string> cloudConfig)
+        public async Task<Dictionary<string, string>> ProcessSecrets(List<string> keys, Dictionary<string, string> cloudConfig)
         {
-            _blocksSecret = blocksSecret;
-
             ExtractValuesFromGlobalConfig(cloudConfig);
 
             ConnectAzureKeyVault();
 
-            await FormatGlobalConfigFromAzureKeyVault();
+            return await GetSecretFromVault(keys);
+        }
 
-            return _blocksSecret;
+        public async Task<string> ProcessSecret(string key, Dictionary<string, string> cloudConfig)
+        {
+            ExtractValuesFromGlobalConfig(cloudConfig);
+
+            ConnectAzureKeyVault();
+
+            return await GetDataFromKeyVault(key);
         }
 
         public bool ExtractValuesFromGlobalConfig(Dictionary<string, string> cloudConfig)
@@ -50,24 +53,16 @@ namespace Blocks.Genesis
             return true;
         }
 
-        public async Task<bool> FormatGlobalConfigFromAzureKeyVault()
+        public async Task<Dictionary<string, string>> GetSecretFromVault(List<string> keys)
         {
-            PropertyInfo[] properties = typeof(BlocksSecret).GetProperties();
+            var secrets = new Dictionary<string, string>();
 
-            foreach (PropertyInfo property in properties)
+            foreach (string key in keys)
             {
-                string propertyName = property.Name;
-                string retrievedValue = await GetDataFromKeyVault(propertyName);
-
-                if (!string.IsNullOrWhiteSpace(retrievedValue))
-                {
-                    object convertedValue = ConvertValue(retrievedValue, property.PropertyType);
-
-                    _blocksSecret.UpdateProperty(propertyName, convertedValue);
-                }
+                secrets.Add(await GetDataFromKeyVault(key), key);
             }
 
-            return true;
+            return secrets;
         }
 
         public async Task<string> GetDataFromKeyVault(string propertyName)
@@ -85,21 +80,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public static object ConvertValue(string value, Type targetType)
-        {
-            if (targetType != typeof(string))
-            {
-                try
-                {
-                    return Convert.ChangeType(value, targetType);
-                }
-                catch (Exception)
-                {
-                    // Handle conversion exceptions
-                }
-            }
-            return value;
-        }
+
     }
 
 }
