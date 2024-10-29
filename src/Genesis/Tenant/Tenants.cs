@@ -78,8 +78,12 @@ namespace Blocks.Genesis
             try
             {
                 var tenant = _database.GetCollection<Tenant>(BlocksConstants.TenantCollectionName).Find((Tenant t) => t.ItemId == tenantId || t.TenantId == tenantId).FirstOrDefault();
+                var index = _tenants.FindIndex(x => x.TenantId == tenantId);
+                if (index != -1) _tenants.RemoveAt(index);
+                _tenants.Add(tenant);
 
                 SaveTenantInCache(tenant);
+
                 LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
             }
             catch (Exception exception)
@@ -105,6 +109,11 @@ namespace Blocks.Genesis
                         new HashEntry("DbConnectionString", tenant.DbConnectionString)
                     };
 
+                foreach (var grantType in tenant.AllowedGrantType)
+                {
+                    hashEntries.Add(new HashEntry($"AllowedGrantType:{grantType}", grantType));
+                }
+
                 _cacheClient.AddHashValue(BlocksConstants.TenantInfoCachePrefix + tenant.TenantId, hashEntries.ToArray());
 
                 SaveTokenParametersInCache(tenant.TenantId, tenant.JwtTokenParameters);
@@ -123,8 +132,10 @@ namespace Blocks.Genesis
                 var hashEntries = new List<HashEntry>
                 {
                     new HashEntry("Issuer", parameters.Issuer),
-                    new HashEntry("SigningKeyPath", parameters.SigningKeyPath),
-                    new HashEntry("SigningKeyPassword", parameters.SigningKeyPassword)
+                    new HashEntry("PublicCertificatePath", parameters.PublicCertificatePath),
+                    new HashEntry("PublicCertificatePassword", parameters.PublicCertificatePassword),
+                    new HashEntry("PrivateCertificatePassword", parameters.PrivateCertificatePassword),
+                    new HashEntry("Subject", parameters.Subject)
                 };
 
                 foreach (var audience in parameters.Audiences)
@@ -161,6 +172,7 @@ namespace Blocks.Genesis
                     DbConnectionString = hashEntries.FirstOrDefault(e => e.Name == "DbConnectionString").Value,
                     PasswordStrengthCheckerRegex = hashEntries.FirstOrDefault(e => e.Name == "PasswordStrengthCheckerRegex").Value,
                     PasswordSalt = hashEntries.FirstOrDefault(e => e.Name == "PasswordSalt").Value,
+                    AllowedGrantType = hashEntries.Where(e => e.Name.StartsWith("AllowedGrantType:")).Select(e => (string)e.Value).ToList(),
                     JwtTokenParameters = GetTokenParametersFromCache(tenantId),
                 };
 
@@ -190,8 +202,10 @@ namespace Blocks.Genesis
                 {
                     Issuer = hashEntries.FirstOrDefault(e => e.Name == "Issuer").Value,
                     Audiences = hashEntries.Where(e => e.Name.StartsWith("Audience:")).Select(e => (string)e.Value).ToList(),
-                    SigningKeyPath = hashEntries.FirstOrDefault(e => e.Name == "SigningKeyPath").Value,
-                    SigningKeyPassword = hashEntries.FirstOrDefault(e => e.Name == "SigningKeyPassword").Value
+                    PublicCertificatePath = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePath").Value,
+                    PublicCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePassword").Value,
+                    PrivateCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PrivateCertificatePassword").Value,
+                    Subject = hashEntries.FirstOrDefault(e => e.Name == "Subject").Value
                 };
 
                 return tokenParameters;

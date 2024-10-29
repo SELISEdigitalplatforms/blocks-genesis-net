@@ -80,7 +80,8 @@ namespace Blocks.Genesis
             }
             catch (Exception e)
             {
-                return null;
+                Console.WriteLine(e.Message);
+                return string.Empty;
             }
         }
 
