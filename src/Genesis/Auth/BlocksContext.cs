@@ -13,7 +13,7 @@ namespace Blocks.Genesis
         public const string AUDIANCES_CLAIM = "aud";
         public const string IS_AUTHENTICATED_CLAIM = "isAuthenticated";
         public const string REQUEST_URI_CLAIM = "ruri";
-        public const string PERMISSION = "permissions";
+        public const string PERMISSION_CLAIM = "permissions";
         public const string ISSUED_AT_TIME_CLAIM = "iat";
         public const string ORGANIZATION_ID_CLAIM = "oid";
         public const string NOT_BEFORE_THAT_CLAIM = "nbf";
@@ -76,7 +76,7 @@ namespace Blocks.Genesis
             var isAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var isAuth) && isAuth;
             var expireOn = DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue;
             var email = claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value ?? string.Empty;
-            var permissions = claimsIdentity.FindAll(PERMISSION).Select(c => c.Value);
+            var permissions = claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value);
             var userName = claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty;
             var oauthToken = claimsIdentity.FindFirst(OAUTH_TOKEN_CLAIM)?.Value ?? string.Empty;
 
