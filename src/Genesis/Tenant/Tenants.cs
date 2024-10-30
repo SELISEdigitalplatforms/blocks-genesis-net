@@ -135,12 +135,13 @@ namespace Blocks.Genesis
                     new HashEntry("PublicCertificatePath", parameters.PublicCertificatePath),
                     new HashEntry("PublicCertificatePassword", parameters.PublicCertificatePassword),
                     new HashEntry("PrivateCertificatePassword", parameters.PrivateCertificatePassword),
-                    new HashEntry("Subject", parameters.Subject),
-                    new HashEntry("AccessTokenValidForNumberMinute", parameters.AccessTokenValidForNumberMinute),
-                    new HashEntry("RefreshTokenValidForNumberMinute", parameters.RefreshTokenValidForNumberMinute),
-                    new HashEntry("RememberMeRefreshTokenValidForNumberMinute", parameters.RememberMeRefreshTokenValidForNumberMinute),
+                    new HashEntry("AccessTokenValidForNumberMinutes", parameters.AccessTokenValidForNumberMinutes),
+                    new HashEntry("RefreshTokenValidForNumberMinutes", parameters.RefreshTokenValidForNumberMinutes),
+                    new HashEntry("RememberMeRefreshTokenValidForNumberMinutes", parameters.RememberMeRefreshTokenValidForNumberMinutes),
                     new HashEntry("CertificateValidForNumberOfDays", parameters.CertificateValidForNumberOfDays),
-                    new HashEntry("IssueDate", parameters.IssueDate.ToString())
+                    new HashEntry("IssueDate", parameters.IssueDate.ToString()),
+                    new HashEntry("GetNumberOfWrongAttemptsToLockTheAccount", parameters.GetNumberOfWrongAttemptsToLockTheAccount),
+                    new HashEntry("AccountLockDurationInMinutes", parameters.AccountLockDurationInMinutes),
                 };
 
                 foreach (var audience in parameters.Audiences)
@@ -210,12 +211,13 @@ namespace Blocks.Genesis
                     PublicCertificatePath = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePath").Value,
                     PublicCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePassword").Value,
                     PrivateCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PrivateCertificatePassword").Value,
-                    Subject = hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
-                    AccessTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
-                    RefreshTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "Subject").Value,
-                    RememberMeRefreshTokenValidForNumberMinute = (int) hashEntries.FirstOrDefault(e => e.Name == "RememberMeRefreshTokenValidForNumberMinute").Value,
+                    AccessTokenValidForNumberMinutes = (int) hashEntries.FirstOrDefault(e => e.Name == "AccessTokenValidForNumberMinutes").Value,
+                    RefreshTokenValidForNumberMinutes = (int) hashEntries.FirstOrDefault(e => e.Name == "RefreshTokenValidForNumberMinutes").Value,
+                    RememberMeRefreshTokenValidForNumberMinutes = (int) hashEntries.FirstOrDefault(e => e.Name == "RememberMeRefreshTokenValidForNumberMinute").Value,
                     CertificateValidForNumberOfDays = (int)hashEntries.FirstOrDefault(e => e.Name == "CertificateValidForNumberOfDays").Value,
-                    IssueDate = DateTime.Parse(hashEntries.FirstOrDefault(e => e.Name == "IssueDate").Value)
+                    IssueDate = DateTime.Parse(hashEntries.FirstOrDefault(e => e.Name == "IssueDate").Value),
+                    GetNumberOfWrongAttemptsToLockTheAccount = (int)hashEntries.FirstOrDefault(e => e.Name == "GetNumberOfWrongAttemptsToLockTheAccount").Value,
+                    AccountLockDurationInMinutes = (int)hashEntries.FirstOrDefault(e => e.Name == "AccountLockDurationInMinutes").Value,
                 };
 
                 return tokenParameters;

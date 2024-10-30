@@ -7,22 +7,35 @@ namespace Blocks.Genesis
 {
     public sealed record BlocksContext
     {
-        private const string TENANT_ID_CLAIM = "tenantId";
-        private const string ROLES_CLAIM = "roles";
-        private const string USER_ID_CLAIM = "userId";
-        private const string AUDIANCES_CLAIM = "audiances";
-        private const string ORGANIZATION_ID_CLAIM = "organizationId";
-        private const string IS_AUTHENTICATED_CLAIM = "isAuthenticated";
-        private const string REQUEST_URI_CLAIM = "requestUri";
+        public const string TENANT_ID_CLAIM = "tid";
+        public const string ROLES_CLAIM = "roles";
+        public const string USER_ID_CLAIM = "uid";
+        public const string AUDIANCES_CLAIM = "aud";
+        public const string IS_AUTHENTICATED_CLAIM = "isAuthenticated";
+        public const string REQUEST_URI_CLAIM = "ruri";
+        public const string PERMISSION = "permissions";
+        public const string ISSUED_AT_TIME_CLAIM = "iat";
+        public const string ORGANIZATION_ID_CLAIM = "oid";
+        public const string NOT_BEFORE_THAT_CLAIM = "nbf";
+        public const string EXPIRE_ON_CLAIM = "exp";
+        public const string EMAIL_CLAIM = "email";
+        public const string SUBJECT_CLAIM = "sub";
+        public const string USER_NAME_CLAIM = "username";
+        public const string ISSUER_CLAIM = "iss";
+        public const string OAUTH_TOKEN_CLAIM = "oauthtoken";
 
         // Properties with private setters
         public string TenantId { get; private init; }
         public IEnumerable<string> Roles { get; private init; }
         public string UserId { get; private init; }
-        public IEnumerable<string> Audiances { get; private init; }
+        public DateTime ExpireOn { get; private init; }
         public string RequestUri { get; private init; }
         public string OrganizationId { get; private init; }
         public bool IsAuthenticated { get; private init; }
+        public string Email { get; private init; }
+        public IEnumerable<string> Permissions { get; private init; }
+        public string UserName { get; private init; }
+        public string OAuthToken { get; private init; }
 
         [JsonConstructor]
         private BlocksContext(
@@ -31,7 +44,12 @@ namespace Blocks.Genesis
             string userId,
             bool isAuthenticated,
             string requestUri,
-            string organizationId)
+            string organizationId,
+            DateTime expireOn,
+            string email,
+            IEnumerable<string> permissions,
+            string userName,
+            string oauthToken)
         {
             TenantId = tenantId;
             Roles = roles;
@@ -39,6 +57,11 @@ namespace Blocks.Genesis
             IsAuthenticated = isAuthenticated;
             RequestUri = requestUri;
             OrganizationId = organizationId;
+            ExpireOn = expireOn;
+            Email = email;
+            Permissions = permissions;
+            UserName = userName;
+            OAuthToken = oauthToken;
         }
 
         // Static method to create an instance from ClaimsIdentity
@@ -50,14 +73,19 @@ namespace Blocks.Genesis
             var audiances = claimsIdentity.FindAll(AUDIANCES_CLAIM).Select(c => c.Value);
             var requestUri = claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty;
             var organizationId = claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty;
-            var isAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var result) && result;
+            var isAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var isAuth) && isAuth;
+            var expireOn = DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue;
+            var email = claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value ?? string.Empty;
+            var permissions = claimsIdentity.FindAll(PERMISSION).Select(c => c.Value);
+            var userName = claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty;
+            var oauthToken = claimsIdentity.FindFirst(OAUTH_TOKEN_CLAIM)?.Value ?? string.Empty;
 
-            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId);
+            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName, oauthToken);
         }
 
-        internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId) tuple)
+        internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName, string oauthToken) tuple)
         {
-            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId);
+            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName, tuple.oauthToken);
         }
 
         // Static method to retrieve the context from Activity
@@ -81,11 +109,9 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-
-                Console.WriteLine(ex); ;
+                Console.WriteLine($"Error deserializing BlocksContext: {ex.Message}");
+                return null;
             }
-
-            return null;
         }
     }
 }

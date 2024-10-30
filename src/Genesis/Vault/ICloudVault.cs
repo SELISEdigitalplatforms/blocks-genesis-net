@@ -2,7 +2,8 @@
 {
     public interface ICloudVault
     {
-        Task<Dictionary<string, string>> ProcessSecrets(List<string> keys, Dictionary<string, string> cloudConfig);
-        Task<string> ProcessSecret(string key, Dictionary<string, string> cloudConfig);
+        Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys, Dictionary<string, string> cloudConfig);
+        Task<string> ProcessSecretAsync(string key, Dictionary<string, string> cloudConfig);
+        Task<byte[]> ProcessCertificateAsync(string certificateName, Dictionary<string, string> cloudConfig);
     }
 }

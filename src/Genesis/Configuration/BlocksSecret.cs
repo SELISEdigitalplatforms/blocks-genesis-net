@@ -23,7 +23,7 @@ namespace Blocks.Genesis
             ICloudVault cloudVault = CloudVault.GetCloudVault(cloudType);
             var blocksSecret = new BlocksSecret();
             PropertyInfo[] properties = typeof(BlocksSecret).GetProperties();
-            var blocksSecretVault = await cloudVault.ProcessSecrets(properties.Select(x => x.Name).ToList(), GetVaultConfig());
+            var blocksSecretVault = await cloudVault.ProcessSecretsAsync(properties.Select(x => x.Name).ToList(), GetVaultConfig());
 
             foreach (PropertyInfo property in properties)
             {

@@ -7,12 +7,13 @@
         public string PublicCertificatePath { get; init; }
         public string PublicCertificatePassword { get; init; }
         public string PrivateCertificatePassword { get; init; }
-        public string Subject { get; init; }
         public int CertificateValidForNumberOfDays { get; init; }
         public DateTime IssueDate { get; init; }
-        public int AccessTokenValidForNumberMinute { get; init; } = 7;
-        public int RefreshTokenValidForNumberMinute { get; init; } = 30;
-        public int RememberMeRefreshTokenValidForNumberMinute { get; init; } = 30 * 60 * 24;
+        public int AccessTokenValidForNumberMinutes { get; init; } = 7;
+        public int RefreshTokenValidForNumberMinutes { get; init; } = 30;
+        public int RememberMeRefreshTokenValidForNumberMinutes { get; init; } = 30 * 60 * 24;
+        public int GetNumberOfWrongAttemptsToLockTheAccount { get; set; }
+        public int AccountLockDurationInMinutes { get; set; }
 
     }
 
