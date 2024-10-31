@@ -199,7 +199,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private JwtTokenParameters GetTokenParametersFromCache(string tenantId)
+        private JwtTokenParameters? GetTokenParametersFromCache(string tenantId)
         {
             try
             {
@@ -226,7 +226,7 @@ namespace Blocks.Genesis
             catch (Exception exception)
             {
                 _logger.LogError(exception, exception.Message);
-                return new JwtTokenParameters();
+                return null;
             }
         }
 

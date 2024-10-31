@@ -2,13 +2,13 @@
 {
     public class JwtTokenParameters
     {
-        public string Issuer { get; init; }
-        public List<string> Audiences { get; init; }
-        public string PublicCertificatePath { get; init; }
-        public string PublicCertificatePassword { get; init; }
-        public string PrivateCertificatePassword { get; init; }
-        public int CertificateValidForNumberOfDays { get; init; }
-        public DateTime IssueDate { get; init; }
+        public required string Issuer { get; init; }
+        public required List<string> Audiences { get; init; }
+        public required string PublicCertificatePath { get; init; }
+        public required string PublicCertificatePassword { get; init; }
+        public required string PrivateCertificatePassword { get; init; }
+        public int CertificateValidForNumberOfDays { get; init; } = 365;
+        public required DateTime IssueDate { get; init; }
     }
 
 }
