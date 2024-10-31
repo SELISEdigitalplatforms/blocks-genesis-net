@@ -2,6 +2,7 @@
 
 namespace Blocks.Genesis
 {
+    [BsonIgnoreExtraElements]
     public class BaseEntity
     {
         [BsonId]
