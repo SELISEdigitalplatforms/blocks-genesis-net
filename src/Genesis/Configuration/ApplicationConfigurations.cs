@@ -99,6 +99,8 @@ namespace Blocks.Genesis
             services.AddHealthChecks();
 
             if (_blocksSwaggerOptions != null) services.AddBlocksSwagger(_blocksSwaggerOptions);
+
+            services.AddTransient<ICryptoService, CryptoService>();
         }
 
         public static void ConfigureApi(IServiceCollection services)
