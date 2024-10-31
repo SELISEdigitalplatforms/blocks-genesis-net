@@ -1,10 +1,11 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace Blocks.Genesis
 {
@@ -12,9 +13,9 @@ namespace Blocks.Genesis
     {
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
-
             var serviceProvider = services.BuildServiceProvider();
             var tenants = serviceProvider.GetRequiredService<ITenants>();
+            var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
 
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
@@ -33,59 +34,41 @@ namespace Blocks.Genesis
                         OnTokenValidated = async context =>
                         {
                             var token = context.SecurityToken as JwtSecurityToken;
-
-                            if (token != null)
+                            if (token == null)
                             {
-                                var isKeyExist = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out StringValues tenantId);
+                                context.Fail("Invalid token format");
+                                return;
+                            }
 
-                                if (!isKeyExist)
+                            try
+                            {
+                                var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
+                                TokenHelper.HandleTokenIssuer(claimsIdentity, context.Request.Path.Value, token.RawData);
+                                BlocksContext.CreateFromClaimsIdentity(claimsIdentity);
+                                var bc = BlocksContext.GetContext();
+
+                                var cert = await GetCertificateAsync(bc.TenantId, tenants, cacheDb);
+                                if (cert == null)
                                 {
-                                    throw new SecurityTokenException("Missing 'X-Blocks-Key' header");
+                                    context.Fail("Certificate not found");
+                                    return;
                                 }
 
-                                try
+                                // Validate the token using the obtained certificate
+                                var tokenHandler = new JwtSecurityTokenHandler();
+                                tokenHandler.ValidateToken(token.RawData, new TokenValidationParameters
                                 {
-                                    var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
-                                    var requestUri = context.Request.Path.Value;
-                                    var jwtBearerToken = token.RawData;
-
-                                    TokenHelper.HandleTokenIssuer(claimsIdentity, requestUri, jwtBearerToken);
-
-                                    //SecurityContext.CreateFromClaimsIdentity(claimsIdentity);
-
-                                    // Custom validation logic for tenant-specific parameters
-                                    var tokenParameters = tenants.GetTenantTokenValidationParameter(tenantId);
-
-                                    //if (tokenParameters == null || string.IsNullOrWhiteSpace(tokenParameters.SigningKeyPath))
-                                    //{
-                                    //    throw new SecurityTokenException($"Token parameter for {tenantId} is not found");
-                                    //}
-
-                                    //var signingKey = new X509SecurityKey(CreateSecurityKey(tokenParameters.SigningKeyPath, tokenParameters.SigningKeyPassword));
-                                    var tokenHandler = new JwtSecurityTokenHandler();
-
-                                    try
-                                    {
-                                        tokenHandler.ValidateToken(token.RawData, new TokenValidationParameters
-                                        {
-                                            //IssuerSigningKey = signingKey,
-                                            ValidateIssuerSigningKey = true,
-                                            ValidateIssuer = true,
-                                            ValidIssuer = tokenParameters.Issuer,
-                                            ValidAudiences = tokenParameters.Audiences,
-                                            ValidateAudience = true
-                                        }, out _);
-                                    }
-                                    catch (SecurityTokenException)
-                                    {
-                                        context.Fail("Invalid token");
-                                        return;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    context.Fail(ex.Message);
-                                }
+                                    IssuerSigningKey = new X509SecurityKey(cert),
+                                    ValidateIssuerSigningKey = true,
+                                    ValidateIssuer = true,
+                                    ValidIssuer = tenants.GetTenantTokenValidationParameter(bc.TenantId)?.Issuer,
+                                    ValidAudiences = tenants.GetTenantTokenValidationParameter(bc.TenantId)?.Audiences,
+                                    ValidateAudience = true
+                                }, out _);
+                            }
+                            catch (Exception ex)
+                            {
+                                context.Fail(ex.Message);
                             }
                         },
                         OnMessageReceived = context =>
@@ -109,18 +92,41 @@ namespace Blocks.Genesis
             services.AddAuthorization();
         }
 
+        private static async Task<X509Certificate2> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
+        {
+            var cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
+            var cachedPublicKey = await cacheDb.StringGetAsync(cacheKey);
+
+            if (cachedPublicKey.HasValue)
+            {
+                // Load from cache
+                return new X509Certificate2(Encoding.UTF8.GetBytes(cachedPublicKey));
+            }
+
+            // Fallback to loading certificate by path
+            var tokenParameters = tenants.GetTenantTokenValidationParameter(tenantId);
+            if (tokenParameters == null || string.IsNullOrWhiteSpace(tokenParameters.PublicCertificatePath))
+            {
+                throw new SecurityTokenException($"Token parameters for tenant {tenantId} not found");
+            }
+
+            var cert = CreateSecurityKey(tokenParameters.PublicCertificatePath, tokenParameters.PublicCertificatePassword);
+            if (cert != null)
+            {
+                // Cache the public key for future use
+                await cacheDb.StringSetAsync(cacheKey, cert.GetPublicKeyString());
+            }
+
+            return cert;
+        }
+
         private static X509Certificate2 CreateSecurityKey(string signingKeyPath, string signingKeyPassword)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(signingKeyPassword))
-                {
-                    return new X509Certificate2(signingKeyPath);
-                }
-                else
-                {
-                    return new X509Certificate2(signingKeyPath, signingKeyPassword);
-                }
+                return string.IsNullOrWhiteSpace(signingKeyPassword)
+                    ? new X509Certificate2(signingKeyPath)
+                    : new X509Certificate2(signingKeyPath, signingKeyPassword);
             }
             catch (Exception e)
             {
@@ -128,5 +134,8 @@ namespace Blocks.Genesis
                 return null;
             }
         }
+
+
+
     }
 }

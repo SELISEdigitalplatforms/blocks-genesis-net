@@ -18,6 +18,11 @@ namespace Blocks.Genesis
         public string PasswordSalt { get; set; }
         public JwtTokenParameters JwtTokenParameters { get; set; }
         public List<string> AllowedGrantType { get; set; } = new List<string>();
+        public int AccessTokenValidForNumberMinutes { get; init; } = 7;
+        public int RefreshTokenValidForNumberMinutes { get; init; } = 30;
+        public int RememberMeRefreshTokenValidForNumberMinutes { get; init; } = 30 * 60 * 24;
+        public int GetNumberOfWrongAttemptsToLockTheAccount { get; set; }
+        public int AccountLockDurationInMinutes { get; set; }
 
     }
 }

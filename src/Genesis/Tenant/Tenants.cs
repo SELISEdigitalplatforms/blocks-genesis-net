@@ -106,7 +106,12 @@ namespace Blocks.Genesis
                         new HashEntry("IsDisabled", tenant.IsDisabled),
                         new HashEntry("PasswordStrengthCheckerRegex", tenant.PasswordStrengthCheckerRegex?? ""),
                         new HashEntry("PasswordSalt", tenant.PasswordSalt ?? ""),
-                        new HashEntry("DbConnectionString", tenant.DbConnectionString)
+                        new HashEntry("DbConnectionString", tenant.DbConnectionString),
+                        new HashEntry("AccessTokenValidForNumberMinutes", tenant.AccessTokenValidForNumberMinutes),
+                        new HashEntry("RefreshTokenValidForNumberMinutes", tenant.RefreshTokenValidForNumberMinutes),
+                        new HashEntry("RememberMeRefreshTokenValidForNumberMinutes", tenant.RememberMeRefreshTokenValidForNumberMinutes),
+                        new HashEntry("GetNumberOfWrongAttemptsToLockTheAccount", tenant.GetNumberOfWrongAttemptsToLockTheAccount),
+                        new HashEntry("AccountLockDurationInMinutes", tenant.AccountLockDurationInMinutes),
                     };
 
                 foreach (var grantType in tenant.AllowedGrantType)
@@ -135,13 +140,9 @@ namespace Blocks.Genesis
                     new HashEntry("PublicCertificatePath", parameters.PublicCertificatePath),
                     new HashEntry("PublicCertificatePassword", parameters.PublicCertificatePassword),
                     new HashEntry("PrivateCertificatePassword", parameters.PrivateCertificatePassword),
-                    new HashEntry("AccessTokenValidForNumberMinutes", parameters.AccessTokenValidForNumberMinutes),
-                    new HashEntry("RefreshTokenValidForNumberMinutes", parameters.RefreshTokenValidForNumberMinutes),
-                    new HashEntry("RememberMeRefreshTokenValidForNumberMinutes", parameters.RememberMeRefreshTokenValidForNumberMinutes),
                     new HashEntry("CertificateValidForNumberOfDays", parameters.CertificateValidForNumberOfDays),
                     new HashEntry("IssueDate", parameters.IssueDate.ToString()),
-                    new HashEntry("GetNumberOfWrongAttemptsToLockTheAccount", parameters.GetNumberOfWrongAttemptsToLockTheAccount),
-                    new HashEntry("AccountLockDurationInMinutes", parameters.AccountLockDurationInMinutes),
+                    
                 };
 
                 foreach (var audience in parameters.Audiences)
@@ -180,6 +181,11 @@ namespace Blocks.Genesis
                     PasswordSalt = hashEntries.FirstOrDefault(e => e.Name == "PasswordSalt").Value,
                     AllowedGrantType = hashEntries.Where(e => e.Name.StartsWith("AllowedGrantType:")).Select(e => (string)e.Value).ToList(),
                     JwtTokenParameters = GetTokenParametersFromCache(tenantId),
+                    AccessTokenValidForNumberMinutes = (int)hashEntries.FirstOrDefault(e => e.Name == "AccessTokenValidForNumberMinutes").Value,
+                    RefreshTokenValidForNumberMinutes = (int)hashEntries.FirstOrDefault(e => e.Name == "RefreshTokenValidForNumberMinutes").Value,
+                    RememberMeRefreshTokenValidForNumberMinutes = (int)hashEntries.FirstOrDefault(e => e.Name == "RememberMeRefreshTokenValidForNumberMinute").Value,
+                    GetNumberOfWrongAttemptsToLockTheAccount = (int)hashEntries.FirstOrDefault(e => e.Name == "GetNumberOfWrongAttemptsToLockTheAccount").Value,
+                    AccountLockDurationInMinutes = (int)hashEntries.FirstOrDefault(e => e.Name == "AccountLockDurationInMinutes").Value,
                 };
 
                 _tenants.Add(tenant);
@@ -211,13 +217,8 @@ namespace Blocks.Genesis
                     PublicCertificatePath = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePath").Value,
                     PublicCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PublicCertificatePassword").Value,
                     PrivateCertificatePassword = hashEntries.FirstOrDefault(e => e.Name == "PrivateCertificatePassword").Value,
-                    AccessTokenValidForNumberMinutes = (int) hashEntries.FirstOrDefault(e => e.Name == "AccessTokenValidForNumberMinutes").Value,
-                    RefreshTokenValidForNumberMinutes = (int) hashEntries.FirstOrDefault(e => e.Name == "RefreshTokenValidForNumberMinutes").Value,
-                    RememberMeRefreshTokenValidForNumberMinutes = (int) hashEntries.FirstOrDefault(e => e.Name == "RememberMeRefreshTokenValidForNumberMinute").Value,
                     CertificateValidForNumberOfDays = (int)hashEntries.FirstOrDefault(e => e.Name == "CertificateValidForNumberOfDays").Value,
                     IssueDate = DateTime.Parse(hashEntries.FirstOrDefault(e => e.Name == "IssueDate").Value),
-                    GetNumberOfWrongAttemptsToLockTheAccount = (int)hashEntries.FirstOrDefault(e => e.Name == "GetNumberOfWrongAttemptsToLockTheAccount").Value,
-                    AccountLockDurationInMinutes = (int)hashEntries.FirstOrDefault(e => e.Name == "AccountLockDurationInMinutes").Value,
                 };
 
                 return tokenParameters;
