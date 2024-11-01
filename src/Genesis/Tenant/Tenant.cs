@@ -5,12 +5,12 @@ namespace Blocks.Genesis
     [BsonIgnoreExtraElements]
     public class Tenant: BaseEntity
     {
-        public required string TenantId { get; set; } = Guid.NewGuid().ToString("n");
+        public string TenantId { get; set; } = Guid.NewGuid().ToString("n");
         public bool IsAcceptBlocksTerms { get; set; }
         public bool IsUseBlocksExclusively { get; set; }
         public bool IsProduction { get; set; }
         public string? Name { get; set; }
-        public required string DBName { get; set; } = Guid.NewGuid().ToString("n");
+        public string DBName { get; set; } = Guid.NewGuid().ToString("n");
         public required string ApplicationDomain { get; set; }   
         public bool IsDisabled { get; set; }
         public required string DbConnectionString { get; set; }
