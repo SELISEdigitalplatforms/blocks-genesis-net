@@ -1,5 +1,6 @@
 using Blocks.Genesis;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Amqp.Framing;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
@@ -54,6 +55,26 @@ namespace ApiOne
             collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString() });
 
             _logger.LogInformation("S1 call to S2 {r}", true);
+        }
+
+        [HttpGet("cert")]
+        public async Task<IActionResult> CertRequest()
+        {
+            _logger.LogInformation("Processing request in S1");
+
+            ICloudVault cloudVault = CloudVault.GetCloudVault(CloudType.Azure);
+            var blocksSecretVault = await cloudVault.ProcessCertificateAsync("***REMOVED***", GetVaultConfig());
+
+            return Ok(blocksSecretVault);
+        }
+
+        private static Dictionary<string, string> GetVaultConfig()
+        {
+            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+            var keyVaultConfig = new Dictionary<string, string>();
+            configuration.GetSection("KeyVault").Bind(keyVaultConfig);
+
+            return keyVaultConfig;
         }
     }
 
