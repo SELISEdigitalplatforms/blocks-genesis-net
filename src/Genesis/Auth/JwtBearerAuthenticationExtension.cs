@@ -2,10 +2,12 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
+using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -52,7 +54,7 @@ namespace Blocks.Genesis
                         {
                             var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
                             TokenHelper.HandleTokenIssuer(claimsIdentity, context.Request.Path.Value);
-                            BlocksContext.CreateFromClaimsIdentity(claimsIdentity);
+                            StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
                         },
                         OnAuthenticationFailed = authenticationFailedContext =>
                         {
@@ -137,6 +139,16 @@ namespace Blocks.Genesis
             }
         }
 
+        private static void StoreBlocksContextInActivity(BlocksContext bc)
+        {
+            var activity = Activity.Current;
+            if (activity != null)
+            {
+                var securityData = BlocksContext.CreateFromTuple((bc.TenantId, bc.Roles, bc.UserId, bc.IsAuthenticated, bc.RequestUri, bc.OrganizationId, bc.ExpireOn, bc.Email, bc.Permissions, bc.TenantId));
+
+                activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
+            }
+        }
 
 
     }

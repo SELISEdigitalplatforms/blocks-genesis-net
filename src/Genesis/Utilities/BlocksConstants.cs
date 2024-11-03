@@ -1,4 +1,7 @@
-﻿namespace Blocks.Genesis
+﻿using System.Diagnostics;
+using System.Text.Json;
+
+namespace Blocks.Genesis
 {
     public static class BlocksConstants
     {
@@ -11,5 +14,16 @@
         public const string Bearer = "Bearer ";
         public const string Miscellaneous = "miscellaneous";
         internal const string KeyVault = "KeyVault";
+
+        private static void StoreTenantDataInActivity(Tenant tenant)
+        {
+            var activity = Activity.Current;
+            if (activity != null)
+            {
+                var securityData = BlocksContext.CreateFromTuple((tenant.TenantId, Array.Empty<string>(), string.Empty, false, tenant.ApplicationDomain, string.Empty, DateTime.MinValue, string.Empty, Array.Empty<string>(), string.Empty));
+
+                activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
+            }
+        }
     }
 }
