@@ -44,14 +44,13 @@ namespace Blocks.Genesis
             return string.Empty;
         }
 
-        public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri, string jwtBearerToken)
+        public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri)
         {
             if (claimsIdentity == null) throw new ArgumentNullException(nameof(claimsIdentity));
 
             claimsIdentity.AddClaims(new[]
             {
-                new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri),
-                new Claim(BlocksContext.OAUTH_TOKEN_CLAIM, jwtBearerToken)
+                new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri)
             });
         }
 

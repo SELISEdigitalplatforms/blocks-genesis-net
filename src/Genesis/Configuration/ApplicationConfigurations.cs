@@ -149,12 +149,12 @@ namespace Blocks.Genesis
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
+            // Routing must be called before mapping endpoints
+            app.UseRouting();
+
             // Authentication and Authorization
             app.UseAuthentication();
             app.UseAuthorization();
-
-            // Routing must be called before mapping endpoints
-            app.UseRouting();
 
             // Map controllers or endpoints
             app.MapControllers();

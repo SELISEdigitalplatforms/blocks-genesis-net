@@ -7,22 +7,20 @@ namespace Blocks.Genesis
 {
     public sealed record BlocksContext
     {
-        public const string TENANT_ID_CLAIM = "tid";
+        public const string TENANT_ID_CLAIM = "t_id";
         public const string ROLES_CLAIM = "roles";
-        public const string USER_ID_CLAIM = "uid";
+        public const string USER_ID_CLAIM = "u_id";
         public const string AUDIANCES_CLAIM = "aud";
         public const string IS_AUTHENTICATED_CLAIM = "isAuthenticated";
         public const string REQUEST_URI_CLAIM = "ruri";
         public const string PERMISSION_CLAIM = "permissions";
         public const string ISSUED_AT_TIME_CLAIM = "iat";
-        public const string ORGANIZATION_ID_CLAIM = "oid";
+        public const string ORGANIZATION_ID_CLAIM = "o_id";
         public const string NOT_BEFORE_THAT_CLAIM = "nbf";
         public const string EXPIRE_ON_CLAIM = "exp";
-        public const string EMAIL_CLAIM = "email";
-        public const string SUBJECT_CLAIM = "sub";
-        public const string USER_NAME_CLAIM = "username";
+        public const string EMAIL_CLAIM = "u_email";
+        public const string USER_NAME_CLAIM = "u_name";
         public const string ISSUER_CLAIM = "iss";
-        public const string OAUTH_TOKEN_CLAIM = "oauthtoken";
 
         // Properties with private setters
         public string TenantId { get; private init; }
@@ -35,7 +33,6 @@ namespace Blocks.Genesis
         public string Email { get; private init; }
         public IEnumerable<string> Permissions { get; private init; }
         public string UserName { get; private init; }
-        public string OAuthToken { get; private init; }
 
         [JsonConstructor]
         private BlocksContext(
@@ -48,8 +45,7 @@ namespace Blocks.Genesis
             DateTime expireOn,
             string email,
             IEnumerable<string> permissions,
-            string userName,
-            string oauthToken)
+            string userName)
         {
             TenantId = tenantId;
             Roles = roles;
@@ -61,7 +57,6 @@ namespace Blocks.Genesis
             Email = email;
             Permissions = permissions;
             UserName = userName;
-            OAuthToken = oauthToken;
         }
 
         // Static method to create an instance from ClaimsIdentity
@@ -78,14 +73,13 @@ namespace Blocks.Genesis
             var email = claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value ?? string.Empty;
             var permissions = claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value);
             var userName = claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty;
-            var oauthToken = claimsIdentity.FindFirst(OAUTH_TOKEN_CLAIM)?.Value ?? string.Empty;
 
-            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName, oauthToken);
+            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName);
         }
 
-        internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName, string oauthToken) tuple)
+        internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName) tuple)
         {
-            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName, tuple.oauthToken);
+            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName);
         }
 
         // Static method to retrieve the context from Activity

@@ -1,6 +1,6 @@
 using Blocks.Genesis;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.Amqp.Framing;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
@@ -47,7 +47,7 @@ namespace ApiOne
         private async Task CallApi()
         {
             // Make HTTP call to S2
-            var response = await _httpService.Get<object>("http://localhost:51846/api/s2/process", 
+            var response = await _httpService.Get<object>("http://localhost:51846/api/s2/process",
                 new Dictionary<string, string> { { BlocksConstants.BlocksKey, "***REMOVED***" } });
 
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
@@ -58,14 +58,17 @@ namespace ApiOne
         }
 
         [HttpGet("cert")]
+        [Authorize]
         public async Task<IActionResult> CertRequest()
         {
             _logger.LogInformation("Processing request in S1");
 
-            ICloudVault cloudVault = CloudVault.GetCloudVault(CloudType.Azure);
-            var blocksSecretVault = await cloudVault.ProcessCertificateAsync("***REMOVED***", GetVaultConfig());
+            var sc = BlocksContext.GetContext();
 
-            return Ok(blocksSecretVault);
+            //ICloudVault cloudVault = CloudVault.GetCloudVault(CloudType.Azure);
+            //var blocksSecretVault = await cloudVault.ProcessCertificateAsync("***REMOVED***", GetVaultConfig());
+
+            return Ok(sc);
         }
 
         private static Dictionary<string, string> GetVaultConfig()

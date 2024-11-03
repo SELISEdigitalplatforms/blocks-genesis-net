@@ -64,7 +64,7 @@ namespace Blocks.Genesis
             var activity = Activity.Current;
             if (activity != null)
             {
-                var securityData = BlocksContext.CreateFromTuple((tenant.TenantId, Array.Empty<string>(), string.Empty, false, tenant.ApplicationDomain, string.Empty, DateTime.MinValue, string.Empty, Array.Empty<string>(), string.Empty, string.Empty));
+                var securityData = BlocksContext.CreateFromTuple((tenant.TenantId, Array.Empty<string>(), string.Empty, false, tenant.ApplicationDomain, string.Empty, DateTime.MinValue, string.Empty, Array.Empty<string>(), string.Empty));
 
                 activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
             }
