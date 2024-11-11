@@ -3,10 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 using System.Diagnostics;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
-using System.Text;
 using System.Text.Json;
 
 namespace Blocks.Genesis
@@ -89,11 +87,11 @@ namespace Blocks.Genesis
             }
 
             var certificate = await GetPublicCertificateAsync(tokenParameters.PublicCertificatePath);
-            //if (certificate != null)
-            //{
-            //    var expirationDays = tokenParameters.CertificateValidForNumberOfDays - (DateTime.UtcNow - tokenParameters.IssueDate).Days - 1;
-            //    await cacheDb.StringSetAsync(cacheKey, certificate, TimeSpan.FromDays(expirationDays));
-            //}
+            if (certificate != null)
+            {
+                var expirationDays = tokenParameters.CertificateValidForNumberOfDays - (DateTime.UtcNow - tokenParameters.IssueDate).Days - 1;
+                await cacheDb.StringSetAsync(cacheKey, certificate, TimeSpan.FromDays(expirationDays));
+            }
             return CreateSecurityKey(certificate, tokenParameters.PublicCertificatePassword);
         }
 
