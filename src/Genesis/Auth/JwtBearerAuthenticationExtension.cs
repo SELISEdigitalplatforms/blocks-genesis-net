@@ -34,7 +34,7 @@ namespace Blocks.Genesis
                                 context.Fail("Certificate not found");
                                 return;
                             }
-
+                            var validationParameter = tenants.GetTenantTokenValidationParameter(bc.TenantId);
                             context.Options.TokenValidationParameters = new TokenValidationParameters
                             {
                                 ValidateLifetime = true,
@@ -42,8 +42,8 @@ namespace Blocks.Genesis
                                 IssuerSigningKey = new X509SecurityKey(certificate),
                                 ValidateIssuerSigningKey = true,
                                 ValidateIssuer = true,
-                                ValidIssuer = tenants.GetTenantTokenValidationParameter(bc.TenantId)?.Issuer,
-                                ValidAudiences = tenants.GetTenantTokenValidationParameter(bc.TenantId)?.Audiences,
+                                ValidIssuer = validationParameter?.Issuer,
+                                ValidAudiences = validationParameter?.Audiences,
                                 ValidateAudience = true,
                                 SaveSigninToken = true,
                             };
