@@ -101,12 +101,12 @@ namespace Blocks.Genesis
                     {
                         new HashEntry("ItemId", tenant.ItemId),
                         new HashEntry("TenantId", tenant.TenantId),
-                        new HashEntry("DBName", tenant.DBName),
-                        new HashEntry("ApplicationDomain", tenant.ApplicationDomain),
-                        new HashEntry("CookieDomain", tenant.CookieDomain),
+                        new HashEntry("DBName", tenant.DBName ?? string.Empty),
+                        new HashEntry("ApplicationDomain", tenant.ApplicationDomain ?? string.Empty),
+                        new HashEntry("CookieDomain", tenant.CookieDomain ?? string.Empty),
                         new HashEntry("IsDisabled", tenant.IsDisabled),
-                        new HashEntry("PasswordStrengthCheckerRegex", tenant.PasswordStrengthCheckerRegex?? ""),
-                        new HashEntry("PasswordSalt", tenant.PasswordSalt ?? ""),
+                        new HashEntry("PasswordStrengthCheckerRegex", tenant.PasswordStrengthCheckerRegex ?? string.Empty),
+                        new HashEntry("PasswordSalt", tenant.PasswordSalt ?? string.Empty),
                         new HashEntry("DbConnectionString", tenant.DbConnectionString),
                         new HashEntry("AccessTokenValidForNumberMinutes", tenant.AccessTokenValidForNumberMinutes),
                         new HashEntry("RefreshTokenValidForNumberMinutes", tenant.RefreshTokenValidForNumberMinutes),
@@ -117,7 +117,7 @@ namespace Blocks.Genesis
 
                 foreach (var grantType in tenant.AllowedGrantType)
                 {
-                    hashEntries.Add(new HashEntry($"AllowedGrantType:{grantType}", grantType));
+                    hashEntries.Add(new HashEntry($"AllowedGrantType:{grantType}", grantType ?? string.Empty));
                 }
 
                 _cacheClient.AddHashValue(BlocksConstants.TenantInfoCachePrefix + tenant.TenantId, hashEntries.ToArray());
@@ -137,10 +137,10 @@ namespace Blocks.Genesis
             {
                 var hashEntries = new List<HashEntry>
                 {
-                    new HashEntry("Issuer", parameters.Issuer),
-                    new HashEntry("PublicCertificatePath", parameters.PublicCertificatePath),
-                    new HashEntry("PublicCertificatePassword", parameters.PublicCertificatePassword),
-                    new HashEntry("PrivateCertificatePassword", parameters.PrivateCertificatePassword),
+                    new HashEntry("Issuer", parameters.Issuer ?? string.Empty),
+                    new HashEntry("PublicCertificatePath", parameters.PublicCertificatePath ?? string.Empty),
+                    new HashEntry("PublicCertificatePassword", parameters.PublicCertificatePassword ?? string.Empty),
+                    new HashEntry("PrivateCertificatePassword", parameters.PrivateCertificatePassword ?? string.Empty),
                     new HashEntry("CertificateValidForNumberOfDays", parameters.CertificateValidForNumberOfDays),
                     new HashEntry("IssueDate", parameters.IssueDate.ToString()),
                     
@@ -148,7 +148,7 @@ namespace Blocks.Genesis
 
                 foreach (var audience in parameters.Audiences)
                 {
-                    hashEntries.Add(new HashEntry($"Audience:{audience}", audience));
+                    hashEntries.Add(new HashEntry($"Audience:{audience}", audience ?? string.Empty));
                 }
 
                 _cacheClient.AddHashValue(BlocksConstants.TenantTokenParametersCachePrefix + tenantId, hashEntries.ToArray());
