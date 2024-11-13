@@ -50,7 +50,12 @@ namespace Blocks.Genesis
 
         private static bool IsValidOrigin(string? origin, string applicationDomain)
         {
-            return string.IsNullOrWhiteSpace(origin) || origin.Equals(applicationDomain, StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(origin)) return true;
+
+            applicationDomain = applicationDomain.Replace("http://", "").Replace("https://", "");
+            origin = origin.Replace("http://", "").Replace("https://", "").Split(":")[0];
+
+            return origin.Equals(applicationDomain, StringComparison.OrdinalIgnoreCase);
         }
 
         private static async Task RejectRequest(HttpContext context, int statusCode, string message)
