@@ -6,7 +6,5 @@
         Dictionary<string, (string, string)> GetTenantDatabaseConnectionStrings();
         (string?, string?) GetTenantDatabaseConnectionString(string tenantId);
         JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId);
-        void CacheTenants();
-        void CacheTenant(string tenantId);
     }
 }

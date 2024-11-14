@@ -19,29 +19,14 @@ namespace Blocks.Genesis
             return GetTokenFromCookie(request);
         }
 
-        private static string GetTokenFromCookie(HttpRequest request)
+        public static string GetTokenFromCookie(HttpRequest request)
         {
-            var originHost = GetHostOfRequestOrigin(request);
-            if (string.IsNullOrEmpty(originHost) || !request.Cookies.TryGetValue(originHost, out string token))
+            if (!request.Cookies.TryGetValue("access_token", out string token))
             {
                 return string.Empty;
             }
 
             return token;
-        }
-
-        public static string GetHostOfRequestOrigin(HttpRequest request)
-        {
-            if (request.Headers.TryGetValue("Origin", out StringValues origin) ||
-                request.Headers.TryGetValue("Referer", out origin))
-            {
-                if (Uri.TryCreate(origin.ToString(), UriKind.Absolute, out Uri uri))
-                {
-                    return uri.Host;
-                }
-            }
-
-            return string.Empty;
         }
 
         public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri)

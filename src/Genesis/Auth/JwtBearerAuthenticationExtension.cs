@@ -51,7 +51,7 @@ namespace Blocks.Genesis
                         OnTokenValidated = async context =>
                         {
                             var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
-                            TokenHelper.HandleTokenIssuer(claimsIdentity, context.Request.Path.Value);
+
                             StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
                         },
                         OnAuthenticationFailed = authenticationFailedContext =>
