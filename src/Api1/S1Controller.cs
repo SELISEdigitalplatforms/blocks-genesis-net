@@ -1,5 +1,4 @@
 using Blocks.Genesis;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
@@ -58,7 +57,7 @@ namespace ApiOne
         }
 
         [HttpGet("cert")]
-        [Authorize]
+        [ProtectedEndPoint]
         public async Task<IActionResult> CertRequest()
         {
             _logger.LogInformation("Processing request in S1");

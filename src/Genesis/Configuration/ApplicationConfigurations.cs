@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -64,6 +65,7 @@ namespace Blocks.Genesis
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddSingleton<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
+            services.AddSingleton<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
 
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);

@@ -67,7 +67,11 @@ namespace Blocks.Genesis
                     };
                 });
 
-            services.AddAuthorization();
+            services.AddAuthorization(options =>
+            {
+                options.AddPolicy("Protected", policy =>
+                            policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
+            });
         }
 
         private static async Task<X509Certificate2> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
