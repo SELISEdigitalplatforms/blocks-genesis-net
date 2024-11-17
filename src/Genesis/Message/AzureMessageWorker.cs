@@ -165,9 +165,9 @@ namespace Blocks.Genesis
             finally
             {
                 await args.CompleteMessageAsync(args.Message);
+                activity?.Stop();
 
                 _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
-                activity?.Stop();
             }
         }
 
