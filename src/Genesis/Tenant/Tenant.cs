@@ -12,7 +12,7 @@ namespace Blocks.Genesis
         public string? Name { get; set; }
         public string DBName { get; set; } = Guid.NewGuid().ToString("n");
         public required string ApplicationDomain { get; set; }
-        public required string CookieDomain { get; set; }
+        public string CookieDomain { get; set; } = string.Empty;
         public bool IsDisabled { get; set; }
         public required string DbConnectionString { get; set; }
         public string PasswordStrengthCheckerRegex { get; set; } = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$";
