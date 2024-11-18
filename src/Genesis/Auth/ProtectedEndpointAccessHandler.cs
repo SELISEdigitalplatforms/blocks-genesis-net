@@ -10,10 +10,12 @@ namespace Blocks.Genesis
     internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEndpointAccessRequirement>
     {
         private readonly IDbContextProvider _dbContextProvider;
+        private readonly IBlocksSecret _blocksSecret;
 
-        public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider)
+        public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider, IBlocksSecret blocksSecret)
         {
             _dbContextProvider = dbContextProvider;
+            _blocksSecret = blocksSecret;
         }
 
         protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ProtectedEndpointAccessRequirement requirement)
@@ -50,7 +52,7 @@ namespace Blocks.Genesis
 
         private async Task<bool> CheckHasAccess(ClaimsIdentity claimsIdentity, string actionName, string controllerName)
         {
-            var resource = $"{controllerName}::{actionName}".ToLower();
+            var resource = $"{_blocksSecret.ServiceName}::{controllerName}::{actionName}".ToLower();
             var roles = claimsIdentity.FindAll(BlocksContext.ROLES_CLAIM).Select(c => c.Value);
             var permissions = claimsIdentity.FindAll(BlocksContext.PERMISSION_CLAIM).Select(c => c.Value);
 
