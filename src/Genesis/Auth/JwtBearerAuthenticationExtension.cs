@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
@@ -72,6 +73,8 @@ namespace Blocks.Genesis
                 options.AddPolicy("Protected", policy =>
                             policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
             });
+
+            services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
         }
 
         private static async Task<X509Certificate2> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)

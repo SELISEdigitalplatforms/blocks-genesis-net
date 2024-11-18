@@ -65,7 +65,6 @@ namespace Blocks.Genesis
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddSingleton<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
-            services.AddSingleton<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
 
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);
