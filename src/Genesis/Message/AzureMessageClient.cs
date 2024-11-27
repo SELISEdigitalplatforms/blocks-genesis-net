@@ -60,7 +60,7 @@ namespace Blocks.Genesis
                     {
                         ["TraceId"] = activity?.TraceId.ToString(),
                         ["SpanId"] = activity?.SpanId.ToString(),
-                        ["SecurityContext"] = JsonSerializer.Serialize(securityContext)
+                        ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context) ? JsonSerializer.Serialize(securityContext) : consumerMessage
                     }
             };
 
