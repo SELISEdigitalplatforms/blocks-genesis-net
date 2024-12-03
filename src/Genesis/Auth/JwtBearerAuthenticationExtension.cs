@@ -6,7 +6,6 @@ using StackExchange.Redis;
 using System.Diagnostics;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
-using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -14,10 +13,6 @@ namespace Blocks.Genesis
     {
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
-            var serviceProvider = services.BuildServiceProvider();
-            var tenants = serviceProvider.GetRequiredService<ITenants>();
-            var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
-
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
@@ -27,40 +22,39 @@ namespace Blocks.Genesis
                         {
                             context.Token = TokenHelper.GetToken(context.Request);
 
-                            var bc = BlocksContext.GetContext();
+                            var serviceProvider = context.HttpContext.RequestServices;
+                            var tenants = serviceProvider.GetRequiredService<ITenants>();
+                            var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
 
+                            var bc = BlocksContext.GetContext();
                             var certificate = await GetCertificateAsync(bc.TenantId, tenants, cacheDb);
                             if (certificate == null)
                             {
                                 context.Fail("Certificate not found");
                                 return;
                             }
-                            var validationParameter = tenants.GetTenantTokenValidationParameter(bc.TenantId);
-                            context.Options.TokenValidationParameters = new TokenValidationParameters
+
+                            var validationParams = tenants.GetTenantTokenValidationParameter(bc.TenantId);
+                            if (validationParams == null)
                             {
-                                ValidateLifetime = true,
-                                ClockSkew = TimeSpan.Zero,
-                                IssuerSigningKey = new X509SecurityKey(certificate),
-                                ValidateIssuerSigningKey = true,
-                                ValidateIssuer = true,
-                                ValidIssuer = validationParameter?.Issuer,
-                                ValidAudiences = validationParameter?.Audiences,
-                                ValidateAudience = true,
-                                SaveSigninToken = true,
-                            };
+                                context.Fail("Validation parameters not found");
+                                return;
+                            }
+
+                            context.Options.TokenValidationParameters = CreateTokenValidationParameters(certificate, validationParams);
                         },
-                        OnTokenValidated = async context =>
+                        OnTokenValidated = context =>
                         {
                             var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
-
                             StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
-                        },
-                        OnAuthenticationFailed = authenticationFailedContext =>
-                        {
-                            Console.WriteLine("Authentication failed: " + authenticationFailedContext.Exception.Message);
                             return Task.CompletedTask;
                         },
-                        OnForbidden = forbiddenContext =>
+                        OnAuthenticationFailed = context =>
+                        {
+                            Console.WriteLine("Authentication failed: " + context.Exception.Message);
+                            return Task.CompletedTask;
+                        },
+                        OnForbidden = context =>
                         {
                             Console.WriteLine("Authorization failed: Forbidden");
                             return Task.CompletedTask;
@@ -70,91 +64,101 @@ namespace Blocks.Genesis
 
             services.AddAuthorization(options =>
             {
-                options.AddPolicy("Protected", policy =>
-                            policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
+                options.AddPolicy("Protected", policy => policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
             });
 
             services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
         }
 
-        private static async Task<X509Certificate2> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
+        private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
         {
-            var cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
-            var cachedCertificate = await cacheDb.StringGetAsync(cacheKey);
-            var tokenParameters = tenants.GetTenantTokenValidationParameter(tenantId);
+            string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
+            string? cachedCertificate = await cacheDb.StringGetAsync(cacheKey);
 
-            if (cachedCertificate.HasValue)
+            if (!string.IsNullOrEmpty(cachedCertificate))
             {
-                return CreateSecurityKey(cachedCertificate, tokenParameters.PublicCertificatePassword);
+                return CreateCertificate(Convert.FromBase64String(cachedCertificate), tenants.GetTenantTokenValidationParameter(tenantId)?.PublicCertificatePassword);
             }
 
-            if (tokenParameters == null || string.IsNullOrWhiteSpace(tokenParameters.PublicCertificatePath))
-            {
-                throw new SecurityTokenException($"Token parameters for tenant {tenantId} not found");
-            }
+            var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
+            if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
+                return null;
 
-            var certificate = await GetPublicCertificateAsync(tokenParameters.PublicCertificatePath);
-            if (certificate != null)
-            {
-                var expirationDays = tokenParameters.CertificateValidForNumberOfDays - (DateTime.UtcNow - tokenParameters.IssueDate).Days - 1;
-                await cacheDb.StringSetAsync(cacheKey, certificate, TimeSpan.FromDays(expirationDays));
-            }
-            return CreateSecurityKey(certificate, tokenParameters.PublicCertificatePassword);
+            byte[]? certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath);
+            if (certificateData == null) return null;
+
+            await CacheCertificateAsync(cacheDb, cacheKey, certificateData, validationParams);
+            return CreateCertificate(certificateData, validationParams.PublicCertificatePassword);
         }
 
-        private static async Task<byte[]?> GetPublicCertificateAsync(string signingKeyPath)
+        private static async Task<byte[]?> LoadCertificateDataAsync(string certificatePath)
         {
             try
             {
-                byte[] certificateData;
-
-                if (Uri.IsWellFormedUriString(signingKeyPath, UriKind.Absolute))
+                if (Uri.IsWellFormedUriString(certificatePath, UriKind.Absolute))
                 {
                     using var httpClient = new HttpClient();
-                    certificateData = await httpClient.GetByteArrayAsync(signingKeyPath);
+                    return await httpClient.GetByteArrayAsync(certificatePath);
                 }
-                else
-                {
-                    certificateData = File.ReadAllBytes(signingKeyPath);
-                }
-
-                return certificateData;
+                return File.Exists(certificatePath) ? await File.ReadAllBytesAsync(certificatePath) : null;
             }
             catch (Exception e)
             {
-                Console.WriteLine($"Error creating security key: {e.Message}");
+                Console.WriteLine($"Failed to load certificate: {e.Message}");
                 return null;
             }
         }
 
-        private static X509Certificate2 CreateSecurityKey(byte[] signingKey, string signingKeyPassword)
+        private static async Task CacheCertificateAsync(IDatabase cacheDb, string cacheKey, byte[] certificateData, JwtTokenParameters validationParams)
+        {
+            if (validationParams?.IssueDate == null || validationParams.CertificateValidForNumberOfDays <= 0)
+                return;
+
+            int daysRemaining = validationParams.CertificateValidForNumberOfDays - (DateTime.UtcNow - validationParams.IssueDate).Days - 1;
+            if (daysRemaining > 0)
+            {
+                await cacheDb.StringSetAsync(cacheKey, Convert.ToBase64String(certificateData), TimeSpan.FromDays(daysRemaining));
+            }
+        }
+
+        private static X509Certificate2 CreateCertificate(byte[] certificateData, string? password)
         {
             try
             {
-                if (signingKey == null) throw new ArgumentNullException();
-
-                return string.IsNullOrWhiteSpace(signingKeyPassword)
-                    ? new X509Certificate2(signingKey)
-                    : new X509Certificate2(signingKey, signingKeyPassword);
+                return string.IsNullOrWhiteSpace(password)
+                    ? new X509Certificate2(certificateData)
+                    : new X509Certificate2(certificateData, password);
             }
             catch (Exception e)
             {
-                Console.WriteLine($"Error creating security key: {e.Message}");
-                return null;
+                Console.WriteLine($"Failed to create certificate: {e.Message}");
+                return null!;
             }
         }
 
-        private static void StoreBlocksContextInActivity(BlocksContext bc)
+        private static TokenValidationParameters CreateTokenValidationParameters(X509Certificate2 certificate, JwtTokenParameters? validationParams)
+        {
+            return new TokenValidationParameters
+            {
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero,
+                IssuerSigningKey = new X509SecurityKey(certificate),
+                ValidateIssuerSigningKey = true,
+                ValidateIssuer = true,
+                ValidIssuer = validationParams?.Issuer,
+                ValidAudiences = validationParams?.Audiences,
+                ValidateAudience = true,
+                SaveSigninToken = true
+            };
+        }
+
+        private static void StoreBlocksContextInActivity(BlocksContext blocksContext)
         {
             var activity = Activity.Current;
             if (activity != null)
             {
-                var securityData = BlocksContext.CreateFromTuple((bc.TenantId, bc.Roles, bc.UserId, bc.IsAuthenticated, bc.RequestUri, bc.OrganizationId, bc.ExpireOn, bc.Email, bc.Permissions, bc.TenantId));
-
-                activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
+                activity.SetCustomProperty("SecurityContext", blocksContext);
             }
         }
-
-
     }
 }

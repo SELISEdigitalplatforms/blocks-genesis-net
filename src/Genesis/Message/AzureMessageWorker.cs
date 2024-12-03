@@ -160,7 +160,7 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, ex.Message);
-                activity.SetCustomProperty("Response", JsonSerializer.Serialize(ex));
+                activity.SetCustomProperty("Response", ex);
             }
             finally
             {

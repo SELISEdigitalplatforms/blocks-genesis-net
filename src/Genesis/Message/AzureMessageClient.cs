@@ -22,14 +22,19 @@ namespace Blocks.Genesis
             _senders = new ConcurrentDictionary<string, ServiceBusSender>();
             _activitySource = activitySource;
 
+            InitializeSenders(messageConfiguration);
+        }
+
+        private void InitializeSenders(MessageConfiguration messageConfiguration)
+        {
             foreach (var queue in messageConfiguration.Queues)
             {
-                GetSender(queue);
+                _senders.TryAdd(queue, _client.CreateSender(queue));
             }
 
             foreach (var topic in messageConfiguration.Topics)
             {
-                GetSender(topic);
+                _senders.TryAdd(topic, _client.CreateSender(topic));
             }
         }
 

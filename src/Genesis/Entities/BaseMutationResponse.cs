@@ -1,9 +1,7 @@
 ﻿namespace Blocks.Genesis
 {
-    public class BaseMutationResponse
+    public class BaseMutationResponse : BaseResponse
     {
-        public IDictionary<string, string>? Errors { get; set; }
-        public bool IsSuccess { get; set; }
         public string? ItemId { get; set; }
     }
 }

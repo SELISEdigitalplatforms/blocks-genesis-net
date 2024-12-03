@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
-using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -18,30 +17,22 @@ namespace Blocks.Genesis
         {
             var activity = Activity.Current;
 
-            // Capture TenantId from headers
             context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out StringValues tenantId);
 
-            // TenantId is most important perameter, without this we cannot store the trace
             activity.SetCustomProperty("TenantId", tenantId);
 
-            // Capture Request details: URL and Headers
-            var requestInfo = new
+            activity.SetCustomProperty("Request", new
             {
-                Url = context.Request.Path.ToString(),
-                Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
-            };
-            activity.SetCustomProperty("Request", JsonSerializer.Serialize(requestInfo));
+                Url = context.Request.Path.ToString()
+            });
 
-            // Process the request
+
             await _next(context);
 
-            // Capture Response details: Status code and Headers
-            var response = new
+            activity.SetCustomProperty("Response", new
             {
-                StatusCode = context.Response.StatusCode,
-                Headers = context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())
-            };
-            activity.SetCustomProperty("Response", JsonSerializer.Serialize(response));
+                StatusCode = context.Response.StatusCode
+            });
         }
     }
 }

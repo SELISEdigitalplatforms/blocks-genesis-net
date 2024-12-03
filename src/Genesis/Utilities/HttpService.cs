@@ -77,65 +77,69 @@ namespace Blocks.Genesis
                 requestActivity?.AddTag("server.address", new Uri(url).Host);
                 requestActivity?.AddTag("http.request.method", method.Method);
 
-                using (var request = new HttpRequestMessage(method, url))
+                try
                 {
-                    if (payload != null)
-                    {
-                        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, contentType);
-                        requestActivity?.AddTag("payload.size", request.Content.Headers.ContentLength.ToString());
-                    }
+                    requestActivity?.Start();
 
-                    if (header != null)
+                    var response = await _retryPolicy.ExecuteAsync(async context =>
                     {
-                        foreach (var key in header.Keys)
+                        using (var request = CreateHttpRequest(method, url, payload, contentType, header))
                         {
-                            request.Headers.Add(key, header[key]);
+                            return await client.SendAsync(request);
                         }
-                    }
+                    }, new Context { ["url"] = url });
 
-                    request.Headers.Add("traceparent", requestActivity?.Id);
+                    requestActivity?.AddTag("http.response.status_code", response.StatusCode);
+                    requestActivity?.AddTag("http.response.size", response.Content.Headers.ContentLength);
 
-                    try
+                    if (response.IsSuccessStatusCode)
                     {
-                        requestActivity?.Start();
+                        var result = JsonSerializer.Deserialize<T>(await response.Content.ReadAsStringAsync());
+                        requestActivity?.AddTag("response.type", typeof(T).Name);
 
-                        var response = await _retryPolicy.ExecuteAsync(context =>
-                        {
-                            context["url"] = url; // Add context for the retry activity
-                            return client.SendAsync(request);
-                        }, new Context());
-
-                        requestActivity?.AddTag("http.response.status_code", response.StatusCode);
-                        requestActivity?.AddTag("http.response.size", response.Content.Headers.ContentLength);
-
-                        if (response.IsSuccessStatusCode)
-                        {
-                            var result = JsonSerializer.Deserialize<T>(await response.Content.ReadAsStringAsync());
-                            requestActivity?.AddTag("response.type", typeof(T).Name);
-
-                            _logger.LogInformation("Result: {result}", JsonSerializer.Serialize(result));
-                            return (result, string.Empty);
-                        }
-                        else
-                        {
-                            _logger.LogError("Error: {response}", JsonSerializer.Serialize(response));
-                            return (null, "Operation failed");
-                        }
+                        _logger.LogInformation("Result: {result}", JsonSerializer.Serialize(result));
+                        return (result, string.Empty);
                     }
-                    catch (Exception e)
+                    else
                     {
-                        requestActivity?.AddTag("error.message", e.Message);
-                        requestActivity?.AddTag("error.type", e.GetType().Name);
-
-                        _logger.LogError("Error: {error}", e);
-                        return (null, e.Message);
-                    }
-                    finally
-                    {
-                        requestActivity?.Stop();
+                        _logger.LogError("Error: {response}", JsonSerializer.Serialize(response));
+                        return (null, "Operation failed");
                     }
                 }
+                catch (Exception e)
+                {
+                    requestActivity?.AddTag("error.message", e.Message);
+                    requestActivity?.AddTag("error.type", e.GetType().Name);
+
+                    _logger.LogError("Error: {error}", e);
+                    return (null, e.Message);
+                }
+                finally
+                {
+                    requestActivity?.Stop();
+                }
             }
+        }
+
+
+        private HttpRequestMessage CreateHttpRequest(HttpMethod method, string url, object payload, string contentType, Dictionary<string, string> header)
+        {
+            var request = new HttpRequestMessage(method, url);
+
+            if (payload != null)
+            {
+                request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, contentType);
+            }
+
+            if (header != null)
+            {
+                foreach (var key in header.Keys)
+                {
+                    request.Headers.Add(key, header[key]);
+                }
+            }
+
+            return request;
         }
     }
 }
