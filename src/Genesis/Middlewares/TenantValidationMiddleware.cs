@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -89,7 +90,7 @@ namespace Blocks.Genesis
                 string.Empty
             ));
 
-            Activity.Current.SetCustomProperty("SecurityContext", securityData);
+            Activity.Current.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
         }
     }
 }

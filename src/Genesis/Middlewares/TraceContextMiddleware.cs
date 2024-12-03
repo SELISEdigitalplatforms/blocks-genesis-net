@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -21,18 +22,18 @@ namespace Blocks.Genesis
 
             activity.SetCustomProperty("TenantId", tenantId);
 
-            activity.SetCustomProperty("Request", new
+            activity.SetCustomProperty("Request", JsonSerializer.Serialize(new
             {
                 Url = context.Request.Path.ToString()
-            });
+            }));
 
 
             await _next(context);
 
-            activity.SetCustomProperty("Response", new
+            activity.SetCustomProperty("Response", JsonSerializer.Serialize(new
             {
                 StatusCode = context.Response.StatusCode
-            });
+            }));
         }
     }
 }

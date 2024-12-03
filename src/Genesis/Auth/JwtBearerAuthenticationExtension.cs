@@ -6,6 +6,7 @@ using StackExchange.Redis;
 using System.Diagnostics;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -73,14 +74,14 @@ namespace Blocks.Genesis
         private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
         {
             string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
-            string? cachedCertificate = await cacheDb.StringGetAsync(cacheKey);
+            var cachedCertificate = await cacheDb.StringGetAsync(cacheKey);
+            var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
 
-            if (!string.IsNullOrEmpty(cachedCertificate))
+            if (cachedCertificate.HasValue)
             {
-                return CreateCertificate(Convert.FromBase64String(cachedCertificate), tenants.GetTenantTokenValidationParameter(tenantId)?.PublicCertificatePassword);
+                return CreateCertificate(cachedCertificate, validationParams?.PublicCertificatePassword);
             }
 
-            var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
             if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
                 return null;
 
@@ -157,7 +158,7 @@ namespace Blocks.Genesis
             var activity = Activity.Current;
             if (activity != null)
             {
-                activity.SetCustomProperty("SecurityContext", blocksContext);
+                activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(blocksContext));
             }
         }
     }
