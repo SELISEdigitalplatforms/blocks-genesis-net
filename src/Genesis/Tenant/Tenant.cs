@@ -24,6 +24,7 @@ namespace Blocks.Genesis
         public int RememberMeRefreshTokenValidForNumberMinutes { get; init; } = 30 * 60 * 24;
         public int GetNumberOfWrongAttemptsToLockTheAccount { get; set; } = 5;
         public int AccountLockDurationInMinutes { get; set; } = 5;
+        public bool IsRootTenant { get; set; } 
 
     }
 }
