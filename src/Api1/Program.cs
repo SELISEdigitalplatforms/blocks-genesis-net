@@ -5,7 +5,7 @@ const string _serviceName = "Service-API-Test_One";
 var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName);
 var builder = WebApplication.CreateBuilder(args);
 
-ApplicationConfigurations.ConfigureAppConfigs(builder, args);
+ApplicationConfigurations.ConfigureApiEnv(builder, args);
 
 // Configure services
 var services = builder.Services;

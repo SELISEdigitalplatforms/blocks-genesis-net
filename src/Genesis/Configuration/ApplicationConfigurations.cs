@@ -1,9 +1,9 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
@@ -48,7 +48,7 @@ namespace Blocks.Genesis
             return _blocksSecret;
         }
 
-        public static void ConfigureAppConfigs(WebApplicationBuilder builder, string[] args)
+        public static void ConfigureApiEnv(IHostApplicationBuilder builder, string[] args)
         {
             builder.Configuration
             .AddCommandLine(args)
@@ -56,6 +56,14 @@ namespace Blocks.Genesis
             .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
+        }
+
+        public static void ConfigureWorkerEnv(IConfigurationBuilder builder, string[] args)
+        {
+            builder
+            .AddCommandLine(args)
+            .AddEnvironmentVariables()
+            .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
         }
 
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
