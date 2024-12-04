@@ -34,8 +34,8 @@ namespace Blocks.Genesis
                         { "Timestamp", DateTime.UtcNow },
                         { "ServiceName", _serviceName },
                         { "Tags", JsonSerializer.Serialize(metricPoint.Tags) },
-                        { "StartTime", metricPoint.StartTime.ToString() },
-                        { "EndTime", metricPoint.EndTime.ToString() }
+                        { "StartTime", metricPoint.StartTime.UtcDateTime },
+                        { "EndTime", metricPoint.EndTime.UtcDateTime }
                     };
 
                     switch (data.MetricType)

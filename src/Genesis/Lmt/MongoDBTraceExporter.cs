@@ -3,7 +3,6 @@ using MongoDB.Driver;
 using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -32,8 +31,7 @@ namespace Blocks.Genesis
             var endTime = data.StartTimeUtc.Add(data.Duration);
 
             // Retrieve TenantId from Activity or use a default if it's missing
-            var tenantId = data?.GetCustomProperty("TenantId")?.ToString();
-            tenantId = string.IsNullOrWhiteSpace(tenantId) ? BlocksConstants.Miscellaneous : tenantId;
+            var tenantId = data.GetCustomProperty("TenantId")?.ToString() ?? BlocksConstants.Miscellaneous;
 
             var document = new BsonDocument
             {
@@ -48,15 +46,15 @@ namespace Blocks.Genesis
                 { "StartTime", data.StartTimeUtc },
                 { "EndTime", endTime },
                 { "Duration", data.Duration.TotalMilliseconds },
-                { "Attributes", new BsonDocument(data?.Tags?.ToDictionary() ?? new Dictionary<string, string?>()) },
-                { "Status", data?.Status.ToString() ?? string.Empty },
-                { "StatusDescription", data?.StatusDescription ?? string.Empty },
-                { "Baggage", JsonSerializer.Serialize(data?.Baggage) },
+                { "Attributes", new BsonDocument(data.Tags?.ToDictionary(kvp => kvp.Key, kvp => (BsonValue)kvp.Value) ?? new Dictionary<string, BsonValue>()) },
+                { "Status", data.Status.ToString() },
+                { "StatusDescription", data.StatusDescription ?? string.Empty },
+                { "Baggage", new BsonArray(data.Baggage?.Select(kvp => new BsonDocument(kvp.Key, kvp.Value))) },
                 { "ServiceName", _serviceName },
                 { "TenantId", tenantId },
-                { "Request", data?.GetCustomProperty("Request")?.ToString() ?? string.Empty },
-                { "Response", data?.GetCustomProperty("Response")?.ToString() ?? string.Empty },
-                { "SecurityContext", data?.GetCustomProperty("SecurityContext")?.ToString() ?? string.Empty }
+                { "Request", TryConvertToBsonValue(data.GetCustomProperty("Request")) },
+                { "Response", TryConvertToBsonValue(data.GetCustomProperty("Response")) },
+                { "SecurityContext", TryConvertToBsonValue(data.GetCustomProperty("SecurityContext")) }
             };
 
             // Add the document to the batch
@@ -67,6 +65,16 @@ namespace Blocks.Genesis
             {
                 Task.Run(() => FlushBatchAsync());
             }
+        }
+
+        private static BsonValue TryConvertToBsonValue(object? value)
+        {
+            return value switch
+            {
+                null => BsonNull.Value,
+                string str => BsonValue.Create(str),
+                _ => BsonValue.Create(value)
+            };
         }
 
         private async Task FlushBatchAsync()

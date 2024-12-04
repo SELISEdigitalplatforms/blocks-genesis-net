@@ -27,12 +27,30 @@ namespace Blocks.Genesis
                 { "ServiceName", _serviceName },
             };
 
-            if (logEvent?.Properties != null)
+            if (logEvent.Properties != null)
             {
                 foreach (var property in logEvent.Properties)
                 {
-                    var prop = property.Value.ToString();
-                    document[property.Key] = prop;
+                    var propertyValue = property.Value;
+
+                    if (propertyValue is ScalarValue scalarValue)
+                    {
+                        document[property.Key] = BsonValue.Create(scalarValue.Value); // Handle scalar types directly
+                    }
+                    else if (propertyValue is SequenceValue sequenceValue)
+                    {
+                        document[property.Key] = new BsonArray(sequenceValue.Elements.Select(e => e.ToString())); // Handle sequences
+                    }
+                    else if (propertyValue is StructureValue structureValue)
+                    {
+                        document[property.Key] = new BsonDocument(
+                            structureValue.Properties.Select(p =>
+                                new BsonElement(p.Name, p.Value.ToString()))); // Handle structured values
+                    }
+                    else
+                    {
+                        document[property.Key] = propertyValue.ToString(); // Fallback for unhandled cases
+                    }
                 }
             }
 
