@@ -31,7 +31,8 @@ namespace Blocks.Genesis
             var endTime = data.StartTimeUtc.Add(data.Duration);
 
             // Retrieve TenantId from Activity or use a default if it's missing
-            var tenantId = data.GetCustomProperty("TenantId")?.ToString() ?? BlocksConstants.Miscellaneous;
+            var tenantId = data.GetCustomProperty("TenantId")?.ToString();
+            tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
 
             var document = new BsonDocument
             {
