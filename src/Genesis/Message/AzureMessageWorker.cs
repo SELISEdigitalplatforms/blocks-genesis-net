@@ -125,9 +125,10 @@ namespace Blocks.Genesis
             var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
             var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
             var traceState = args.Message.ApplicationProperties.TryGetValue("TraceState", out var traceStateObj) ? traceStateObj.ToString() : "";
+            var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
 
             var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
-            var securityContext = BlocksContext.GetContext(securityContextString);
+
 
             var parentActivityContext = new ActivityContext(
                 ActivityTraceId.CreateFromString(traceId),
@@ -143,7 +144,7 @@ namespace Blocks.Genesis
 
             // TenantId is most important perameter, without this we cannot store the trace
 
-            activity.SetCustomProperty("TenantId", securityContext?.TenantId);
+            activity.SetCustomProperty("TenantId", tenantId);
 
             string body = args.Message.Body.ToString();
             _logger.LogInformation($"Message received: {body}");

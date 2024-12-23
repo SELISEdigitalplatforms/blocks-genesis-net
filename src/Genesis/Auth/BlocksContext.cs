@@ -13,6 +13,7 @@ namespace Blocks.Genesis
         public const string AUDIANCES_CLAIM = "aud";
         public const string IS_AUTHENTICATED_CLAIM = "isAuthenticated";
         public const string REQUEST_URI_CLAIM = "ruri";
+        public const string TOKEN_CLAIM = "oauth";
         public const string PERMISSION_CLAIM = "permissions";
         public const string ISSUED_AT_TIME_CLAIM = "iat";
         public const string ORGANIZATION_ID_CLAIM = "o_id";
@@ -28,11 +29,16 @@ namespace Blocks.Genesis
         public string UserId { get; private init; }
         public DateTime ExpireOn { get; private init; }
         public string RequestUri { get; private init; }
+        public string OAuthToken { get; private init; }
         public string OrganizationId { get; private init; }
         public bool IsAuthenticated { get; private init; }
         public string Email { get; private init; }
         public IEnumerable<string> Permissions { get; private init; }
         public string UserName { get; private init; }
+        public string OauthToken { get; private init; }
+
+
+        public static bool IsTestMode { get; set; } = false;
 
         [JsonConstructor]
         private BlocksContext(
@@ -45,7 +51,8 @@ namespace Blocks.Genesis
             DateTime expireOn,
             string email,
             IEnumerable<string> permissions,
-            string userName)
+            string userName,
+            string oauthToken)
         {
             TenantId = tenantId;
             Roles = roles;
@@ -57,6 +64,7 @@ namespace Blocks.Genesis
             Email = email;
             Permissions = permissions;
             UserName = userName;
+            OauthToken = oauthToken;
         }
 
         // Static method to create an instance from ClaimsIdentity
@@ -67,6 +75,7 @@ namespace Blocks.Genesis
             var userId = claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value ?? string.Empty;
             var audiances = claimsIdentity.FindAll(AUDIANCES_CLAIM).Select(c => c.Value);
             var requestUri = claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty;
+            var oauthToken = claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value ?? string.Empty;
             var organizationId = claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty;
             var isAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var isAuth) && isAuth;
             var expireOn = DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue;
@@ -74,32 +83,45 @@ namespace Blocks.Genesis
             var permissions = claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value);
             var userName = claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty;
 
-            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName);
+            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName, oauthToken);
         }
 
-        internal static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName) tuple)
+        public static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName, string oauthToken) tuple)
         {
-            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName);
+            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName, tuple.oauthToken);
         }
 
         // Static method to retrieve the context from Activity
-        public static BlocksContext? GetContext(string? value = null)
+        public static BlocksContext? GetContext(BlocksContext testValue = null)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(value))
+                if (IsTestMode)
                 {
-                    var activity = Activity.Current;
-                    if (activity != null)
-                    {
-                        var contextJson = activity.GetCustomProperty("SecurityContext")?.ToString();
-                        return string.IsNullOrWhiteSpace(contextJson) ? null : JsonSerializer.Deserialize<BlocksContext>(contextJson);
-                    }
-
-                    return null;
+                    // In test mode, return a predefined BlocksContext or use a mock value
+                    return testValue ?? new BlocksContext(
+                        tenantId: "test-tenant",
+                        roles: new[] { "test-role" },
+                        userId: "test-user",
+                        isAuthenticated: true,
+                        requestUri: "http://localhost/test",
+                        organizationId: "test-org",
+                        expireOn: DateTime.UtcNow.AddHours(1),
+                        email: "test@example.com",
+                        permissions: new[] { "read", "write" },
+                        userName: "testuser",
+                        oauthToken: "test-oauth-token"
+                    );
                 }
 
-                return JsonSerializer.Deserialize<BlocksContext>(value);
+                var activity = Activity.Current;
+                if (activity != null)
+                {
+                    var contextJson = activity.GetCustomProperty("SecurityContext")?.ToString();
+                    return string.IsNullOrWhiteSpace(contextJson) ? null : JsonSerializer.Deserialize<BlocksContext>(contextJson);
+                }
+
+                return null;
             }
             catch (Exception ex)
             {

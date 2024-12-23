@@ -87,6 +87,7 @@ namespace Blocks.Genesis
                 DateTime.MinValue,
                 string.Empty,
                 Array.Empty<string>(),
+                string.Empty,
                 string.Empty
             ));
 

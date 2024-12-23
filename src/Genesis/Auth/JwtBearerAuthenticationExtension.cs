@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
@@ -14,6 +15,9 @@ namespace Blocks.Genesis
     {
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
+            var serviceProvider = services.BuildServiceProvider();
+            var tenants = serviceProvider.GetRequiredService<ITenants>();
+            var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
@@ -22,10 +26,6 @@ namespace Blocks.Genesis
                         OnMessageReceived = async context =>
                         {
                             context.Token = TokenHelper.GetToken(context.Request);
-
-                            var serviceProvider = context.HttpContext.RequestServices;
-                            var tenants = serviceProvider.GetRequiredService<ITenants>();
-                            var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
 
                             var bc = BlocksContext.GetContext();
                             var certificate = await GetCertificateAsync(bc.TenantId, tenants, cacheDb);
@@ -46,7 +46,9 @@ namespace Blocks.Genesis
                         },
                         OnTokenValidated = context =>
                         {
+                            var token = TokenHelper.GetToken(context.Request);
                             var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
+                            HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
                             StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
                             return Task.CompletedTask;
                         },
@@ -161,5 +163,16 @@ namespace Blocks.Genesis
                 activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(blocksContext));
             }
         }
+        private static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri, string jwtBearerToken)
+        {
+            var requestClaims = new Claim[]
+            {
+                new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri),
+                new Claim(BlocksContext.TOKEN_CLAIM, jwtBearerToken)
+            };
+
+            claimsIdentity.AddClaims(requestClaims);
+        }
+
     }
 }

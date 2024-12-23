@@ -63,6 +63,7 @@ namespace Blocks.Genesis
             {
                 ApplicationProperties =
                     {
+                        ["TenantId"] = securityContext.TenantId,
                         ["TraceId"] = activity?.TraceId.ToString(),
                         ["SpanId"] = activity?.SpanId.ToString(),
                         ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context) ? JsonSerializer.Serialize(securityContext) : consumerMessage
