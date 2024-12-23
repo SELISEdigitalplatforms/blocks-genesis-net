@@ -35,7 +35,6 @@ namespace Blocks.Genesis
         public string Email { get; private init; }
         public IEnumerable<string> Permissions { get; private init; }
         public string UserName { get; private init; }
-        public string OauthToken { get; private init; }
 
 
         public static bool IsTestMode { get; set; } = false;
@@ -64,7 +63,7 @@ namespace Blocks.Genesis
             Email = email;
             Permissions = permissions;
             UserName = userName;
-            OauthToken = oauthToken;
+            OAuthToken = oauthToken;
         }
 
         // Static method to create an instance from ClaimsIdentity
