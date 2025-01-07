@@ -25,6 +25,8 @@ namespace Blocks.Genesis
         public int GetNumberOfWrongAttemptsToLockTheAccount { get; set; } = 5;
         public int AccountLockDurationInMinutes { get; set; } = 5;
         public bool IsRootTenant { get; set; } 
+        public bool IsCookieEnable { get; set; }
+        public List<string> SharedWith { get; set; } = new List<string>();
 
     }
 }
