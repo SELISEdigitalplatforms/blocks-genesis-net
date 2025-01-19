@@ -117,6 +117,11 @@ namespace Blocks.Genesis
             services.JwtBearerAuthentication();
             services.AddControllers();
             services.AddHttpClient();
+
+            services.AddGrpc(options =>
+            {
+                options.Interceptors.Add<GrpcServerInterceptor>();
+            });
         }
 
         public static void ConfigureMiddleware(WebApplication app)
