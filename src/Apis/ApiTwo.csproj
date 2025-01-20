@@ -22,5 +22,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Genesis\Blocks.Genesis.csproj" />
   </ItemGroup>
+	<ItemGroup>
+		<Protobuf Include="Protos\greet.proto" GrpcServices="Server" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Grpc.AspNetCore" Version="2.67.0" />
+	</ItemGroup>
 
 </Project>

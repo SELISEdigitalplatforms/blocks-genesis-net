@@ -109,7 +109,9 @@ namespace Blocks.Genesis
 
             if (_blocksSwaggerOptions != null) services.AddBlocksSwagger(_blocksSwaggerOptions);
 
-            services.AddTransient<ICryptoService, CryptoService>();
+            services.AddSingleton<ICryptoService, CryptoService>();
+
+            services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();
         }
 
         public static void ConfigureApi(IServiceCollection services)

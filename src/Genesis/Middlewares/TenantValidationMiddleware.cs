@@ -41,7 +41,7 @@ namespace Blocks.Genesis
 
             AttachTenantDataToActivity(tenant);
 
-            if (context.Request.ContentType == "application/grpc" && !context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
+            if (context.Request.ContentType == "application/grpc" && context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
             {
 
                 var hash = _cryptoService.Hash(apiKey, tenant.PasswordSalt);

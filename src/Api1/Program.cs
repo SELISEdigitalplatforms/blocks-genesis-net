@@ -1,4 +1,5 @@
 ﻿using Blocks.Genesis;
+using TestDriver;
 
 const string _serviceName = "Service-API-Test_One";
 
@@ -18,9 +19,13 @@ ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 
 ApplicationConfigurations.ConfigureApi(services);
 
+services.AddSingleton<IGrpcClient, GrpcClient>();
+
 var app = builder.Build();
 
 
 ApplicationConfigurations.ConfigureMiddleware(app);
+
+
 
 app.Run();

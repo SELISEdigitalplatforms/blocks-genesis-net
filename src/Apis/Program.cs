@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using GrpcServiceTestTemp.Services;
 
 
 
@@ -22,6 +23,8 @@ ApplicationConfigurations.ConfigureApi(services);
 var app = builder.Build();
 
 ApplicationConfigurations.ConfigureMiddleware(app);
+
+app.MapGrpcService<GreeterService>();
 
 app.Run();
 

@@ -5,7 +5,7 @@ using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
-    public class GrpcClientFactory
+    public class GrpcClientFactory : IGrpcClientFactory
     {
         private readonly ActivitySource _activitySource;
         private readonly ICryptoService _cryptoService;
