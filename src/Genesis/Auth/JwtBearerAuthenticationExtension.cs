@@ -120,7 +120,7 @@ namespace Blocks.Genesis
             int daysRemaining = validationParams.CertificateValidForNumberOfDays - (DateTime.UtcNow - validationParams.IssueDate).Days - 1;
             if (daysRemaining > 0)
             {
-                await cacheDb.StringSetAsync(cacheKey, Convert.ToBase64String(certificateData), TimeSpan.FromDays(daysRemaining));
+                await cacheDb.StringSetAsync(cacheKey, certificateData, TimeSpan.FromDays(daysRemaining));
             }
         }
 
