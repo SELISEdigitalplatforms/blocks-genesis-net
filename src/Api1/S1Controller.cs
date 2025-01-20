@@ -33,11 +33,11 @@ namespace ApiOne
             var sc = BlocksContext.GetContext();
 
             // Send event to B1
-            //await Task.WhenAll(
-            //    _messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue", Payload = new W2Context { Data = "From S2" } }),
-            //_messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic", Payload = new W1Context { Data = "From S1" } })
-            //, CallApi()
-            //);
+            await Task.WhenAll(
+                _messageClient.SendToConsumerAsync(new ConsumerMessage<W2Context> { ConsumerName = "demo_queue", Payload = new W2Context { Data = "From S2" } }),
+            _messageClient.SendToMassConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "demo_topic", Payload = new W1Context { Data = "From S1" } })
+            , CallApi()
+            );
             _logger.LogInformation("S1 send an event to B1");
 
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
@@ -56,7 +56,7 @@ namespace ApiOne
 
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
 
-            collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString() });
+            //collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString() });
 
             _logger.LogInformation("S1 call to S2 {r}", true);
         }

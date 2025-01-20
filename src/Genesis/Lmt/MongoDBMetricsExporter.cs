@@ -64,7 +64,7 @@ namespace Blocks.Genesis
 
             try
             {
-                _collection.InsertMany(documents);
+                //_collection.InsertMany(documents);
                 return ExportResult.Success;
             }
             catch (Exception ex)

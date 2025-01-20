@@ -24,19 +24,43 @@ namespace Blocks.Genesis
             AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
         {
             var securityContext = BlocksContext.GetContext();
-            var tenant = _tenants.GetTenantByID(securityContext?.TenantId ?? string.Empty);
+            var tenantId = securityContext.TenantId;
+            var tenant = _tenants.GetTenantByID(tenantId);
 
-            using var activity = _activitySource.StartActivity("GrpcClientCall", ActivityKind.Producer, Activity.Current?.Context ?? default);
+            var activity = _activitySource.StartActivity("GrpcClientCall", ActivityKind.Producer, Activity.Current?.Context ?? default);
+            activity?.SetCustomProperty("TenantId", tenantId);
+            activity?.SetTag("method", context.Method.ToString());
+            activity?.SetTag("headers", context.Options.Headers?.ToString() ?? string.Empty);
+            activity?.SetTag("deadline", context.Options.Deadline?.ToString() ?? string.Empty);
+            activity?.SetTag("isWaitForReady", context.Options.IsWaitForReady);
+            activity?.SetTag("host", context.Host ?? string.Empty);
+
             var metadata = context.Options.Headers ?? new Metadata();
             metadata.Add("traceparent", activity?.Id ?? string.Empty);
-            metadata.Add(BlocksConstants.BlocksKey, tenant?.ItemId ?? string.Empty);
-            metadata.Add(BlocksConstants.BlocksGrpcKey, _cryptoService.Hash(tenant?.ItemId ?? string.Empty, tenant?.PasswordSalt ?? string.Empty));
+            metadata.Add(BlocksConstants.BlocksKey, tenantId);
+            metadata.Add(BlocksConstants.BlocksGrpcKey, _cryptoService.Hash(tenantId, tenant?.PasswordSalt ?? string.Empty));
             metadata.Add("SecurityContext", JsonSerializer.Serialize(securityContext));
 
             var newContext = new ClientInterceptorContext<TRequest, TResponse>(
                 context.Method, context.Host, new CallOptions(metadata));
 
-            return continuation(request, newContext);
+            var call = continuation(request, newContext);
+
+            call.ResponseAsync.ContinueWith(task =>
+            {
+                if (task.IsFaulted)
+                {
+                    activity?.SetStatus(ActivityStatusCode.Error, task.Exception?.Message);
+                }
+                else if (task.IsCompletedSuccessfully)
+                {
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                }
+                activity?.Stop();
+                activity?.Dispose();
+            });
+
+            return call;
         }
     }
 }
