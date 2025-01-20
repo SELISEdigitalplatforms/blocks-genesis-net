@@ -9,11 +9,13 @@ namespace Blocks.Genesis
     {
         private readonly RequestDelegate _next;
         private readonly ITenants _tenants;
+        private readonly ICryptoService _cryptoService;
 
-        public TenantValidationMiddleware(RequestDelegate next, ITenants tenants)
+        public TenantValidationMiddleware(RequestDelegate next, ITenants tenants, ICryptoService cryptoService)
         {
             _next = next ?? throw new ArgumentNullException(nameof(next));
             _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
+            _cryptoService = cryptoService ?? throw new ArgumentNullException(nameof(cryptoService));
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -38,6 +40,18 @@ namespace Blocks.Genesis
             }
 
             AttachTenantDataToActivity(tenant);
+
+            if (context.Request.ContentType == "application/grpc" && context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
+            {
+
+                var hash = _cryptoService.Hash(apiKey, tenant.PasswordSalt);
+                if (hash != grpcKey)
+                {
+                    await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key");
+                    return;
+                }
+            }
+            
 
             await _next(context);
         }
@@ -70,7 +84,11 @@ namespace Blocks.Genesis
         private static Task RejectRequest(HttpContext context, int statusCode, string message)
         {
             context.Response.StatusCode = statusCode;
-            return context.Response.WriteAsync(message);
+            return context.Response.WriteAsync(JsonSerializer.Serialize(new BaseResponse
+            {
+                IsSuccess = false,
+                Errors = new Dictionary<string, string> { { "Message",  message } }
+            }));
         }
 
         private static void AttachTenantDataToActivity(Tenant tenant)
@@ -93,5 +111,6 @@ namespace Blocks.Genesis
 
             Activity.Current.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
         }
+
     }
 }

@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
+using TestDriver;
 
 namespace ApiOne
 {
@@ -13,13 +14,15 @@ namespace ApiOne
         private readonly IHttpService _httpService;
         private readonly IMessageClient _messageClient;
         private readonly IDbContextProvider _dbContextProvider;
+        private readonly IGrpcClient _grpcClient;
 
-        public S1Controller(ILogger<S1Controller> logger, IHttpService httpService, IMessageClient messageClient, IDbContextProvider dbContextProvider)
+        public S1Controller(ILogger<S1Controller> logger, IHttpService httpService, IMessageClient messageClient, IDbContextProvider dbContextProvider, IGrpcClient grpcClient)
         {
             _logger = logger;
             _httpService = httpService;
             _messageClient = messageClient;
             _dbContextProvider = dbContextProvider;
+            _grpcClient = grpcClient;
         }
 
         [HttpGet("process")]
@@ -40,7 +43,9 @@ namespace ApiOne
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
             var result = await collection.Find(_ => true).ToListAsync();
 
-            return Ok(result);
+            var grpc = await _grpcClient.ExecuteAsync();
+
+            return Ok(new {http = result, grpc });
         }
 
         private async Task CallApi()
@@ -51,7 +56,7 @@ namespace ApiOne
 
             var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
 
-            collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString() });
+            //collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString() });
 
             _logger.LogInformation("S1 call to S2 {r}", true);
         }

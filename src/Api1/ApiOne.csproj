@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Genesis\Blocks.Genesis.csproj" />
+    <ProjectReference Include="..\TestDriver\TestDriver.csproj" />
   </ItemGroup>
 
   

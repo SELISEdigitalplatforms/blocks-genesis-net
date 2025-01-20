@@ -15,6 +15,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Blocks.Genesis", "Genesis\B
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "XUnitTest", "UnitTest\XUnitTest.csproj", "{9C393072-CDED-416D-8433-22769465B6E3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestDriver", "TestDriver\TestDriver.csproj", "{E0D9111B-7566-42AC-9CCD-D0A6EFE79B4C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,6 +47,10 @@ Global
 		{9C393072-CDED-416D-8433-22769465B6E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9C393072-CDED-416D-8433-22769465B6E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9C393072-CDED-416D-8433-22769465B6E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E0D9111B-7566-42AC-9CCD-D0A6EFE79B4C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E0D9111B-7566-42AC-9CCD-D0A6EFE79B4C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E0D9111B-7566-42AC-9CCD-D0A6EFE79B4C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E0D9111B-7566-42AC-9CCD-D0A6EFE79B4C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
