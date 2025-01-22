@@ -21,7 +21,7 @@ public class S2Controller : ControllerBase
         _logger.LogInformation("Processing request in S2: process");
 
         var sc = BlocksContext.GetContext();
-
+        Console.WriteLine(sc);
         return Ok(sc);
     }
 

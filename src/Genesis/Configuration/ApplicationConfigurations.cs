@@ -124,6 +124,8 @@ namespace Blocks.Genesis
             {
                 options.Interceptors.Add<GrpcServerInterceptor>();
             });
+
+            services.AddSingleton<ChangeControllerContext>();
         }
 
         public static void ConfigureMiddleware(WebApplication app)
