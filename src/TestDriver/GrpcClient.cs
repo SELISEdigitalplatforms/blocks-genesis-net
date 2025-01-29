@@ -15,7 +15,7 @@ namespace TestDriver
         {
             try
             {
-                var client = _grpcClientFactory.CreateGrpcClient<Greeter.GreeterClient>("https://localhost:51845");
+                var client = _grpcClientFactory.CreateGrpcClient<Greeter.GreeterClient>("http://localhost:3001");
 
                 var reply = await client.SayHelloAsync(new HelloRequest { Name = "GreeterClient" });
                 Console.WriteLine(reply);

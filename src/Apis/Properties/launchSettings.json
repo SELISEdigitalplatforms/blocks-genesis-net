@@ -4,9 +4,10 @@
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "applicationUrl": "https://localhost:51845;http://localhost:51846"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "HTTP1_PORT": "3000",
+        "HTTP2_PORT": "3001"
+      }
     }
   }
 }

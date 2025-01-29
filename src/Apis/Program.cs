@@ -9,6 +9,9 @@ var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_
 
 var builder = WebApplication.CreateBuilder(args);
 
+ApplicationConfigurations.ConfigureApiEnv(builder, args);
+ApplicationConfigurations.ConfigureKestrel(builder);
+
 var services = builder.Services;
 
 ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration

@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +47,28 @@ namespace Blocks.Genesis
                         .CreateLogger();
 
             return _blocksSecret;
+        }
+
+        public static void ConfigureKestrel(WebApplicationBuilder builder)
+        {
+            //var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            //if(currentEnvironment == "Development") return;
+
+            var httpPort = Environment.GetEnvironmentVariable("HTTP1_PORT") ?? "5000";
+            var http2Port = Environment.GetEnvironmentVariable("HTTP2_PORT") ?? "5001";
+
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                options.ListenLocalhost(int.Parse(httpPort), listenOptions =>
+                {
+                    listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1;
+                });
+
+                options.ListenLocalhost(int.Parse(http2Port), listenOptions =>
+                {
+                    listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+                });
+            });
         }
 
         public static void ConfigureApiEnv(IHostApplicationBuilder builder, string[] args)

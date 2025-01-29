@@ -58,7 +58,7 @@ namespace ApiOne
             // Make HTTP call to S2
             var sc = BlocksContext.GetContext();
             Console.WriteLine(sc);
-            var response = await _httpService.Get<object>("http://localhost:51846/api/s2/process",
+            var response = await _httpService.Get<object>("http://localhost:3000/api/s2/process",
                 new Dictionary<string, string> { { BlocksConstants.BlocksKey, sc.TenantId } });
 
             //var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
