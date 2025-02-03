@@ -15,7 +15,7 @@ namespace Blocks.Genesis
         public string CookieDomain { get; set; } = string.Empty;
         public bool IsDisabled { get; set; }
         public required string DbConnectionString { get; set; }
-        public string PasswordStrengthCheckerRegex { get; set; } = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$";
+        public string PasswordStrengthCheckerRegex { get; set; } = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[\\W_])[A-Za-z\\d\\W_]{8,30}$"; // " ^ (?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$";
         public string PasswordSalt { get; set; } = Guid.NewGuid().ToString("n");
         public required JwtTokenParameters JwtTokenParameters { get; set; }
         public List<string> AllowedGrantType { get; set; } = new List<string>();
