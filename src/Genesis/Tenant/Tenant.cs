@@ -26,6 +26,6 @@ namespace Blocks.Genesis
         public int AccountLockDurationInMinutes { get; set; } = 5;
         public bool IsRootTenant { get; set; } 
         public bool IsCookieEnable { get; set; }
-
+        public bool IsDomainVerified { get; set; }
     }
 }
