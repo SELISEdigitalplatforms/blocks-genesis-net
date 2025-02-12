@@ -59,12 +59,12 @@ namespace Blocks.Genesis
 
             builder.WebHost.ConfigureKestrel(options =>
             {
-                options.ListenLocalhost(int.Parse(httpPort), listenOptions =>
+                options.ListenAnyIP(int.Parse(httpPort), listenOptions =>
                 {
                     listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1;
                 });
 
-                options.ListenLocalhost(int.Parse(http2Port), listenOptions =>
+                options.ListenAnyIP(int.Parse(http2Port), listenOptions =>
                 {
                     listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
                 });
