@@ -17,6 +17,10 @@ namespace Blocks.Genesis
         public string DatabaseConnectionString { get ; set ; }
         public string RootDatabaseName { get ; set ; }
         public bool EnableHsts { get; set; }
+        public string SshHost { get; set; }
+        public string SshUsername { get; set; }
+        public string SshPassword { get; set; }
+        public string SshNginxTemplate { get; set; }
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(CloudType cloudType)
         {
