@@ -27,7 +27,8 @@ namespace Blocks.Genesis
             }
 
             var tenant = _tenants.GetTenantByID(apiKey.ToString());
-            if (tenant == null)
+
+            if (tenant == null || tenant.IsDisabled)
             {
                 await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Not_Allowed");
                 return;
