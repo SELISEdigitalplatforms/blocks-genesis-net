@@ -26,7 +26,7 @@ namespace Blocks.Genesis
                 throw new ArgumentNullException(nameof(tenantId), "Tenant ID cannot be null or empty.");
 
             // Use lazy loading for tenant databases
-            return _databases.GetOrAdd(tenantId.ToLower(), id =>
+            return _databases.GetOrAdd(tenantId, id =>
             {
                 _logger.LogInformation("Loading database for tenant: {tenantId}", id);
                 return InitializeDatabaseForTenant(id);
