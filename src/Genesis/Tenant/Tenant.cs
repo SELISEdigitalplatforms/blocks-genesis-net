@@ -5,7 +5,7 @@ namespace Blocks.Genesis
     [BsonIgnoreExtraElements]
     public class Tenant: BaseEntity
     {
-        public string TenantId { get; set; } = Guid.NewGuid().ToString("n");
+        public string TenantId { get; set; } = Guid.NewGuid().ToString("n").ToUpper();
         public bool IsAcceptBlocksTerms { get; set; }
         public bool IsUseBlocksExclusively { get; set; }
         public bool IsProduction { get; set; }
