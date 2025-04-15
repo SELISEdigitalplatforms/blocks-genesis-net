@@ -6,6 +6,7 @@ namespace Blocks.Genesis
     public class ChangeControllerContext
     {
         private readonly ITenants _tenants;
+        public static  bool isCaptchaNeedToBypass;
 
         public ChangeControllerContext(ITenants tenants)
         {
@@ -15,12 +16,15 @@ namespace Blocks.Genesis
         public void ChangeContext(IProjectKey projectKey)
         {
             var bc = BlocksContext.GetContext();
-            if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
+            isCaptchaNeedToBypass = false;
 
+            if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
             var isRoot = _tenants.GetTenantByID(bc?.TenantId)?.IsRootTenant ?? false;
 
             if (isRoot)
             {
+                isCaptchaNeedToBypass = true;
+
                 Activity.Current?.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(new
                 {
                     TenantId = projectKey.ProjectKey,
