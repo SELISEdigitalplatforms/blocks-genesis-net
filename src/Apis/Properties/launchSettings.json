@@ -1,12 +1,13 @@
 {
   "profiles": {
-    "Apis": {
+    "http": {
       "commandName": "Project",
+      "dotnetRunMessages": true,
       "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "http://localhost:5131",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "HTTP1_PORT": "3000",
-        "HTTP2_PORT": "3001"
+        "ASPNETCORE_ENVIRONMENT": "Development"
       }
     }
   }
