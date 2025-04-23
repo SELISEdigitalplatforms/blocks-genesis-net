@@ -43,11 +43,11 @@ namespace Blocks.Genesis
             return _senders.GetOrAdd(consumerName, name => _client.CreateSender(name));
         }
 
-        public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
+        public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage, bool isExchange = false) where T : class
         {
             var securityContext = BlocksContext.GetContext();
 
-            using var activity = _activitySource.StartActivity("SendMessageToConsumer", ActivityKind.Producer, Activity.Current?.Context ?? default);
+            using var activity = _activitySource.StartActivity("messaging.azure.service.bus.send", ActivityKind.Producer, Activity.Current?.Context ?? default);
 
             activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
             activity?.SetTag("consumer", JsonSerializer.Serialize(consumerMessage));

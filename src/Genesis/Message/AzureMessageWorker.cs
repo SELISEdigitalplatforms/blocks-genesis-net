@@ -124,7 +124,6 @@ namespace Blocks.Genesis
             // Extract trace context from the message
             var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
             var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
-            var traceState = args.Message.ApplicationProperties.TryGetValue("TraceState", out var traceStateObj) ? traceStateObj.ToString() : "";
             var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
 
             var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";

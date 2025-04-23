@@ -43,5 +43,7 @@
             return $"{topicName}_sub_{ServiceName}";
         }
 
+        public int MessageTtlSeconds { get; set; }
+
     }
 }
