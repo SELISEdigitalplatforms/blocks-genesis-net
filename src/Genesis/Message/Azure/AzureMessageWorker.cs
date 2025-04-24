@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace Blocks.Genesis
 {
-    public class AzureMessageWorker : BackgroundService
+    public sealed class AzureMessageWorker : BackgroundService
     {
         private readonly ILogger<AzureMessageWorker> _logger;
         private readonly List<ServiceBusProcessor> _processors = new List<ServiceBusProcessor>();
@@ -74,7 +74,7 @@ namespace Blocks.Genesis
                 if (_serviceBusClient == null)
                 {
                     _logger.LogError("Service Bus Client is not initialized");
-                    return;
+                    throw new InvalidOperationException("Service Bus Client is not initialized");
                 }
 
                 var queueProcessingTask = ProcessQueues(stoppingToken);
@@ -91,11 +91,11 @@ namespace Blocks.Genesis
 
         private async Task ProcessQueues(CancellationToken stoppingToken)
         {
-            foreach (var queueName in _messageConfiguration.Queues)
+            foreach (var queueName in _messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? new())
             {
                 var processor = _serviceBusClient.CreateProcessor(queueName, new ServiceBusProcessorOptions
                 {
-                    PrefetchCount = _messageConfiguration.QueuePrefetchCount
+                    PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueuePrefetchCount ?? 5
                 });
                 processor.ProcessMessageAsync += MessageHandler;
                 processor.ProcessErrorAsync += ErrorHandler;
@@ -106,11 +106,11 @@ namespace Blocks.Genesis
 
         private async Task ProcessTopics(CancellationToken stoppingToken)
         {
-            foreach (var topicName in _messageConfiguration.Topics)
+            foreach (var topicName in _messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? new())
             {
-                var processor = _serviceBusClient.CreateProcessor(topicName, _messageConfiguration.GetSubscriptionName(topicName), new ServiceBusProcessorOptions
+                var processor = _serviceBusClient.CreateProcessor(topicName, _messageConfiguration?.GetSubscriptionName(topicName), new ServiceBusProcessorOptions
                 {
-                    PrefetchCount = _messageConfiguration.TopicPrefetchCount
+                    PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicPrefetchCount ?? 5
                 });
                 processor.ProcessMessageAsync += MessageHandler;
                 processor.ProcessErrorAsync += ErrorHandler;
@@ -137,30 +137,30 @@ namespace Blocks.Genesis
                 isRemote: true
             );
 
-            using var activity = _activitySource.StartActivity("ProcessMessage", ActivityKind.Consumer, parentActivityContext);
+            using var activity = _activitySource.StartActivity("process.messaging.azure.service.bus", ActivityKind.Consumer, parentActivityContext);
             activity?.SetTag("message", args.Message);
             activity?.SetCustomProperty("SecurityContext", securityContextString);
 
             // TenantId is most important perameter, without this we cannot store the trace
 
-            activity.SetCustomProperty("TenantId", tenantId);
+            activity?.SetCustomProperty("TenantId", tenantId);
 
             string body = args.Message.Body.ToString();
             _logger.LogInformation($"Message received: {body}");
-            activity.SetCustomProperty("Request", body);
+            activity?.SetCustomProperty("Request", body);
 
             try
             {
                 var message = JsonSerializer.Deserialize<Message>(body);
 
-                await _consumer.ProcessMessageAsync(message.Type, message.Body);
+                await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
 
-                activity.SetCustomProperty("Response", "Successfully Completed");
+                activity?.SetCustomProperty("Response", "Successfully Completed");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, ex.Message);
-                activity.SetCustomProperty("Response", ex);
+                activity?.SetCustomProperty("Response", ex);
             }
             finally
             {

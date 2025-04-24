@@ -17,8 +17,14 @@ var services = builder.Services;
 ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
     Connection = blocksSecret.MessageConnectionString,
-    Queues = new List<string> { "demo_queue_1" },
-    Topics = new List<string> { "demo_topic_1" },
+    RabbitMqConfiguration = new()
+    {
+        ConsumerSubscriptions = new()
+        {
+            ConsumerSubscription.BindToQueue("test_from_cloud_queue_1", 2),
+            ConsumerSubscription.BindToQueueViaExchange("test_from_cloud_queue_1", "test_from_cloud_exchange_1", 2),
+        }
+    },
     ServiceName = _serviceName,
 });
 ApplicationConfigurations.ConfigureApi(services);

@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace Blocks.Genesis
 {
-    public class AzureMessageClient : IMessageClient
+    public sealed class AzureMessageClient : IMessageClient
     {
         private readonly ILogger<AzureMessageClient> _logger;
         private readonly MessageConfiguration _messageConfiguration;
@@ -27,12 +27,12 @@ namespace Blocks.Genesis
 
         private void InitializeSenders(MessageConfiguration messageConfiguration)
         {
-            foreach (var queue in messageConfiguration.Queues)
+            foreach (var queue in messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? new())
             {
                 _senders.TryAdd(queue, _client.CreateSender(queue));
             }
 
-            foreach (var topic in messageConfiguration.Topics)
+            foreach (var topic in messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? new())
             {
                 _senders.TryAdd(topic, _client.CreateSender(topic));
             }
@@ -43,7 +43,7 @@ namespace Blocks.Genesis
             return _senders.GetOrAdd(consumerName, name => _client.CreateSender(name));
         }
 
-        public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage, bool isExchange = false) where T : class
+        public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
         {
             var securityContext = BlocksContext.GetContext();
 
@@ -63,7 +63,7 @@ namespace Blocks.Genesis
             {
                 ApplicationProperties =
                     {
-                        ["TenantId"] = securityContext.TenantId,
+                        ["TenantId"] = securityContext?.TenantId,
                         ["TraceId"] = activity?.TraceId.ToString(),
                         ["SpanId"] = activity?.SpanId.ToString(),
                         ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context) ? JsonSerializer.Serialize(securityContext) : consumerMessage.Context

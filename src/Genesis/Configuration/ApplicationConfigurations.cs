@@ -17,43 +17,34 @@ namespace Blocks.Genesis
 {
     public static class ApplicationConfigurations
     {
-        static string _serviceName = string.Empty;
-        static IBlocksSecret _blocksSecret;
-        static BlocksSwaggerOptions _blocksSwaggerOptions;
+        private static string _serviceName = string.Empty;
+        private static IBlocksSecret _blocksSecret;
+        private static BlocksSwaggerOptions _blocksSwaggerOptions;
 
-        public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName) // initiateConfiguration(serviceName) this will be called before builder
+        public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName)
         {
             _serviceName = serviceName;
 
             _blocksSecret = await BlocksSecret.ProcessBlocksSecret(CloudType.Azure);
             _blocksSecret.ServiceName = _serviceName;
 
-            // for tracing collection will be created by TenantIds. it will create from tenants caching
-            // create miscellaneous tracing collection if not exist. it is for non tenant tracing.
             LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
-            // Service wise collection creation for log
             LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, _serviceName);
-            // Service wise collection creation for metrics
             LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, _serviceName);
 
-
-
             Log.Logger = new LoggerConfiguration()
-                        .Enrich.FromLogContext()
-                        .Enrich.With<TraceContextEnricher>()
-                        .Enrich.WithEnvironmentName()
-                        .WriteTo.Console()
-                        .WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret)
-                        .CreateLogger();
+                .Enrich.FromLogContext()
+                .Enrich.With<TraceContextEnricher>()
+                .Enrich.WithEnvironmentName()
+                .WriteTo.Console()
+                .WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret)
+                .CreateLogger();
 
             return _blocksSecret;
         }
 
         public static void ConfigureKestrel(WebApplicationBuilder builder)
         {
-            //var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-            //if(currentEnvironment == "Development") return;
-
             var httpPort = Environment.GetEnvironmentVariable("HTTP1_PORT") ?? "5000";
             var http2Port = Environment.GetEnvironmentVariable("HTTP2_PORT") ?? "5001";
 
@@ -74,9 +65,9 @@ namespace Blocks.Genesis
         public static void ConfigureApiEnv(IHostApplicationBuilder builder, string[] args)
         {
             builder.Configuration
-            .AddCommandLine(args)
-            .AddEnvironmentVariables()
-            .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
+                .AddCommandLine(args)
+                .AddEnvironmentVariables()
+                .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
         }
@@ -84,15 +75,14 @@ namespace Blocks.Genesis
         public static void ConfigureWorkerEnv(IConfigurationBuilder builder, string[] args)
         {
             builder
-            .AddCommandLine(args)
-            .AddEnvironmentVariables()
-            .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
+                .AddCommandLine(args)
+                .AddEnvironmentVariables()
+                .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
         }
 
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
-
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddSingleton<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
@@ -108,32 +98,33 @@ namespace Blocks.Genesis
 
             services.AddSingleton(new ActivitySource(_serviceName));
 
-
             services.AddOpenTelemetry()
-                .WithTracing(builder =>
+                .WithTracing(tracingBuilder =>
                 {
-                    builder.SetSampler(new AlwaysOnSampler())
-                    .AddAspNetCoreInstrumentation()
-                    .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
+                    tracingBuilder
+                        .SetSampler(new AlwaysOnSampler())
+                        .AddAspNetCoreInstrumentation()
+                        .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
                 });
 
-            services.AddOpenTelemetry().WithMetrics(builder =>
+            services.AddOpenTelemetry().WithMetrics(metricsBuilder =>
             {
-                builder.AddAspNetCoreInstrumentation()
-                       .AddRuntimeInstrumentation()
-                       .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName, _blocksSecret)));
+                metricsBuilder
+                    .AddAspNetCoreInstrumentation()
+                    .AddRuntimeInstrumentation()
+                    .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName, _blocksSecret)));
             });
 
             services.AddSingleton<IHttpService, HttpService>();
 
-            ConfigureMessageClient(services, messageConfiguration);
+            ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
             services.AddHealthChecks();
 
-            if (_blocksSwaggerOptions != null) services.AddBlocksSwagger(_blocksSwaggerOptions);
+            if (_blocksSwaggerOptions != null)
+                services.AddBlocksSwagger(_blocksSwaggerOptions);
 
             services.AddSingleton<ICryptoService, CryptoService>();
-
             services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();
         }
 
@@ -169,12 +160,11 @@ namespace Blocks.Genesis
                 }
             });
 
-            // Enable CORS with specified configuration
             app.UseCors(corsPolicyBuilder =>
                 corsPolicyBuilder
                     .AllowAnyHeader()
                     .AllowAnyMethod()
-                    .SetIsOriginAllowed(origin => true)
+                    .SetIsOriginAllowed(_ => true)
                     .AllowCredentials()
                     .SetPreflightMaxAge(TimeSpan.FromDays(365)));
 
@@ -184,39 +174,56 @@ namespace Blocks.Genesis
                 app.UseSwaggerUI();
             }
 
-
-            // Custom middlewares
             app.UseMiddleware<TraceContextMiddleware>();
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
-            // Routing must be called before mapping endpoints
             app.UseRouting();
 
-            // Authentication and Authorization
             app.UseAuthentication();
             app.UseAuthorization();
 
-            // Map controllers or endpoints
             app.MapControllers();
         }
 
-        public static void ConfigureWorker(IServiceCollection services)
+        public static void ConfigureWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
-            services.AddHostedService<AzureMessageWorker>();
+            ConfigureServices(services, messageConfiguration);
+
+            if (messageConfiguration.AzureServiceBusConfiguration != null)
+            {
+                services.AddHostedService<AzureMessageWorker>();
+            }
+
+            if (messageConfiguration.RabbitMqConfiguration != null)
+            {
+                services.AddHostedService<RabbitMessageWorker>();
+            }
+
             services.AddSingleton<Consumer>();
             var routingTable = new RoutingTable(services);
             services.AddSingleton(routingTable);
         }
 
-        private static async void ConfigureMessageClient(IServiceCollection services, MessageConfiguration messageConfiguration)
+        private static async Task ConfigureMessageClient(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
-            messageConfiguration.Connection = string.IsNullOrWhiteSpace(messageConfiguration.Connection) ? _blocksSecret.MessageConnectionString : messageConfiguration.Connection;
-            messageConfiguration.ServiceName = string.IsNullOrWhiteSpace(messageConfiguration.ServiceName) ? _serviceName : messageConfiguration.ServiceName;
+            messageConfiguration.Connection ??= _blocksSecret.MessageConnectionString;
+            messageConfiguration.ServiceName ??= _serviceName;
+
             services.AddSingleton(messageConfiguration);
-            services.AddSingleton<IMessageClient, AzureMessageClient>();
             services.AddHostedService<HealthServiceWorker>();
-            await ConfigerAzureServiceBus.ConfigerQueueAndTopicAsync(messageConfiguration);
+
+            if (messageConfiguration.AzureServiceBusConfiguration != null)
+            {
+                services.AddSingleton<IMessageClient, AzureMessageClient>();
+                await ConfigerAzureServiceBus.ConfigerQueueAndTopicAsync(messageConfiguration);
+            }
+
+            if (messageConfiguration.RabbitMqConfiguration != null)
+            {
+                services.AddSingleton<IRabbitMqService, RabbitMqService>();
+                services.AddSingleton<IMessageClient, RabbitMessageClient>();
+            }
         }
 
         private static string GetAppSettingsFileName()

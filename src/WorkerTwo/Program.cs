@@ -8,8 +8,14 @@ var blocksSecrets = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(
 var messageConfiguration = new MessageConfiguration
 {
     Connection = blocksSecrets.MessageConnectionString,
-    Queues = new List<string> { "demo_queue" },
-    Topics = new List<string> { "demo_topic", "demo_topic_1" },
+    RabbitMqConfiguration = new()
+    {
+        ConsumerSubscriptions = new()
+        {
+            ConsumerSubscription.BindToQueue("test_from_cloud_queue_1", 2),
+            ConsumerSubscription.BindToQueueViaExchange("test_from_cloud_queue_1", "test_from_cloud_exchange_1", 2),
+        }
+    },
     ServiceName = blocksSecrets.ServiceName,
 };
 
@@ -19,11 +25,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args).ConfigureServices((services) =>
         {
           //  services.AddSingleton<SecurityContext, BlocksContext>();
-            ApplicationConfigurations.ConfigureServices(services, messageConfiguration);
             services.AddHttpClient();
 
             services.AddSingleton<IConsumer<W1Context>, W1Consumer>();
             services.AddSingleton<IConsumer<W2Context>, W2Consumer>();
 
-            ApplicationConfigurations.ConfigureWorker(services);
+            ApplicationConfigurations.ConfigureWorker(services, messageConfiguration);
         });

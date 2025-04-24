@@ -14,8 +14,11 @@ var services = builder.Services;
 
 ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
-    Queues = new List<string> { "demo_queue" },
-    Topics = new List<string> { "demo_topic" }
+    AzureServiceBusConfiguration = new()
+    {
+        Queues = new List<string> { "demo_queue_1" },
+        Topics = new List<string> { "demo_topic_1" },
+    },
 });
 
 ApplicationConfigurations.ConfigureApi(services);

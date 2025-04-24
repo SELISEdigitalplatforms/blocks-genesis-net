@@ -16,13 +16,13 @@ namespace Blocks.Genesis
         private readonly TimeSpan _flushInterval;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-        public MongoDBTraceExporter(string serviceName, int batchSize = 1000, TimeSpan? flushInterval = null, IBlocksSecret blocksSecret = null)
+        public MongoDBTraceExporter(string serviceName, int batchSize = 1000, TimeSpan? flushInterval = null, IBlocksSecret? blocksSecret = null)
         {
             _serviceName = serviceName;
             _batchSize = batchSize;
             _flushInterval = flushInterval ?? TimeSpan.FromSeconds(3);
             _batch = new ConcurrentQueue<BsonDocument>();
-            _database = LmtConfiguration.GetMongoDatabase(blocksSecret.TraceConnectionString, LmtConfiguration.TraceDatabaseName);
+            _database = LmtConfiguration.GetMongoDatabase(blocksSecret?.TraceConnectionString ?? string.Empty, LmtConfiguration.TraceDatabaseName);
             _timer = new Timer(async _ => await FlushBatchAsync(), null, _flushInterval, _flushInterval);
         }
 
@@ -119,7 +119,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public void Dispose()
+        void IDisposable.Dispose()
         {
             _timer.Dispose();
             FlushBatchAsync().GetAwaiter().GetResult();
