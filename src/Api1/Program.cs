@@ -7,9 +7,6 @@ var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
-ApplicationConfigurations.ConfigureKestrel(builder);
-
-// Configure services
 var services = builder.Services;
 
 ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
@@ -22,14 +19,8 @@ ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 });
 
 ApplicationConfigurations.ConfigureApi(services);
-
 services.AddSingleton<IGrpcClient, GrpcClient>();
-
 var app = builder.Build();
-
-
 ApplicationConfigurations.ConfigureMiddleware(app);
 
-
-
-app.Run();
+await app.RunAsync();

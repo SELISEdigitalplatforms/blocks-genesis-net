@@ -35,18 +35,28 @@ namespace Blocks.Genesis
 
                     if (propertyValue is ScalarValue scalarValue)
                     {
-                        document[property.Key] = BsonValue.Create(scalarValue.Value); // Handle scalar types directly
+                        var value = scalarValue.Value;
+
+                        if (value is DateTimeOffset dto)
+                        {
+                            value = dto.UtcDateTime; 
+                        }
+
+                        document[property.Key] = BsonValue.Create(value); 
                     }
+
                     else if (propertyValue is SequenceValue sequenceValue)
                     {
                         document[property.Key] = new BsonArray(sequenceValue.Elements.Select(e => e.ToString())); // Handle sequences
                     }
+
                     else if (propertyValue is StructureValue structureValue)
                     {
                         document[property.Key] = new BsonDocument(
                             structureValue.Properties.Select(p =>
                                 new BsonElement(p.Name, p.Value.ToString()))); // Handle structured values
                     }
+
                     else
                     {
                         document[property.Key] = propertyValue.ToString(); // Fallback for unhandled cases
