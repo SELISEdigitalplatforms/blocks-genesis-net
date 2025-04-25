@@ -1,10 +1,11 @@
 ﻿using Azure.Identity;
 using Azure.Security.KeyVault.Certificates;
 using Azure.Security.KeyVault.Secrets;
+using Microsoft.Extensions.Configuration;
 
 namespace Blocks.Genesis
 {
-    public class AzureKeyVault : ICloudVault
+    public class AzureKeyVault : IVault
     {
         private SecretClient _secretClient;
         private CertificateClient _certificateClient;
@@ -13,11 +14,20 @@ namespace Blocks.Genesis
         private string _clientId;
         private string _clientSecret;
 
-        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys, Dictionary<string, string> cloudConfig)
+        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
         {
-            ExtractValuesFromGlobalConfig(cloudConfig);
+            ExtractValuesFromGlobalConfig(GetVaultConfig());
             ConnectToAzureKeyVaultSecret();
             return await GetSecretsFromVaultAsync(keys);
+        }
+
+        public static Dictionary<string, string> GetVaultConfig()
+        {
+            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+            var keyVaultConfig = new Dictionary<string, string>();
+            configuration.GetSection(BlocksConstants.KeyVault).Bind(keyVaultConfig);
+
+            return keyVaultConfig;
         }
 
         public async Task<string> ProcessSecretAsync(string key, Dictionary<string, string> cloudConfig)

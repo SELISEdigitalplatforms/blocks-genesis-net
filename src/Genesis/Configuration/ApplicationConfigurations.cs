@@ -21,11 +21,11 @@ namespace Blocks.Genesis
         private static IBlocksSecret _blocksSecret;
         private static BlocksSwaggerOptions _blocksSwaggerOptions;
 
-        public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName)
+        public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName, VaultType vaultType)
         {
             _serviceName = serviceName;
 
-            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(CloudType.Azure);
+            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(vaultType);
             _blocksSecret.ServiceName = _serviceName;
 
             LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);

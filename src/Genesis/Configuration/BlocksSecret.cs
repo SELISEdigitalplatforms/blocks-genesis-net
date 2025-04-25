@@ -22,12 +22,12 @@ namespace Blocks.Genesis
         public string SshPassword { get; set; }
         public string SshNginxTemplate { get; set; }
 
-        public static async Task<IBlocksSecret> ProcessBlocksSecret(CloudType cloudType)
+        public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
         {
-            ICloudVault cloudVault = CloudVault.GetCloudVault(cloudType);
+            IVault cloudVault = Vault.GetCloudVault(vaultType);
             var blocksSecret = new BlocksSecret();
             PropertyInfo[] properties = typeof(BlocksSecret).GetProperties();
-            var blocksSecretVault = await cloudVault.ProcessSecretsAsync(properties.Select(x => x.Name).ToList(), GetVaultConfig());
+            var blocksSecretVault = await cloudVault.ProcessSecretsAsync(properties.Select(x => x.Name).ToList());
 
             foreach (PropertyInfo property in properties)
             {
@@ -46,14 +46,7 @@ namespace Blocks.Genesis
             return blocksSecret;
         }
 
-        private static Dictionary<string, string> GetVaultConfig()
-        {
-            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
-            var keyVaultConfig = new Dictionary<string, string>();
-            configuration.GetSection(BlocksConstants.KeyVault).Bind(keyVaultConfig);
-
-            return keyVaultConfig;
-        }
+        
 
         public static void UpdateProperty<T>(T blocksSecret, string propertyName, object propertyValue) where T : class
         {

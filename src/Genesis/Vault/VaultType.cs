@@ -1,9 +1,10 @@
 ﻿namespace Blocks.Genesis
 {
-    public enum CloudType
+    public enum VaultType
     {
         Unknown = 0,
-        Azure = 1
+        OnPrem = 1,
+        Azure = 2
     }
 
 }
