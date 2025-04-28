@@ -3,7 +3,7 @@ using WorkerOne;
 
 
 const string _serviceName = "Service-Worker-Test_One";
-var blocksSecrets = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName);
+var blocksSecrets = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
 
 var messageConfiguration = new MessageConfiguration
 {

@@ -7,7 +7,7 @@
             return configType switch
             {
                 VaultType.Azure => new AzureKeyVault(),
-                VaultType.OnPrem => new AzureKeyVault(),
+                VaultType.OnPrem => new OnPremVault(),
                 _ => throw new Exception("ConfigType is missing. Please see the Secret.json file")
             };
         }

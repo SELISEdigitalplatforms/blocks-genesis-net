@@ -4,9 +4,9 @@ namespace Blocks.Genesis
 {
     public class OnPremVault : IVault
     {
-        public Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
+        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
         {
-            return Task.FromResult(GetVaultValues());
+            return await Task.FromResult(GetVaultValues());
         }
 
         public static Dictionary<string, string> GetVaultValues()
