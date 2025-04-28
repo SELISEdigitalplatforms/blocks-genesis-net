@@ -44,7 +44,7 @@ namespace Blocks.Genesis
 
                     var createQueueOptions = new CreateQueueOptions(queueName);
                     createQueueOptions.MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxSizeInMegabytes ?? 1024;
-                    createQueueOptions.MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxDeliveryCount ?? 5;
+                    createQueueOptions.MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxDeliveryCount ?? 2;
                     createQueueOptions.DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.QueueDefaultMessageTimeToLive ?? TimeSpan.FromDays(7);
                     createQueueOptions.LockDuration = TimeSpan.FromHours(1);
 
@@ -115,7 +115,7 @@ namespace Blocks.Genesis
                 if (isExist) return;
 
                 var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, _messageConfiguration.GetSubscriptionName(topicName));
-                createTopicSubscriptionOptions.MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 5;
+                createTopicSubscriptionOptions.MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 2;
                 createTopicSubscriptionOptions.DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionDefaultMessageTimeToLive ?? TimeSpan.FromDays(7);
                 createTopicSubscriptionOptions.LockDuration = TimeSpan.FromHours(1);
 
