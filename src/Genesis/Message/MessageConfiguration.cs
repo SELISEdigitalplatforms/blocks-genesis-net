@@ -65,16 +65,19 @@
         }
 
         public long QueueMaxSizeInMegabytes { get; set; } = 1024;
-        public int QueueMaxDeliveryCount { get; set; } = 5;
-        public int QueuePrefetchCount { get; set; } = 5;
+        public int QueueMaxDeliveryCount { get; set; } = 2;
+        public int QueuePrefetchCount { get; set; } = 10;
         public TimeSpan QueueDefaultMessageTimeToLive { get; set; } = TimeSpan.FromDays(7);
 
-        public int TopicPrefetchCount { get; set; } = 5;
+        public int TopicPrefetchCount { get; set; } = 10;
         public long TopicMaxSizeInMegabytes { get; set; } = 1024;
         public TimeSpan TopicDefaultMessageTimeToLive { get; set; } = TimeSpan.FromDays(30);
 
-        public int TopicSubscriptionMaxDeliveryCount { get; set; } = 5;
+        public int TopicSubscriptionMaxDeliveryCount { get; set; } = 2;
         public TimeSpan TopicSubscriptionDefaultMessageTimeToLive { get; set; } = TimeSpan.FromDays(7);
+        public int MaxConcurrentCalls { get; set; } = 5;
+        public int MaxMessageProcessingTimeInMinutes { get; set; } = 60;
+        public int MessageLockRenewalIntervalSeconds { get; set; } = 270;
     }
 
     /// <summary>
