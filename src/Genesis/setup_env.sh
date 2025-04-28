@@ -40,22 +40,17 @@ set_env_variable() {
 }
 
 # Set all the environment variables
-set_env_variable "BlocksSecret__CacheConnectionString" "your_cache_connection_string_from_env"
-set_env_variable "BlocksSecret__MessageConnectionString" "your_message_queue_connection_string_from_env"
-set_env_variable "BlocksSecret__LogConnectionString" "your_logging_connection_string_from_env"
-set_env_variable "BlocksSecret__MetricConnectionString" "your_metrics_connection_string_from_env"
-set_env_variable "BlocksSecret__TraceConnectionString" "your_tracing_connection_string_from_env"
-set_env_variable "BlocksSecret__LogDatabaseName" "your_log_database_from_env"
-set_env_variable "BlocksSecret__MetricDatabaseName" "your_metric_database_from_env"
-set_env_variable "BlocksSecret__TraceDatabaseName" "your_trace_database_from_env"
-set_env_variable "BlocksSecret__ServiceName" "your_service_name_from_env"
-set_env_variable "BlocksSecret__DatabaseConnectionString" "your_main_database_connection_string_from_env"
-set_env_variable "BlocksSecret__RootDatabaseName" "your_root_database_from_env"
+set_env_variable "BlocksSecret__CacheConnectionString" "10.5.25.160:6379,password=vmU4MaY4N21PyuCh,abortConnect=false,connectTimeout=50000,syncTimeout=50000"
+set_env_variable "BlocksSecret__MessageConnectionString" "amqp://test:test@10.5.25.160:5672/"
+set_env_variable "BlocksSecret__LogConnectionString" "mongodb://localhost:27017/"
+set_env_variable "BlocksSecret__MetricConnectionString" "mongodb://localhost:27017/"
+set_env_variable "BlocksSecret__TraceConnectionString" "mongodb://localhost:27017/"
+set_env_variable "BlocksSecret__LogDatabaseName" "Logs"
+set_env_variable "BlocksSecret__MetricDatabaseName" "Metrics"
+set_env_variable "BlocksSecret__TraceDatabaseName" "Traces"
+set_env_variable "BlocksSecret__DatabaseConnectionString" "mongodb://localhost:27017/"
+set_env_variable "BlocksSecret__RootDatabaseName" "Blocks-Root"
 set_env_variable "BlocksSecret__EnableHsts" "true"
-set_env_variable "BlocksSecret__SshHost" "your_ssh_host_from_env"
-set_env_variable "BlocksSecret__SshUsername" "your_ssh_username_from_env"
-set_env_variable "BlocksSecret__SshPassword" "your_ssh_password_from_env"
-set_env_variable "BlocksSecret__SshNginxTemplate" "/path/to/nginx/template_from_env"
 
 echo "Environment variables have been set for the current session."
 

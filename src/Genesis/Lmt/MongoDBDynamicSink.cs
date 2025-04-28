@@ -42,7 +42,7 @@ namespace Blocks.Genesis
                             value = dto.UtcDateTime; 
                         }
 
-                        document[property.Key] = BsonValue.Create(value); 
+                        document[property.Key] = BsonValue.Create(value is string ? value : value?.ToString()); 
                     }
 
                     else if (propertyValue is SequenceValue sequenceValue)

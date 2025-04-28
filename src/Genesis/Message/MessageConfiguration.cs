@@ -127,7 +127,7 @@
         /// <summary>
         /// Creates a subscription that binds directly to a queue.
         /// </summary>
-        public static ConsumerSubscription BindToQueue(string queueName, ushort prefetchCount) =>
+        public static ConsumerSubscription BindToQueue(string queueName, ushort prefetchCount = 5) =>
             new(queueName, string.Empty, prefetchCount);
 
         /// <summary>
@@ -136,7 +136,7 @@
         public static ConsumerSubscription BindToQueueViaExchange(
             string queueName,
             string exchangeName,
-            ushort prefetchCount) =>
+            ushort prefetchCount = 5) =>
             new(queueName, exchangeName, prefetchCount);
 
         /// <summary>

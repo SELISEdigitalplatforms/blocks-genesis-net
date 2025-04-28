@@ -107,19 +107,24 @@ namespace Blocks.Genesis
                         .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
                 });
 
-            services.AddOpenTelemetry().WithMetrics(metricsBuilder =>
-            {
-                metricsBuilder
-                    .AddAspNetCoreInstrumentation()
-                    .AddRuntimeInstrumentation()
-                    .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName, _blocksSecret)));
-            });
+
+            // For now we comment it, after July we will enable this
+            //services.AddOpenTelemetry().WithMetrics(metricsBuilder =>
+            //{
+            //    metricsBuilder
+            //        .AddAspNetCoreInstrumentation()
+            //        .AddRuntimeInstrumentation()
+            //        .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName, _blocksSecret)));
+            //});
 
             services.AddSingleton<IHttpService, HttpService>();
 
             ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
-            services.AddHealthChecks();
+
+            // For now we comment it, after May we will enable this
+            //services.AddHealthChecks();
+            //services.AddHostedService<HealthServiceWorker>();
 
             if (_blocksSwaggerOptions != null)
                 services.AddBlocksSwagger(_blocksSwaggerOptions);
@@ -211,7 +216,6 @@ namespace Blocks.Genesis
             messageConfiguration.ServiceName ??= _serviceName;
 
             services.AddSingleton(messageConfiguration);
-            services.AddHostedService<HealthServiceWorker>();
 
             if (messageConfiguration.AzureServiceBusConfiguration != null)
             {

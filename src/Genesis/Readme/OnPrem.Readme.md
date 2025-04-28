@@ -14,11 +14,7 @@ BlocksSecret__MetricDatabaseName=your_metric_database_from_env
 BlocksSecret__TraceDatabaseName=your_trace_database_from_env 
 BlocksSecret__DatabaseConnectionString=your_main_database_connection_string_from_env  
 BlocksSecret__RootDatabaseName=your_root_database_from_env  
-BlocksSecret__EnableHsts=true  
-BlocksSecret__SshHost=your_ssh_host_from_env  
-BlocksSecret__SshUsername=your_ssh_username_from_env  
-BlocksSecret__SshPassword=your_ssh_password_from_env  
-BlocksSecret__SshNginxTemplate=/path/to/nginx/template_from_env  
+BlocksSecret__EnableHsts=true
 ```
 
 

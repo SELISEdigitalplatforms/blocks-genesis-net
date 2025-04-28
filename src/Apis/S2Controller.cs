@@ -22,6 +22,7 @@ public class S2Controller : ControllerBase
 
         var sc = BlocksContext.GetContext();
         Console.WriteLine(sc);
+        await _messageClient.SendToConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "test_from_cloud_queue_1", Payload = new W1Context { Data = "Hello from blocks" } });
         return Ok(sc);
     }
 

@@ -1,5 +1,7 @@
-﻿using MongoDB.Bson;
+﻿using Microsoft.Extensions.Configuration;
+using MongoDB.Bson;
 using MongoDB.Driver;
+using System.Collections;
 
 namespace Blocks.Genesis
 {
@@ -26,17 +28,24 @@ namespace Blocks.Genesis
 
         public static void CreateCollectionForHealth(string connection)
         {
-            var options = new CreateCollectionOptions
+            var timeSeriesOptionsMultiMeta = new CreateCollectionOptions
             {
-                //Capped = true,
-                //ExpireAfter = TimeSpan.FromDays(90), // 90 days expiration for each document
-                TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "ServiceName", TimeSeriesGranularity.Minutes),
+                TimeSeriesOptions = new TimeSeriesOptions(
+                    timeField: "Timestamp",
+                    metaField: null,                               // No single meta field
+                    granularity: TimeSeriesGranularity.Minutes
+                )
             };
-
             try
             {
-                CreateCollectionIfNotExists(connection, HealthDatabaseName, HealthDatabaseName, options);
-                CreateIndex(connection, HealthDatabaseName, HealthDatabaseName, new BsonDocument { { "ServiceName", 1 }, { _timeField, -1 } });
+                CreateCollectionIfNotExists(connection, HealthDatabaseName, HealthDatabaseName, timeSeriesOptionsMultiMeta);
+                var indexDefinition = Builders<BsonDocument>.IndexKeys
+                                    .Ascending("ServiceName")
+                                    .Ascending("Instance")
+                                    .Descending("Timestamp");
+
+                CreateIndex(connection, HealthDatabaseName, HealthDatabaseName, indexDefinition);
+
             }
             catch (Exception ex)
             {
@@ -140,10 +149,11 @@ namespace Blocks.Genesis
             return collections.Any();
         }
 
-        public static void CreateIndex(string connection, string databaseName, string collectionName, BsonDocument indexKeys)
+        public static void CreateIndex(string connection, string databaseName, string collectionName, IndexKeysDefinition<BsonDocument> indexKeys)
         {
+            var indexOptions = new CreateIndexOptions { Background = true, Name = $"{collectionName}_Index" };
             var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
-            var indexModel = new CreateIndexModel<BsonDocument>(indexKeys);
+            var indexModel = new CreateIndexModel<BsonDocument>(indexKeys, indexOptions);
             collection.Indexes.CreateOne(indexModel);
             Console.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
         }
