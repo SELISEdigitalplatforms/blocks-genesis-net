@@ -5,14 +5,17 @@ using System.Collections.Concurrent;
 
 namespace Blocks.Genesis
 {
-    public class Tenants : ITenants
+    public class Tenants : ITenants, IDisposable
     {
         private readonly ILogger<Tenants> _logger;
         private readonly IBlocksSecret _blocksSecret;
         private readonly ICacheClient _cacheClient;
         private readonly IMongoDatabase _database;
         private readonly string _tenantVersionKey = "***REMOVED***";
+        private readonly string _tenantUpdateChannel = "tenant:updates";
         private string _tenantVersion;
+        private bool _isSubscribed = false;
+        private bool _disposed = false;
 
         // Using ConcurrentDictionary for thread-safe access and efficient lookups
         private readonly ConcurrentDictionary<string, Tenant> _tenantCache = new();
@@ -28,6 +31,8 @@ namespace Blocks.Genesis
             try
             {
                 InitializeCache();
+                // Subscribe to tenant updates
+                SubscribeToTenantUpdates().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -94,11 +99,30 @@ namespace Blocks.Genesis
             }
         }
 
-        public void UpdateTenantVersion()
+        public async Task UpdateTenantVersionAsync()
         {
             try
             {
-                _cacheClient.AddStringValue(_tenantVersionKey, Guid.NewGuid().ToString("n"));
+                string newVersion = Guid.NewGuid().ToString("n");
+
+                // Set the new version in Redis
+                bool setSuccess = _cacheClient.AddStringValue(_tenantVersionKey, newVersion);
+                if (!setSuccess)
+                {
+                    _logger.LogWarning("Failed to update tenant version in Redis.");
+                    return;
+                }
+
+                // Update local version
+                _tenantVersion = newVersion;
+
+                // Publish the update to notify all instances
+                await _cacheClient.PublishAsync(_tenantUpdateChannel, newVersion);
+
+                // Update local cache as well
+                ReloadTenants();
+
+                _logger.LogInformation("Tenant version updated to {Version} and published to channel.", newVersion);
             }
             catch (Exception ex)
             {
@@ -106,11 +130,55 @@ namespace Blocks.Genesis
             }
         }
 
+        public void UpdateTenantVersion()
+        {
+            UpdateTenantVersionAsync().ConfigureAwait(false);
+        }
+
         private void InitializeCache()
         {
             _tenantVersion = _cacheClient.GetStringValue(_tenantVersionKey) ?? string.Empty;
 
             ReloadTenants();
+        }
+
+        private async Task SubscribeToTenantUpdates()
+        {
+            if (_isSubscribed) return;
+
+            try
+            {
+                await _cacheClient.SubscribeAsync(_tenantUpdateChannel, HandleTenantUpdate);
+                _isSubscribed = true;
+                _logger.LogInformation("Successfully subscribed to tenant updates channel.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to subscribe to tenant updates channel.");
+            }
+        }
+
+        private void HandleTenantUpdate(RedisChannel channel, RedisValue message)
+        {
+            try
+            {
+                string newVersion = message.ToString();
+
+                // Skip if we're already on this version
+                if (_tenantVersion == newVersion) return;
+
+                _logger.LogInformation("Received tenant update notification. New version: {Version}", newVersion);
+
+                // Update local version
+                _tenantVersion = newVersion;
+
+                // Reload tenant data
+                ReloadTenants();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling tenant update notification.");
+            }
         }
 
         private void ReloadTenants()
@@ -132,6 +200,8 @@ namespace Blocks.Genesis
                     // Only create collections if they are missing
                     LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
                 }
+
+                _logger.LogInformation("Reloaded {Count} tenants into cache.", tenants.Count);
             }
             catch (Exception ex)
             {
@@ -155,6 +225,26 @@ namespace Blocks.Genesis
                 _logger.LogError(ex, $"Failed to retrieve tenant from DB for ID: {tenantId}");
                 return null;
             }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+
+            // Unsubscribe from tenant updates
+            if (_isSubscribed)
+            {
+                try
+                {
+                    _cacheClient.UnsubscribeAsync(_tenantUpdateChannel).Wait();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error unsubscribing from tenant updates channel.");
+                }
+            }
+
+            _disposed = true;
         }
     }
 }

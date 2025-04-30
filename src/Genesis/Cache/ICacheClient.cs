@@ -2,136 +2,174 @@
 
 namespace Blocks.Genesis
 {
+    /// <summary>
+    /// Interface for cache client operations
+    /// </summary>
     public interface ICacheClient
     {
         /// <summary>
-        /// Gets the Redis database instance.
+        /// Gets the underlying Redis database instance
         /// </summary>
-        /// <returns>An instance of <see cref="IDatabase"/>.</returns>
+        /// <returns>The Redis database instance</returns>
         IDatabase CacheDatabase();
 
+        #region Synchronous Methods
+
         /// <summary>
-        /// Checks if a given key exists in the cache.
+        /// Checks if a key exists in the cache
         /// </summary>
-        /// <param name="key">The key to check for existence.</param>
-        /// <returns>True if the key exists; otherwise, false.</returns>
+        /// <param name="key">The key to check</param>
+        /// <returns>True if the key exists, false otherwise</returns>
         bool KeyExists(string key);
 
         /// <summary>
-        /// Adds a string value to the cache.
+        /// Adds a string value to the cache
         /// </summary>
-        /// <param name="key">The key for the cache entry.</param>
-        /// <param name="value">The string value to store.</param>
-        /// <returns>True if the value was successfully added; otherwise, false.</returns>
+        /// <param name="key">The key for the value</param>
+        /// <param name="value">The string value to add</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
         bool AddStringValue(string key, string value);
 
         /// <summary>
-        /// Adds a string value to the cache with a specified lifespan.
+        /// Adds a string value to the cache with an expiration
         /// </summary>
-        /// <param name="key">The key for the cache entry.</param>
-        /// <param name="value">The string value to store.</param>
-        /// <param name="keyLifeSpan">The lifespan of the key in seconds.</param>
-        /// <returns>True if the value was successfully added; otherwise, false.</returns>
+        /// <param name="key">The key for the value</param>
+        /// <param name="value">The string value to add</param>
+        /// <param name="keyLifeSpan">The lifespan of the key in seconds</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
         bool AddStringValue(string key, string value, long keyLifeSpan);
 
         /// <summary>
-        /// Gets a string value from the cache by key.
+        /// Gets a string value from the cache
         /// </summary>
-        /// <param name="key">The key of the cache entry.</param>
-        /// <returns>The string value if found; otherwise, null.</returns>
+        /// <param name="key">The key for the value</param>
+        /// <returns>The string value if found, null otherwise</returns>
         string GetStringValue(string key);
 
         /// <summary>
-        /// Removes a key from the cache.
+        /// Removes a key from the cache
         /// </summary>
-        /// <param name="key">The key to remove.</param>
-        /// <returns>True if the key was removed; otherwise, false.</returns>
+        /// <param name="key">The key to remove</param>
+        /// <returns>True if the key was removed, false otherwise</returns>
         bool RemoveKey(string key);
 
         /// <summary>
-        /// Checks if a given key exists in the cache asynchronously.
+        /// Adds a hash value to the cache
         /// </summary>
-        /// <param name="key">The key to check for existence.</param>
-        /// <returns>A task that returns true if the key exists; otherwise, false.</returns>
-        Task<bool> KeyExistsAsync(string key);
-
-        /// <summary>
-        /// Adds a string value to the cache asynchronously.
-        /// </summary>
-        /// <param name="key">The key for the cache entry.</param>
-        /// <param name="value">The string value to store.</param>
-        /// <returns>A task that returns true if the value was successfully added; otherwise, false.</returns>
-        Task<bool> AddStringValueAsync(string key, string value);
-
-        /// <summary>
-        /// Adds a string value to the cache asynchronously with a specified lifespan.
-        /// </summary>
-        /// <param name="key">The key for the cache entry.</param>
-        /// <param name="value">The string value to store.</param>
-        /// <param name="keyLifeSpan">The lifespan of the key in seconds.</param>
-        /// <returns>A task that returns true if the value was successfully added; otherwise, false.</returns>
-        Task<bool> AddStringValueAsync(string key, string value, long keyLifeSpan);
-
-        /// <summary>
-        /// Gets a string value from the cache asynchronously by key.
-        /// </summary>
-        /// <param name="key">The key of the cache entry.</param>
-        /// <returns>A task that returns the string value if found; otherwise, null.</returns>
-        Task<string> GetStringValueAsync(string key);
-
-        /// <summary>
-        /// Removes a key from the cache asynchronously.
-        /// </summary>
-        /// <param name="key">The key to remove.</param>
-        /// <returns>A task that returns true if the key was removed; otherwise, false.</returns>
-        Task<bool> RemoveKeyAsync(string key);
-
-        /// <summary>
-        /// Adds a hash value to the cache.
-        /// </summary>
-        /// <param name="key">The key for the hash entry.</param>
-        /// <param name="value">The collection of <see cref="HashEntry"/> to store.</param>
-        /// <returns>True if the hash was successfully added; otherwise, false.</returns>
+        /// <param name="key">The key for the hash</param>
+        /// <param name="value">The hash entries to add</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
         bool AddHashValue(string key, IEnumerable<HashEntry> value);
 
         /// <summary>
-        /// Adds a hash value to the cache with a specified lifespan.
+        /// Adds a hash value to the cache with an expiration
         /// </summary>
-        /// <param name="key">The key for the hash entry.</param>
-        /// <param name="value">The collection of <see cref="HashEntry"/> to store.</param>
-        /// <param name="keyLifeSpan">The lifespan of the key in seconds.</param>
-        /// <returns>True if the hash was successfully added; otherwise, false.</returns>
+        /// <param name="key">The key for the hash</param>
+        /// <param name="value">The hash entries to add</param>
+        /// <param name="keyLifeSpan">The lifespan of the key in seconds</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
         bool AddHashValue(string key, IEnumerable<HashEntry> value, long keyLifeSpan);
 
         /// <summary>
-        /// Gets a hash value from the cache by key.
+        /// Gets a hash value from the cache
         /// </summary>
-        /// <param name="key">The key of the hash entry.</param>
-        /// <returns>An array of <see cref="HashEntry"/> if found; otherwise, an empty array.</returns>
+        /// <param name="key">The key for the hash</param>
+        /// <returns>The hash entries if found, empty array otherwise</returns>
         HashEntry[] GetHashValue(string key);
 
+        #endregion
+
+        #region Asynchronous Methods
+
         /// <summary>
-        /// Adds a hash value to the cache asynchronously.
+        /// Checks if a key exists in the cache asynchronously
         /// </summary>
-        /// <param name="key">The key for the hash entry.</param>
-        /// <param name="value">The collection of <see cref="HashEntry"/> to store.</param>
-        /// <returns>A task that returns true if the hash was successfully added; otherwise, false.</returns>
+        /// <param name="key">The key to check</param>
+        /// <returns>True if the key exists, false otherwise</returns>
+        Task<bool> KeyExistsAsync(string key);
+
+        /// <summary>
+        /// Adds a string value to the cache asynchronously
+        /// </summary>
+        /// <param name="key">The key for the value</param>
+        /// <param name="value">The string value to add</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
+        Task<bool> AddStringValueAsync(string key, string value);
+
+        /// <summary>
+        /// Adds a string value to the cache with an expiration asynchronously
+        /// </summary>
+        /// <param name="key">The key for the value</param>
+        /// <param name="value">The string value to add</param>
+        /// <param name="keyLifeSpan">The lifespan of the key in seconds</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
+        Task<bool> AddStringValueAsync(string key, string value, long keyLifeSpan);
+
+        /// <summary>
+        /// Gets a string value from the cache asynchronously
+        /// </summary>
+        /// <param name="key">The key for the value</param>
+        /// <returns>The string value if found, null otherwise</returns>
+        Task<string> GetStringValueAsync(string key);
+
+        /// <summary>
+        /// Removes a key from the cache asynchronously
+        /// </summary>
+        /// <param name="key">The key to remove</param>
+        /// <returns>True if the key was removed, false otherwise</returns>
+        Task<bool> RemoveKeyAsync(string key);
+
+        /// <summary>
+        /// Adds a hash value to the cache asynchronously
+        /// </summary>
+        /// <param name="key">The key for the hash</param>
+        /// <param name="value">The hash entries to add</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
         Task<bool> AddHashValueAsync(string key, IEnumerable<HashEntry> value);
 
         /// <summary>
-        /// Adds a hash value to the cache asynchronously with a specified lifespan.
+        /// Adds a hash value to the cache with an expiration asynchronously
         /// </summary>
-        /// <param name="key">The key for the hash entry.</param>
-        /// <param name="value">The collection of <see cref="HashEntry"/> to store.</param>
-        /// <param name="keyLifeSpan">The lifespan of the key in seconds.</param>
-        /// <returns>A task that returns true if the hash was successfully added; otherwise, false.</returns>
+        /// <param name="key">The key for the hash</param>
+        /// <param name="value">The hash entries to add</param>
+        /// <param name="keyLifeSpan">The lifespan of the key in seconds</param>
+        /// <returns>True if the operation was successful, false otherwise</returns>
         Task<bool> AddHashValueAsync(string key, IEnumerable<HashEntry> value, long keyLifeSpan);
 
         /// <summary>
-        /// Gets a hash value from the cache asynchronously by key.
+        /// Gets a hash value from the cache asynchronously
         /// </summary>
-        /// <param name="key">The key of the hash entry.</param>
-        /// <returns>A task that returns an array of <see cref="HashEntry"/> if found; otherwise, an empty array.</returns>
+        /// <param name="key">The key for the hash</param>
+        /// <returns>The hash entries if found, empty array otherwise</returns>
         Task<HashEntry[]> GetHashValueAsync(string key);
+
+        #endregion
+
+        #region Pub/Sub Methods
+
+        /// <summary>
+        /// Publishes a message to a channel asynchronously
+        /// </summary>
+        /// <param name="channel">The channel to publish to</param>
+        /// <param name="message">The message to publish</param>
+        /// <returns>The number of clients that received the message</returns>
+        Task<long> PublishAsync(string channel, string message);
+
+        /// <summary>
+        /// Subscribes to a channel asynchronously
+        /// </summary>
+        /// <param name="channel">The channel to subscribe to</param>
+        /// <param name="handler">The handler to call when a message is received</param>
+        /// <returns>A task that completes when the subscription is established</returns>
+        Task SubscribeAsync(string channel, Action<RedisChannel, RedisValue> handler);
+
+        /// <summary>
+        /// Unsubscribes from a channel asynchronously
+        /// </summary>
+        /// <param name="channel">The channel to unsubscribe from</param>
+        /// <returns>A task that completes when the unsubscription is completed</returns>
+        Task UnsubscribeAsync(string channel);
+
+        #endregion
     }
 }
