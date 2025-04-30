@@ -164,8 +164,6 @@ namespace Blocks.Genesis
                 var collection = _database.GetCollection<BsonDocument>(LmtConfiguration.HealthDatabaseName);
 
                 await collection.InsertOneAsync(healthData, cancellationToken: stoppingToken);
-
-                _tenants.UpdateTenantCache();
             }
             catch (Exception ex)
             {
