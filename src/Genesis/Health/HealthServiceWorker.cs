@@ -13,7 +13,6 @@ namespace Blocks.Genesis
         private readonly IBlocksSecret _blocksSecret;
         private readonly IMongoDatabase _database;
         private readonly ICacheClient _cacheClient;
-        private readonly ITenants _tenants;
         private readonly MessageConfiguration _messageConfiguration;
         private readonly string _instanceId;
         private readonly string _serviceName;
@@ -35,7 +34,6 @@ namespace Blocks.Genesis
             _blocksSecret = blocksSecret;
             _database = LmtConfiguration.GetMongoDatabase(blocksSecret.DatabaseConnectionString, LmtConfiguration.HealthDatabaseName);
             _cacheClient = cacheClient;
-            _tenants = tenants;
             _messageConfiguration = messageConfiguration;
 
             _instanceId = Guid.NewGuid().ToString("n");

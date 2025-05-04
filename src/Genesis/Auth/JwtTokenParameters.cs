@@ -8,8 +8,17 @@
         public string PublicCertificatePath { get; set; }
         public required string PublicCertificatePassword { get; init; }
         public required string PrivateCertificatePassword { get; set; }
+        public CertificateStorageType CertificateStorageType { get; set; }
         public int CertificateValidForNumberOfDays { get; init; } = 365;
         public required DateTime IssueDate { get; init; }
+    }
+
+    public enum CertificateStorageType
+    {
+        Azure = 1,
+        Filefilesystem = 2,
+        Mongodb = 3
+
     }
 
 }
