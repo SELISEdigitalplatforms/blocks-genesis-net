@@ -20,7 +20,12 @@ namespace Blocks.Genesis
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (!context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey) || StringValues.IsNullOrEmpty(apiKey))
+            context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
+            if (StringValues.IsNullOrEmpty(apiKey))
+            {
+                context.Request.Query.TryGetValue(BlocksConstants.BlocksKey, out apiKey);
+            }
+            if (StringValues.IsNullOrEmpty(apiKey))
             {
                 await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Key");
                 return;
@@ -34,9 +39,9 @@ namespace Blocks.Genesis
                 return;
             }
 
-            if (!IsValidOrigin(context.Request.Headers.Origin, tenant.ApplicationDomain))
+            if (!IsValidOriginOrReferer(context, tenant))
             {
-                await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin");
+                await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer");
                 return;
             }
 
@@ -44,7 +49,6 @@ namespace Blocks.Genesis
 
             if (context.Request.ContentType == "application/grpc" && context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
             {
-
                 var hash = _cryptoService.Hash(apiKey, tenant.PasswordSalt);
                 if (hash != grpcKey)
                 {
@@ -52,34 +56,48 @@ namespace Blocks.Genesis
                     return;
                 }
             }
-            
 
             await _next(context);
         }
 
-        private static bool IsValidOrigin(string? originHeader, string applicationDomain)
+        private static bool IsValidOriginOrReferer(HttpContext context, Tenant tenant)
         {
-            if (string.IsNullOrWhiteSpace(originHeader)) return true;
+            var originHeader = context.Request.Headers["Origin"].FirstOrDefault();
+            var refererHeader = context.Request.Headers["Referer"].FirstOrDefault();
+
+            return IsDomainAllowed(originHeader, tenant) || IsDomainAllowed(refererHeader, tenant);
+        }
+
+        private static bool IsDomainAllowed(string? headerValue, Tenant tenant)
+        {
+            if (string.IsNullOrWhiteSpace(headerValue)) return true;
 
             try
             {
-                // Parse the origin to extract hostname
-                var originUri = new Uri(originHeader);
-                var originHost = originUri.Host;
+                var uri = new Uri(headerValue);
+                var host = uri.Host;
 
-                // Normalize application domain (remove protocol if present)
-                var normalizedDomain = applicationDomain.Replace("http://", "").Replace("https://", "").Split(":")[0];
+                var normalizedApplicationDomain = NormalizeDomain(tenant.ApplicationDomain);
+                var allowedDomains = tenant.AllowedDomains?.Select(NormalizeDomain) ?? Enumerable.Empty<string>();
 
-                // Allow requests from localhost during development
-                if (originHost.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
-
-                // Compare origin host with normalized application domain
-                return string.Equals(originHost, normalizedDomain, StringComparison.OrdinalIgnoreCase);
+                return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                       host.Equals(normalizedApplicationDomain, StringComparison.OrdinalIgnoreCase) ||
+                       allowedDomains.Contains(host, StringComparer.OrdinalIgnoreCase);
             }
             catch (UriFormatException)
             {
-                return false; // Invalid origin format
+                return false; // Invalid header format
             }
+        }
+
+        private static string NormalizeDomain(string domain)
+        {
+            if (string.IsNullOrWhiteSpace(domain)) return string.Empty;
+
+            return domain.Replace("http://", "")
+                 .Replace("https://", "")
+                 .Split(":")[0]
+                 .Trim();
         }
 
         private static Task RejectRequest(HttpContext context, int statusCode, string message)

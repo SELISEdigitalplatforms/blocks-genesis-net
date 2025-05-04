@@ -12,6 +12,7 @@ namespace Blocks.Genesis
         public string? Name { get; set; }
         public string DBName { get; set; } = Guid.NewGuid().ToString("n");
         public required string ApplicationDomain { get; set; }
+        public List<string> AllowedDomains { get; set; } = new List<string>();
         public string CookieDomain { get; set; } = string.Empty;
         public bool IsDisabled { get; set; }
         public required string DbConnectionString { get; set; }
