@@ -1,5 +1,4 @@
 ﻿using Azure.Identity;
-using Azure.Security.KeyVault.Certificates;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.Configuration;
 
@@ -8,7 +7,6 @@ namespace Blocks.Genesis
     public class AzureKeyVault : IVault
     {
         private SecretClient _secretClient;
-        private CertificateClient _certificateClient;
         private string _keyVaultUrl;
         private string _tenantId;
         private string _clientId;
@@ -30,20 +28,6 @@ namespace Blocks.Genesis
             return keyVaultConfig;
         }
 
-        public async Task<string> ProcessSecretAsync(string key, Dictionary<string, string> cloudConfig)
-        {
-            ExtractValuesFromGlobalConfig(cloudConfig);
-            ConnectToAzureKeyVaultSecret();
-            return await GetSecretFromKeyVaultAsync(key);
-        }
-
-        public async Task<byte[]> ProcessCertificateAsync(string certificateName, Dictionary<string, string> cloudConfig)
-        {
-            ExtractValuesFromGlobalConfig(cloudConfig);
-            ConnectToAzureKeyVaultCertificate();
-            return await GetCertificateFromKeyVaultAsync(certificateName);
-        }
-
         private void ExtractValuesFromGlobalConfig(Dictionary<string, string> cloudConfig)
         {
             if (!cloudConfig.TryGetValue("KeyVaultUrl", out _keyVaultUrl) ||
@@ -59,12 +43,6 @@ namespace Blocks.Genesis
         {
             var credential = new ClientSecretCredential(_tenantId, _clientId, _clientSecret);
             _secretClient = new SecretClient(new Uri(_keyVaultUrl), credential);
-        }
-
-        private void ConnectToAzureKeyVaultCertificate()
-        {
-            var credential = new ClientSecretCredential(_tenantId, _clientId, _clientSecret);
-            _certificateClient = new CertificateClient(new Uri(_keyVaultUrl), credential);
         }
 
         private async Task<Dictionary<string, string>> GetSecretsFromVaultAsync(List<string> keys)
@@ -94,20 +72,6 @@ namespace Blocks.Genesis
             {
                 Console.WriteLine($"Error retrieving secret '{key}': {e.Message}");
                 return string.Empty;
-            }
-        }
-
-        private async Task<byte[]> GetCertificateFromKeyVaultAsync(string certificateName)
-        {
-            try
-            {
-                var certificate = await _certificateClient.GetCertificateAsync(certificateName);
-                return certificate.Value.Cer;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"Error retrieving certificate '{certificateName}': {e.Message}");
-                return null;
             }
         }
     }
