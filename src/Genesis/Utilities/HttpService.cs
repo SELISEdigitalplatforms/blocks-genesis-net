@@ -28,7 +28,6 @@ namespace Blocks.Genesis
                     {
                         _logger.LogWarning($"Request failed. Waiting {timeSpan} before retry {retryCount}. Status code: {result.Result.StatusCode}");
 
-                        // Add activity for each retry attempt
                         using (var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal, Activity.Current?.Context ?? default))
                         {
                             retryActivity?.AddTag("retry.count", retryCount.ToString());
@@ -40,32 +39,32 @@ namespace Blocks.Genesis
                     });
         }
 
-        public async Task<(T, string)> Post<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Post<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class
         {
-            return await MakeRequest<T>(HttpMethod.Post, url, payload, contentType, header);
+            return await MakeRequest<T>(HttpMethod.Post, url, payload, contentType, header, cancellationToken);
         }
 
-        public async Task<(T, string)> Get<T>(string url, Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Get<T>(string url, Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class
         {
-            return await MakeRequest<T>(HttpMethod.Get, url, null, null, header);
+            return await MakeRequest<T>(HttpMethod.Get, url, null, null, header, cancellationToken);
         }
 
-        public async Task<(T, string)> Put<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Put<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class
         {
-            return await MakeRequest<T>(HttpMethod.Put, url, payload, contentType, header);
+            return await MakeRequest<T>(HttpMethod.Put, url, payload, contentType, header, cancellationToken);
         }
 
-        public async Task<(T, string)> Delete<T>(string url, Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Delete<T>(string url, Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class
         {
-            return await MakeRequest<T>(HttpMethod.Delete, url, null, null, header);
+            return await MakeRequest<T>(HttpMethod.Delete, url, null, null, header, cancellationToken);
         }
 
-        public async Task<(T, string)> Patch<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        public async Task<(T, string)> Patch<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class
         {
-            return await MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, header);
+            return await MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, header, cancellationToken);
         }
 
-        private async Task<(T, string)> MakeRequest<T>(HttpMethod method, string url, object payload = null, string contentType = "application/json", Dictionary<string, string> header = null) where T : class
+        private async Task<(T, string)> MakeRequest<T>(HttpMethod method, string url, object payload = null, string contentType = "application/json", Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class
         {
             var securityContext = BlocksContext.GetContext();
             using (var client = _httpClientFactory.CreateClient())
@@ -85,7 +84,7 @@ namespace Blocks.Genesis
                     {
                         using (var request = CreateHttpRequest(method, url, payload, contentType, header))
                         {
-                            return await client.SendAsync(request);
+                            return await client.SendAsync(request, cancellationToken);
                         }
                     }, new Context { ["url"] = url });
 
@@ -94,16 +93,18 @@ namespace Blocks.Genesis
 
                     if (response.IsSuccessStatusCode)
                     {
-                        var result = JsonSerializer.Deserialize<T>(await response.Content.ReadAsStringAsync());
+                        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                        var result = JsonSerializer.Deserialize<T>(responseContent);
                         requestActivity?.AddTag("response.type", typeof(T).Name);
 
-                        _logger.LogInformation("Result: {result}", JsonSerializer.Serialize(result));
+                        _logger.LogInformation("Result: {result}", responseContent);
                         return (result, string.Empty);
                     }
                     else
                     {
-                        _logger.LogError("Error: {response}", JsonSerializer.Serialize(response));
-                        return (null, "Operation failed");
+                        var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                        _logger.LogError("Error: {response}", errorContent);
+                        return (null, errorContent);
                     }
                 }
                 catch (Exception e)
@@ -121,14 +122,13 @@ namespace Blocks.Genesis
             }
         }
 
-
         private HttpRequestMessage CreateHttpRequest(HttpMethod method, string url, object payload, string contentType, Dictionary<string, string> header)
         {
             var request = new HttpRequestMessage(method, url);
 
-            if (payload != null)
+            if (payload != null && !string.IsNullOrEmpty(contentType))
             {
-                request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, contentType);
+                request.Content = new StringContent(payload is string ? payload.ToString() : JsonSerializer.Serialize(payload), Encoding.UTF8, contentType);
             }
 
             if (header != null)

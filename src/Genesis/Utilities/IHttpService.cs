@@ -11,7 +11,7 @@
         /// <param name="contentType">The content type of the request (default is "application/json").</param>
         /// <param name="header">Optional headers to be added to the request.</param>
         /// <returns>A tuple containing the deserialized response object and an error message, if any.</returns>
-        Task<(T, string)> Post<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class;
+        Task<(T, string)> Post<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class;
 
         /// <summary>
         /// Makes an HTTP GET request to the specified URL.
@@ -20,7 +20,7 @@
         /// <param name="url">The URL to which the request will be sent.</param>
         /// <param name="header">Optional headers to be added to the request.</param>
         /// <returns>A tuple containing the deserialized response object and an error message, if any.</returns>
-        Task<(T, string)> Get<T>(string url, Dictionary<string, string> header = null) where T : class;
+        Task<(T, string)> Get<T>(string url, Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class;
 
         /// <summary>
         /// Makes an HTTP PUT request to the specified URL with the provided payload.
@@ -31,7 +31,7 @@
         /// <param name="contentType">The content type of the request (default is "application/json").</param>
         /// <param name="header">Optional headers to be added to the request.</param>
         /// <returns>A tuple containing the deserialized response object and an error message, if any.</returns>
-        Task<(T, string)> Put<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class;
+        Task<(T, string)> Put<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class;
 
         /// <summary>
         /// Makes an HTTP DELETE request to the specified URL.
@@ -40,7 +40,7 @@
         /// <param name="url">The URL to which the request will be sent.</param>
         /// <param name="header">Optional headers to be added to the request.</param>
         /// <returns>A tuple containing the deserialized response object and an error message, if any.</returns>
-        Task<(T, string)> Delete<T>(string url, Dictionary<string, string> header = null) where T : class;
+        Task<(T, string)> Delete<T>(string url, Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class;
 
         /// <summary>
         /// Makes an HTTP PATCH request to the specified URL with the provided payload.
@@ -51,6 +51,6 @@
         /// <param name="contentType">The content type of the request (default is "application/json").</param>
         /// <param name="header">Optional headers to be added to the request.</param>
         /// <returns>A tuple containing the deserialized response object and an error message, if any.</returns>
-        Task<(T, string)> Patch<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null) where T : class;
+        Task<(T, string)> Patch<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> header = null, CancellationToken cancellationToken = default) where T : class;
     }
 }

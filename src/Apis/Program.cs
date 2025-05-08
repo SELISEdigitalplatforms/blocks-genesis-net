@@ -11,9 +11,7 @@ var services = builder.Services;
 
 ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
-    Connection = blocksSecret.MessageConnectionString,
-    RabbitMqConfiguration = new RabbitMqConfiguration(),
-    ServiceName = _serviceName,
+
 });
 
 ApplicationConfigurations.ConfigureApi(services);
