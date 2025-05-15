@@ -125,6 +125,8 @@ namespace Blocks.Genesis
                 string.Empty,
                 Array.Empty<string>(),
                 string.Empty,
+                string.Empty,
+                string.Empty,
                 string.Empty
             ));
 

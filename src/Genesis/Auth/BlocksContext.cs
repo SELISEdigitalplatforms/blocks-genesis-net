@@ -22,6 +22,8 @@ namespace Blocks.Genesis
         public const string EMAIL_CLAIM = "u_email";
         public const string USER_NAME_CLAIM = "u_name";
         public const string ISSUER_CLAIM = "iss";
+        public const string DISPLAY_NAME_CLAIM = "name";
+        public const string PHONE_NUMBER_CLAIM = "phone";
 
         // Properties with private setters
         public string TenantId { get; private init; }
@@ -35,6 +37,8 @@ namespace Blocks.Genesis
         public string Email { get; private init; }
         public IEnumerable<string> Permissions { get; private init; }
         public string UserName { get; private init; }
+        public string PhoneNumber { get; private init; }
+        public string DisplayName { get; private init; }
 
 
         public static bool IsTestMode { get; set; } = false;
@@ -51,6 +55,8 @@ namespace Blocks.Genesis
             string email,
             IEnumerable<string> permissions,
             string userName,
+            string phoneNumber,
+            string displayName,
             string oauthToken)
         {
             TenantId = tenantId;
@@ -63,6 +69,8 @@ namespace Blocks.Genesis
             Email = email;
             Permissions = permissions;
             UserName = userName;
+            PhoneNumber = phoneNumber;
+            DisplayName = displayName;
             OAuthToken = oauthToken;
         }
 
@@ -81,13 +89,15 @@ namespace Blocks.Genesis
             var email = claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value ?? string.Empty;
             var permissions = claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value);
             var userName = claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty;
+            var phoneNumber = claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value ?? string.Empty;
+            var displayName = claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value ?? string.Empty;
 
-            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName, oauthToken);
+            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken);
         }
 
-        public static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName, string oauthToken) tuple)
+        public static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName, string phoneNumber, string displayName, string oauthToken) tuple)
         {
-            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName, tuple.oauthToken);
+            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName, tuple.phoneNumber, tuple.displayName, tuple.oauthToken);
         }
 
         // Static method to retrieve the context from Activity
@@ -109,6 +119,8 @@ namespace Blocks.Genesis
                         email: "test@example.com",
                         permissions: new[] { "read", "write" },
                         userName: "testuser",
+                        phoneNumber: "1234567890",
+                        displayName: "Test User",
                         oauthToken: "test-oauth-token"
                     );
                 }
