@@ -108,11 +108,13 @@
         public string RoutingKey { get; }
         public bool ShouldBypassAuthorization { get; }
         public bool Durable { get; }
+        public bool ParallelProcessing { get; }
 
         public ConsumerSubscription(
             string queueName,
             string exchangeName,
             ushort prefetchCount,
+            bool parallelProcessing = false,
             string exchangeType = "fanout",
             string routingKey = "",
             bool shouldBypassAuthorization = false,
@@ -139,8 +141,9 @@
         public static ConsumerSubscription BindToQueueViaExchange(
             string queueName,
             string exchangeName,
-            ushort prefetchCount = 5) =>
-            new(queueName, exchangeName, prefetchCount);
+            ushort prefetchCount = 5,
+            bool parallelProcessing = false) =>
+            new(queueName, exchangeName, prefetchCount, parallelProcessing);
 
         /// <summary>
         /// Creates a detailed subscription binding a queue to an exchange with routing information.
@@ -151,8 +154,9 @@
             ushort prefetchCount,
             string exchangeType,
             string routingKey,
+            bool parallelProcessing = false,
             bool shouldBypassAuthorization = false,
             bool durable = true) =>
-            new(queueName, exchangeName, prefetchCount, exchangeType, routingKey, shouldBypassAuthorization, durable);
+            new(queueName, exchangeName, prefetchCount, parallelProcessing, exchangeType, routingKey, shouldBypassAuthorization, durable);
     }
 }

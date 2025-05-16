@@ -59,6 +59,20 @@ public sealed class RabbitMessageWorker : BackgroundService
 
     private async Task HandleMessageAsync(object sender, BasicDeliverEventArgs ea)
     {
+        var subscription = _messageConfiguration.RabbitMqConfiguration.ConsumerSubscriptions
+            .FirstOrDefault(s => s.QueueName == ea.RoutingKey);
+
+        if (subscription?.ParallelProcessing ?? false)
+        {
+            _ = Task.Run(() => ProcessMessageInternalAsync(ea));
+        } else
+        {
+            await ProcessMessageInternalAsync(ea);
+        }   
+    }
+
+    private async Task ProcessMessageInternalAsync(BasicDeliverEventArgs ea)
+    {
         ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext);
 
         var parentContext = new ActivityContext(
@@ -106,7 +120,10 @@ public sealed class RabbitMessageWorker : BackgroundService
         foreach (var subscription in _messageConfiguration?.RabbitMqConfiguration?.ConsumerSubscriptions ?? new())
         {
             await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
-            _logger.LogInformation("Started consuming queue: {QueueName}", subscription.QueueName);
+            _logger.LogInformation("Started consuming queue: {QueueName}, Parallel: {Parallel}, MaxConcurrency: {MaxConcurrency}",
+            subscription.QueueName,
+            subscription.ParallelProcessing,
+            subscription.PrefetchCount);
         }
     }
 
