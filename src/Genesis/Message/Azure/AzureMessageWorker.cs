@@ -139,10 +139,11 @@ namespace Blocks.Genesis
             string messageId = args.Message.MessageId;
             var cancellationTokenSource = new CancellationTokenSource();
             var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationTokenSource.Token);
-            _activeMessageRenewals[messageId] = cancellationTokenSource;
+            _activeMessageRenewals.TryAdd(messageId, cancellationTokenSource);
 
             // Start a task to auto-renew the message lock
-            var renewalTask = StartAutoRenewalTask(args, linkedTokenSource.Token);
+            _ = StartAutoRenewalTask(args, linkedTokenSource.Token);
+            _logger.LogInformation($"Received message: {args.Message.Body.ToString()} at: {DateTimeOffset.Now}");
 
             try
             {
@@ -190,11 +191,10 @@ namespace Blocks.Genesis
                 }
                 finally
                 {
-                    // Cancel auto-renewal and complete the message
                     cancellationTokenSource.Cancel();
-                    await args.CompleteMessageAsync(args.Message);
+                    linkedTokenSource.Dispose();
                     _activeMessageRenewals.TryRemove(messageId, out _);
-
+                    await args.CompleteMessageAsync(args.Message);
                     activity?.Stop();
                     _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
                 }
@@ -203,10 +203,8 @@ namespace Blocks.Genesis
             {
                 _logger.LogError(ex, $"Unexpected error processing message {messageId}");
                 cancellationTokenSource.Cancel();
+                linkedTokenSource.Dispose();
                 _activeMessageRenewals.TryRemove(messageId, out _);
-
-                // Still need to complete the message to avoid poison messages
-                await args.CompleteMessageAsync(args.Message);
             }
         }
 
@@ -246,6 +244,8 @@ namespace Blocks.Genesis
                         break;
                     }
                 }
+
+                _logger.LogInformation($"Auto-renewal for message {messageId} completed after {renewalCount} renewals");
             }
             catch (OperationCanceledException)
             {
