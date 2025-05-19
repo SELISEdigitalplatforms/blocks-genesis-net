@@ -16,16 +16,9 @@ namespace Blocks.Genesis
         public string CookieDomain { get; set; } = string.Empty;
         public bool IsDisabled { get; set; }
         public required string DbConnectionString { get; set; }
-        public string PasswordStrengthCheckerRegex { get; set; } = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[\\W_])[A-Za-z\\d\\W_]{8,30}$"; // " ^ (?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$";
-        public string PasswordSalt { get; set; } = Guid.NewGuid().ToString("n");
+        public string TenantSalt { get; set; } = Guid.NewGuid().ToString("n");
         public required JwtTokenParameters JwtTokenParameters { get; set; }
-        public List<string> AllowedGrantType { get; set; } = new List<string>();
-        public int AccessTokenValidForNumberMinutes { get; init; } = 7;
-        public int RefreshTokenValidForNumberMinutes { get; set; } = 30;
-        public int RememberMeRefreshTokenValidForNumberMinutes { get; init; } = 30 * 60 * 24;
-        public int GetNumberOfWrongAttemptsToLockTheAccount { get; set; } = 5;
-        public int AccountLockDurationInMinutes { get; set; } = 5;
-        public bool IsRootTenant { get; set; } 
+        public bool IsRootTenant { get; set; }
         public bool IsCookieEnable { get; set; }
         public bool IsDomainVerified { get; set; }
     }

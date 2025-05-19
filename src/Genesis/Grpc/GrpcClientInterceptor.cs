@@ -38,7 +38,7 @@ namespace Blocks.Genesis
             var metadata = context.Options.Headers ?? new Metadata();
             metadata.Add("traceparent", activity?.Id ?? string.Empty);
             metadata.Add(BlocksConstants.BlocksKey, tenantId);
-            metadata.Add(BlocksConstants.BlocksGrpcKey, _cryptoService.Hash(tenantId, tenant?.PasswordSalt ?? string.Empty));
+            metadata.Add(BlocksConstants.BlocksGrpcKey, _cryptoService.Hash(tenantId, tenant?.TenantSalt ?? string.Empty));
             metadata.Add("SecurityContext", JsonSerializer.Serialize(securityContext));
 
             var newContext = new ClientInterceptorContext<TRequest, TResponse>(
