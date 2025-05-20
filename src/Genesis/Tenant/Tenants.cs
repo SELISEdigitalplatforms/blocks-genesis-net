@@ -11,8 +11,8 @@ namespace Blocks.Genesis
         private readonly IBlocksSecret _blocksSecret;
         private readonly ICacheClient _cacheClient;
         private readonly IMongoDatabase _database;
-        private readonly string _tenantVersionKey = "***REMOVED***";
-        private readonly string _tenantUpdateChannel = "tenant:updates";
+        private readonly string _tenantVersionKey = "tenant::version";
+        private readonly string _tenantUpdateChannel = "tenant::updates";
         private string _tenantVersion;
         private bool _isSubscribed = false;
         private bool _disposed = false;
