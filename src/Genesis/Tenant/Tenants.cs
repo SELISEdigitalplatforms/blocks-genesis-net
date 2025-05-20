@@ -81,24 +81,6 @@ namespace Blocks.Genesis
             return tenant?.JwtTokenParameters;
         }
 
-        public void UpdateTenantCache()
-        {
-            try
-            {
-                var version = _cacheClient.GetStringValue(_tenantVersionKey);
-                if (string.IsNullOrWhiteSpace(version) || _tenantVersion == version) return;
-
-                _tenantVersion = version;
-
-                // Reload the cache
-                ReloadTenants();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to update tenant cache.");
-            }
-        }
-
         public async Task UpdateTenantVersionAsync()
         {
             try
@@ -117,10 +99,7 @@ namespace Blocks.Genesis
                 _tenantVersion = newVersion;
 
                 // Publish the update to notify all instances
-                await _cacheClient.PublishAsync(_tenantUpdateChannel, newVersion);
-
-                // Update local cache as well
-                ReloadTenants();
+                await _cacheClient.PublishAsync(_tenantUpdateChannel, _tenantVersion);
 
                 _logger.LogInformation("Tenant version updated to {Version} and published to channel.", newVersion);
             }
@@ -128,11 +107,6 @@ namespace Blocks.Genesis
             {
                 _logger.LogError(ex, "Failed to update tenant version.");
             }
-        }
-
-        public void UpdateTenantVersion()
-        {
-            UpdateTenantVersionAsync().ConfigureAwait(false);
         }
 
         private void InitializeCache()
