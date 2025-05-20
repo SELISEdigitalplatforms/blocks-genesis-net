@@ -16,6 +16,7 @@ namespace Blocks.Genesis
         private string _tenantVersion;
         private bool _isSubscribed = false;
         private bool _disposed = false;
+        private static bool _isInitialized = false;
 
         // Using ConcurrentDictionary for thread-safe access and efficient lookups
         private readonly ConcurrentDictionary<string, Tenant> _tenantCache = new();
@@ -30,9 +31,13 @@ namespace Blocks.Genesis
 
             try
             {
-                InitializeCache();
-                // Subscribe to tenant updates
-                SubscribeToTenantUpdates().ConfigureAwait(false);
+                if(!_isInitialized)
+                {
+                    InitializeCache();
+                    // Subscribe to tenant updates
+                    SubscribeToTenantUpdates().ConfigureAwait(false);
+                    _isInitialized = true;
+                } 
             }
             catch (Exception ex)
             {
@@ -111,8 +116,6 @@ namespace Blocks.Genesis
 
         private void InitializeCache()
         {
-            _tenantVersion = _cacheClient.GetStringValue(_tenantVersionKey) ?? string.Empty;
-
             ReloadTenants();
         }
 
