@@ -33,16 +33,6 @@
         JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId);
 
         /// <summary>
-        /// Updates the tenant cache by checking for version changes
-        /// </summary>
-        void UpdateTenantCache();
-
-        /// <summary>
-        /// Updates the tenant version in cache and notifies all instances
-        /// </summary>
-        void UpdateTenantVersion();
-
-        /// <summary>
         /// Updates the tenant version in cache and notifies all instances asynchronously
         /// </summary>
         /// <returns>A task representing the asynchronous operation</returns>
