@@ -11,11 +11,12 @@ namespace Blocks.Genesis
         private readonly IBlocksSecret _blocksSecret;
         private readonly ICacheClient _cacheClient;
         private readonly IMongoDatabase _database;
-        private readonly string _tenantVersionKey = "***REMOVED***";
-        private readonly string _tenantUpdateChannel = "tenant:updates";
+        private readonly string _tenantVersionKey = "tenant::version";
+        private readonly string _tenantUpdateChannel = "tenant::updates";
         private string _tenantVersion;
         private bool _isSubscribed = false;
         private bool _disposed = false;
+        private static bool _isInitialized = false;
 
         // Using ConcurrentDictionary for thread-safe access and efficient lookups
         private readonly ConcurrentDictionary<string, Tenant> _tenantCache = new();
@@ -30,9 +31,13 @@ namespace Blocks.Genesis
 
             try
             {
-                InitializeCache();
-                // Subscribe to tenant updates
-                SubscribeToTenantUpdates().ConfigureAwait(false);
+                if(!_isInitialized)
+                {
+                    InitializeCache();
+                    // Subscribe to tenant updates
+                    SubscribeToTenantUpdates().ConfigureAwait(false);
+                    _isInitialized = true;
+                } 
             }
             catch (Exception ex)
             {
@@ -81,24 +86,6 @@ namespace Blocks.Genesis
             return tenant?.JwtTokenParameters;
         }
 
-        public void UpdateTenantCache()
-        {
-            try
-            {
-                var version = _cacheClient.GetStringValue(_tenantVersionKey);
-                if (string.IsNullOrWhiteSpace(version) || _tenantVersion == version) return;
-
-                _tenantVersion = version;
-
-                // Reload the cache
-                ReloadTenants();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to update tenant cache.");
-            }
-        }
-
         public async Task UpdateTenantVersionAsync()
         {
             try
@@ -117,10 +104,7 @@ namespace Blocks.Genesis
                 _tenantVersion = newVersion;
 
                 // Publish the update to notify all instances
-                await _cacheClient.PublishAsync(_tenantUpdateChannel, newVersion);
-
-                // Update local cache as well
-                ReloadTenants();
+                await _cacheClient.PublishAsync(_tenantUpdateChannel, _tenantVersion);
 
                 _logger.LogInformation("Tenant version updated to {Version} and published to channel.", newVersion);
             }
@@ -130,15 +114,8 @@ namespace Blocks.Genesis
             }
         }
 
-        public void UpdateTenantVersion()
-        {
-            UpdateTenantVersionAsync().ConfigureAwait(false);
-        }
-
         private void InitializeCache()
         {
-            _tenantVersion = _cacheClient.GetStringValue(_tenantVersionKey) ?? string.Empty;
-
             ReloadTenants();
         }
 
