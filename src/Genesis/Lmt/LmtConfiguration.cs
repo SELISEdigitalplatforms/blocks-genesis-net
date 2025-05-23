@@ -1,7 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
-using MongoDB.Bson;
+﻿using MongoDB.Bson;
 using MongoDB.Driver;
-using System.Collections;
 
 namespace Blocks.Genesis
 {

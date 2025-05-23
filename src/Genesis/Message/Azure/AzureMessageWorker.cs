@@ -136,6 +136,14 @@ namespace Blocks.Genesis
 
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
+            // Extract trace context from the message
+            var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
+            var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
+            var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
+            var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
+
+            BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
+
             string messageId = args.Message.MessageId;
             var cancellationTokenSource = new CancellationTokenSource();
             var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationTokenSource.Token);
@@ -147,12 +155,6 @@ namespace Blocks.Genesis
 
             try
             {
-                // Extract trace context from the message
-                var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
-                var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
-                var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
-                var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
-
                 var parentActivityContext = new ActivityContext(
                     ActivityTraceId.CreateFromString(traceId),
                     spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
@@ -206,6 +208,8 @@ namespace Blocks.Genesis
                 linkedTokenSource.Dispose();
                 _activeMessageRenewals.TryRemove(messageId, out _);
             }
+
+            BlocksContext.ClearContext();
         }
 
         private async Task StartAutoRenewalTask(ProcessMessageEventArgs args, CancellationToken cancellationToken)

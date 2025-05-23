@@ -1,47 +1,58 @@
-﻿using System.Diagnostics;
+﻿using Microsoft.AspNetCore.Http;
 using System.Security.Claims;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Blocks.Genesis
 {
     public sealed record BlocksContext
     {
+        // JWT Standard Claims
+        public const string ISSUER_CLAIM = "iss";
+        public const string AUDIANCES_CLAIM = "aud";
+        public const string ISSUED_AT_TIME_CLAIM = "iat";
+        public const string NOT_BEFORE_THAT_CLAIM = "nbf";
+        public const string EXPIRE_ON_CLAIM = "exp";
+
+        // Custom Claims
         public const string TENANT_ID_CLAIM = "t_id";
         public const string ROLES_CLAIM = "roles";
         public const string USER_ID_CLAIM = "u_id";
-        public const string AUDIANCES_CLAIM = "aud";
         public const string IS_AUTHENTICATED_CLAIM = "isAuthenticated";
         public const string REQUEST_URI_CLAIM = "ruri";
         public const string TOKEN_CLAIM = "oauth";
         public const string PERMISSION_CLAIM = "permissions";
-        public const string ISSUED_AT_TIME_CLAIM = "iat";
         public const string ORGANIZATION_ID_CLAIM = "o_id";
-        public const string NOT_BEFORE_THAT_CLAIM = "nbf";
-        public const string EXPIRE_ON_CLAIM = "exp";
         public const string EMAIL_CLAIM = "u_email";
         public const string USER_NAME_CLAIM = "u_name";
-        public const string ISSUER_CLAIM = "iss";
         public const string DISPLAY_NAME_CLAIM = "name";
         public const string PHONE_NUMBER_CLAIM = "phone";
 
-        // Properties with private setters
-        public string TenantId { get; private init; }
-        public IEnumerable<string> Roles { get; private init; }
-        public string UserId { get; private init; }
-        public DateTime ExpireOn { get; private init; }
-        public string RequestUri { get; private init; }
-        public string OAuthToken { get; private init; }
-        public string OrganizationId { get; private init; }
+        private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
+        private static readonly ThreadLocal<bool> _isTestMode = new(() => false);
+        private static readonly AsyncLocal<bool> _forceAsyncLocalContext = new();
+
+
+        // Properties
+        public string TenantId { get; private init; } = string.Empty;
+        public IEnumerable<string> Roles { get; private init; } = Array.Empty<string>();
+        public string UserId { get; private init; } = string.Empty;
+        public DateTime ExpireOn { get; private init; } = DateTime.MinValue;
+        public string RequestUri { get; private init; } = string.Empty;
+        public string OAuthToken { get; private init; } = string.Empty;
+        public string OrganizationId { get; private init; } = string.Empty;
         public bool IsAuthenticated { get; private init; }
-        public string Email { get; private init; }
-        public IEnumerable<string> Permissions { get; private init; }
-        public string UserName { get; private init; }
-        public string PhoneNumber { get; private init; }
-        public string DisplayName { get; private init; }
+        public string Email { get; private init; } = string.Empty;
+        public IEnumerable<string> Permissions { get; private init; } = Array.Empty<string>();
+        public string UserName { get; private init; } = string.Empty;
+        public string PhoneNumber { get; private init; } = string.Empty;
+        public string DisplayName { get; private init; } = string.Empty;
 
-
-        public static bool IsTestMode { get; set; } = false;
+        // Thread-safe test mode property
+        public static bool IsTestMode
+        {
+            get => _isTestMode.Value;
+            set => _isTestMode.Value = value;
+        }
 
         [JsonConstructor]
         private BlocksContext(
@@ -59,86 +70,169 @@ namespace Blocks.Genesis
             string displayName,
             string oauthToken)
         {
-            TenantId = tenantId;
-            Roles = roles;
-            UserId = userId;
+            TenantId = tenantId ?? string.Empty;
+            Roles = roles ?? Array.Empty<string>();
+            UserId = userId ?? string.Empty;
             IsAuthenticated = isAuthenticated;
-            RequestUri = requestUri;
-            OrganizationId = organizationId;
+            RequestUri = requestUri ?? string.Empty;
+            OrganizationId = organizationId ?? string.Empty;
             ExpireOn = expireOn;
-            Email = email;
-            Permissions = permissions;
-            UserName = userName;
-            PhoneNumber = phoneNumber;
-            DisplayName = displayName;
-            OAuthToken = oauthToken;
+            Email = email ?? string.Empty;
+            Permissions = permissions ?? Array.Empty<string>();
+            UserName = userName ?? string.Empty;
+            PhoneNumber = phoneNumber ?? string.Empty;
+            DisplayName = displayName ?? string.Empty;
+            OAuthToken = oauthToken ?? string.Empty;
         }
 
-        // Static method to create an instance from ClaimsIdentity
-        internal static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
+        /// <summary>
+        /// Creates BlocksContext from ClaimsIdentity
+        /// </summary>
+        public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
         {
-            var tenantId = claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty;
-            var roles = claimsIdentity.FindAll(ROLES_CLAIM).Select(c => c.Value);
-            var userId = claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value ?? string.Empty;
-            var audiances = claimsIdentity.FindAll(AUDIANCES_CLAIM).Select(c => c.Value);
-            var requestUri = claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty;
-            var oauthToken = claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value ?? string.Empty;
-            var organizationId = claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty;
-            var isAuthenticated = bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var isAuth) && isAuth;
-            var expireOn = DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue;
-            var email = claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value ?? string.Empty;
-            var permissions = claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value);
-            var userName = claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty;
-            var phoneNumber = claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value ?? string.Empty;
-            var displayName = claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value ?? string.Empty;
+            ArgumentNullException.ThrowIfNull(claimsIdentity);
 
-            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri, organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken);
+            return new BlocksContext(
+                tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
+                roles: claimsIdentity.FindAll(ROLES_CLAIM).Select(c => c.Value).ToArray(),
+                userId: claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value,
+                isAuthenticated: bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var isAuth) && isAuth,
+                requestUri: claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value,
+                organizationId: claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value,
+                expireOn: DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue,
+                email: claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value,
+                permissions: claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value).ToArray(),
+                userName: claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value,
+                phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
+                displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
+                oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value
+            );
         }
 
-        public static BlocksContext CreateFromTuple((string tenantId, IEnumerable<string> roles, string userId, bool isAuthenticated, string requestUri, string organizationId, DateTime expireOn, string email, IEnumerable<string> permissions, string userName, string phoneNumber, string displayName, string oauthToken) tuple)
+        /// <summary>
+        /// Creates BlocksContext from individual parameters
+        /// </summary>
+        public static BlocksContext Create(
+            string? tenantId,
+            IEnumerable<string>? roles,
+            string? userId,
+            bool isAuthenticated,
+            string? requestUri,
+            string? organizationId,
+            DateTime expireOn,
+            string? email,
+            IEnumerable<string>? permissions,
+            string? userName,
+            string? phoneNumber,
+            string? displayName,
+            string? oauthToken)
         {
-            return new BlocksContext(tuple.tenantId, tuple.roles, tuple.userId, tuple.isAuthenticated, tuple.requestUri, tuple.organizationId, tuple.expireOn, tuple.email, tuple.permissions, tuple.userName, tuple.phoneNumber, tuple.displayName, tuple.oauthToken);
+            return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken);
         }
 
-        // Static method to retrieve the context from Activity
-        public static BlocksContext? GetContext(BlocksContext testValue = null)
+        /// <summary>
+        /// Gets the current BlocksContext from HTTP context or AsyncLocal storage
+        /// Priority: HTTP Context (for API) > AsyncLocal (for background services/workers)
+        /// </summary>
+        public static BlocksContext? GetContext(BlocksContext? testValue = null)
         {
             try
             {
+                // For testing scenarios
                 if (IsTestMode)
+                    return testValue ?? _asyncLocalContext.Value;
+
+                if (_forceAsyncLocalContext.Value && _asyncLocalContext.Value != null)
+                    return _asyncLocalContext.Value;
+
+                var httpContext = GetHttpContext();
+                if (httpContext?.User?.Identity is ClaimsIdentity identity && identity.IsAuthenticated)
                 {
-                    // In test mode, return a predefined BlocksContext or use a mock value
-                    return testValue ?? new BlocksContext(
-                        tenantId: "test-tenant",
-                        roles: new[] { "test-role" },
-                        userId: "test-user",
-                        isAuthenticated: true,
-                        requestUri: "http://localhost/test",
-                        organizationId: "test-org",
-                        expireOn: DateTime.UtcNow.AddHours(1),
-                        email: "test@example.com",
-                        permissions: new[] { "read", "write" },
-                        userName: "testuser",
-                        phoneNumber: "1234567890",
-                        displayName: "Test User",
-                        oauthToken: "test-oauth-token"
-                    );
+                    return CreateFromClaimsIdentity(identity);
                 }
 
-                var activity = Activity.Current;
-                if (activity != null)
-                {
-                    var contextJson = activity.GetCustomProperty("SecurityContext")?.ToString();
-                    return string.IsNullOrWhiteSpace(contextJson) ? null : JsonSerializer.Deserialize<BlocksContext>(contextJson);
-                }
-
-                return null;
+                return _asyncLocalContext.Value;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Console.WriteLine($"Error deserializing BlocksContext: {ex.Message}");
                 return null;
             }
         }
+
+        /// <summary>
+        /// Sets the context in AsyncLocal storage (for background services/workers)
+        /// </summary>
+        public static void SetContext(BlocksContext? context, bool changeContext = true)
+        {
+            _asyncLocalContext.Value = context;
+            _forceAsyncLocalContext.Value = context != null && changeContext;
+        }
+
+        /// <summary>
+        /// Clears the current AsyncLocal context
+        /// </summary>
+        public static void ClearContext()
+        {
+            _asyncLocalContext.Value = null;
+        }
+
+        /// <summary>
+        /// Executes an action within a specific BlocksContext
+        /// </summary>
+        public static void ExecuteInContext(BlocksContext context, Action action)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(action);
+
+            var previousContext = _asyncLocalContext.Value;
+            try
+            {
+                _asyncLocalContext.Value = context;
+                action();
+            }
+            finally
+            {
+                _asyncLocalContext.Value = previousContext;
+            }
+        }
+
+        /// <summary>
+        /// Executes a function within a specific BlocksContext
+        /// </summary>
+        public static T ExecuteInContext<T>(BlocksContext context, Func<T> func)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(func);
+
+            var previousContext = _asyncLocalContext.Value;
+            try
+            {
+                _asyncLocalContext.Value = context;
+                return func();
+            }
+            finally
+            {
+                _asyncLocalContext.Value = previousContext;
+            }
+        }
+
+        private static HttpContext? GetHttpContext()
+        {
+            try
+            {
+                return BlocksHttpContextAccessor.Instance?.HttpContext;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static void Cleanup()
+        {
+            _isTestMode?.Dispose();
+        }
+
     }
 }

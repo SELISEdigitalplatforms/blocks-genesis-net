@@ -114,7 +114,7 @@ namespace Blocks.Genesis
         {
             if (Activity.Current == null) return;
 
-            var securityData = BlocksContext.CreateFromTuple((
+            var securityData = BlocksContext.Create(
                 tenant.TenantId,
                 Array.Empty<string>(),
                 string.Empty,
@@ -128,7 +128,8 @@ namespace Blocks.Genesis
                 string.Empty,
                 string.Empty,
                 string.Empty
-            ));
+            );
+            BlocksContext.SetContext(securityData, false);
 
             Activity.Current.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
         }

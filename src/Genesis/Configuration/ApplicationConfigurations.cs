@@ -123,7 +123,7 @@ namespace Blocks.Genesis
 
 
             // For now we comment it, after May we will enable this
-            //services.AddHealthChecks();
+            services.AddHealthChecks();
             //services.AddHostedService<HealthServiceWorker>();
 
             if (_blocksSwaggerOptions != null)
