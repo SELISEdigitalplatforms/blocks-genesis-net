@@ -13,7 +13,7 @@ ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
     AzureServiceBusConfiguration = new()
     {
-        Queues = new List<string> { "demo_queue_1" },
+        Queues = new List<string> { "demo_queue" },
         Topics = new List<string> { "demo_topic_1" },
     },
 });

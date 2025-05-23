@@ -34,6 +34,8 @@ namespace Blocks.Genesis
             {
                 StatusCode = context.Response.StatusCode
             }));
+
+            BlocksContext.ClearContext();
         }
     }
 }

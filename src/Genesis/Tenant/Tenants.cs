@@ -174,8 +174,11 @@ namespace Blocks.Genesis
                 {
                     _tenantCache[tenant.TenantId] = tenant;
 
-                    // Only create collections if they are missing
-                    LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
+                    if(tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
+                    {
+                        // Only create collections if they are missing
+                        LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
+                    }
                 }
 
                 _logger.LogInformation("Reloaded {Count} tenants into cache.", tenants.Count);

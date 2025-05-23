@@ -117,7 +117,7 @@ namespace Blocks.Genesis
                 var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, _messageConfiguration.GetSubscriptionName(topicName));
                 createTopicSubscriptionOptions.MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 2;
                 createTopicSubscriptionOptions.DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionDefaultMessageTimeToLive ?? TimeSpan.FromDays(7);
-                createTopicSubscriptionOptions.LockDuration = TimeSpan.FromHours(1);
+                createTopicSubscriptionOptions.LockDuration = TimeSpan.FromMinutes(5);
 
                 await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions); // don't await it need synchronization
 

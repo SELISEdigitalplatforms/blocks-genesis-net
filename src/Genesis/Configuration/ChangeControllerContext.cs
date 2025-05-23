@@ -1,12 +1,10 @@
 ﻿using System.Diagnostics;
-using System.Text.Json;
 
 namespace Blocks.Genesis
 {
     public class ChangeControllerContext
     {
         private readonly ITenants _tenants;
-        public static  bool isCaptchaNeedToBypass;
 
         public ChangeControllerContext(ITenants tenants)
         {
@@ -16,28 +14,29 @@ namespace Blocks.Genesis
         public void ChangeContext(IProjectKey projectKey)
         {
             var bc = BlocksContext.GetContext();
-            isCaptchaNeedToBypass = false;
 
             if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
             var isRoot = _tenants.GetTenantByID(bc?.TenantId)?.IsRootTenant ?? false;
 
             if (isRoot)
             {
-                isCaptchaNeedToBypass = true;
+                BlocksContext.SetContext(BlocksContext.Create
+                 (
+                    tenantId: projectKey.ProjectKey,
+                    roles: bc?.Roles ?? Enumerable.Empty<string>(),
+                    userId: bc?.UserId ?? string.Empty,
+                    isAuthenticated: bc?.IsAuthenticated ?? false,
+                    requestUri: bc?.RequestUri ?? string.Empty,
+                    organizationId: bc?.OrganizationId ?? string.Empty,
+                    expireOn: bc?.ExpireOn ?? DateTime.UtcNow.AddHours(1),
+                    email: bc?.Email ?? string.Empty,
+                    permissions: bc?.Permissions ?? Enumerable.Empty<string>(),
+                    userName: bc?.UserName ?? string.Empty,
+                    phoneNumber: bc?.PhoneNumber ?? string.Empty,
+                    displayName: bc?.DisplayName ?? string.Empty,
+                    oauthToken: bc?.OAuthToken ?? string.Empty
+                ));
 
-                Activity.Current?.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(new
-                {
-                    TenantId = projectKey.ProjectKey,
-                    Roles = bc?.Roles,
-                    UserId = bc?.UserId,
-                    ExpireOn = bc?.ExpireOn,
-                    RequestUri = bc?.RequestUri,
-                    OrganizationId = bc?.OrganizationId,
-                    IsAuthenticated = bc?.IsAuthenticated,
-                    Email = bc?.Email,
-                    Permissions = bc?.Permissions,
-                    UserName = bc?.UserName,
-                }));
                 Activity.Current?.SetCustomProperty("TenantId", projectKey.ProjectKey);
             }
         }

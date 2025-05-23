@@ -75,6 +75,8 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext);
 
+        BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
+
         var parentContext = new ActivityContext(
             ActivityTraceId.CreateFromString(traceId),
             spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
@@ -113,6 +115,8 @@ public sealed class RabbitMessageWorker : BackgroundService
             await _channel!.BasicAckAsync(ea.DeliveryTag, multiple: false);
             activity?.Stop();
         }
+
+        BlocksContext.ClearContext();
     }
 
     private async Task StartConsumingAsync(AsyncEventingBasicConsumer consumer)
