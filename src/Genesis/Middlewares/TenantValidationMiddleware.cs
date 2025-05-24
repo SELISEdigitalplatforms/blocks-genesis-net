@@ -21,21 +21,35 @@ namespace Blocks.Genesis
         public async Task InvokeAsync(HttpContext context)
         {
             context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
-            if (StringValues.IsNullOrEmpty(apiKey))
+            bool apiKeyFoundInHeader = !StringValues.IsNullOrEmpty(apiKey);
+
+            if (!apiKeyFoundInHeader)
             {
                 context.Request.Query.TryGetValue(BlocksConstants.BlocksKey, out apiKey);
             }
+
+            Tenant? tenant = null;
             if (StringValues.IsNullOrEmpty(apiKey))
             {
-                await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Key");
-                return;
+                var baseUrl = $"{context.Request.Scheme}://{context.Request.Host.Value}";
+
+                tenant = _tenants.GetTenantByApplicationDomain(apiKey.ToString());
+
+                if (tenant == null)
+                {
+                    await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
+                    return;
+                }
             }
 
-            var tenant = _tenants.GetTenantByID(apiKey.ToString());
+            if (tenant == null)
+            {
+                tenant = _tenants.GetTenantByID(apiKey.ToString());
+            }
 
             if (tenant == null || tenant.IsDisabled)
             {
-                await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Not_Allowed");
+                await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                 return;
             }
 
@@ -106,7 +120,7 @@ namespace Blocks.Genesis
             return context.Response.WriteAsync(JsonSerializer.Serialize(new BaseResponse
             {
                 IsSuccess = false,
-                Errors = new Dictionary<string, string> { { "Message",  message } }
+                Errors = new Dictionary<string, string> { { "Message", message } }
             }));
         }
 

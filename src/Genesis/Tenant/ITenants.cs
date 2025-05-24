@@ -13,6 +13,13 @@
         Tenant? GetTenantByID(string tenantId);
 
         /// <summary>
+        /// Gets a tenant by its Applicatrion Domain
+        /// </summary>
+        /// <param name="appName">The tenant Application name to look up</param>
+        /// <returns>The tenant if found, null otherwise</returns>
+        Tenant? GetTenantByApplicationDomain(string appName);
+
+        /// <summary>
         /// Gets all tenant database connection strings
         /// </summary>
         /// <returns>Dictionary mapping tenant IDs to tuples of (DB name, connection string)</returns>
