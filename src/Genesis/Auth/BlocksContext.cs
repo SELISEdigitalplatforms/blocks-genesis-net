@@ -12,6 +12,7 @@ namespace Blocks.Genesis
         public const string ISSUED_AT_TIME_CLAIM = "iat";
         public const string NOT_BEFORE_THAT_CLAIM = "nbf";
         public const string EXPIRE_ON_CLAIM = "exp";
+        public const string SUBJECT_CLAIM = "sub";
 
         // Custom Claims
         public const string TENANT_ID_CLAIM = "t_id";
