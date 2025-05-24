@@ -226,5 +226,23 @@ namespace Blocks.Genesis
 
             _disposed = true;
         }
+
+        public Tenant? GetTenantByApplicationDomain(string appName)
+        {
+            if (string.IsNullOrWhiteSpace(appName)) return null;
+
+            try
+            {
+                return _database
+                    .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
+                    .Find(t => t.ApplicationDomain.Equals(appName) || t.AllowedDomains.Contains(appName))
+                    .FirstOrDefault();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to retrieve tenant from DB for Application name: {appName}");
+                return null;
+            }
+        }
     }
 }
