@@ -15,16 +15,15 @@ namespace Blocks.Genesis
         public const string SUBJECT_CLAIM = "sub";
 
         // Custom Claims
-        public const string TENANT_ID_CLAIM = "t_id";
+        public const string TENANT_ID_CLAIM = "tenant_id";
         public const string ROLES_CLAIM = "roles";
-        public const string USER_ID_CLAIM = "u_id";
-        public const string IS_AUTHENTICATED_CLAIM = "isAuthenticated";
-        public const string REQUEST_URI_CLAIM = "ruri";
+        public const string USER_ID_CLAIM = "user_id";
+        public const string REQUEST_URI_CLAIM = "request_uri";
         public const string TOKEN_CLAIM = "oauth";
         public const string PERMISSION_CLAIM = "permissions";
-        public const string ORGANIZATION_ID_CLAIM = "o_id";
-        public const string EMAIL_CLAIM = "u_email";
-        public const string USER_NAME_CLAIM = "u_name";
+        public const string ORGANIZATION_ID_CLAIM = "org_id";
+        public const string EMAIL_CLAIM = "email";
+        public const string USER_NAME_CLAIM = "user_name";
         public const string DISPLAY_NAME_CLAIM = "name";
         public const string PHONE_NUMBER_CLAIM = "phone";
 
@@ -97,7 +96,7 @@ namespace Blocks.Genesis
                 tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
                 roles: claimsIdentity.FindAll(ROLES_CLAIM).Select(c => c.Value).ToArray(),
                 userId: claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value,
-                isAuthenticated: bool.TryParse(claimsIdentity.FindFirst(IS_AUTHENTICATED_CLAIM)?.Value, out var isAuth) && isAuth,
+                isAuthenticated: true,
                 requestUri: claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value,
                 organizationId: claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value,
                 expireOn: DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue,
