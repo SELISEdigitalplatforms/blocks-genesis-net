@@ -18,6 +18,8 @@ namespace Blocks.Genesis
             var serviceProvider = services.BuildServiceProvider();
             var tenants = serviceProvider.GetRequiredService<ITenants>();
             var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
+            BlocksHttpContextAccessor.Init(serviceProvider);
+
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
