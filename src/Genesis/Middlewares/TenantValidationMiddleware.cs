@@ -40,6 +40,7 @@ namespace Blocks.Genesis
                     await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                     return;
                 }
+                Activity.Current.SetCustomProperty("TenantId", tenant?.TenantId);
             }
 
             if (tenant == null)
@@ -52,6 +53,7 @@ namespace Blocks.Genesis
                 await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                 return;
             }
+
 
             if (!IsValidOriginOrReferer(context, tenant))
             {
