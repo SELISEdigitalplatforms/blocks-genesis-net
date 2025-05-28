@@ -43,10 +43,7 @@ namespace Blocks.Genesis
                 Activity.Current.SetCustomProperty("TenantId", tenant?.TenantId);
             }
 
-            if (tenant == null)
-            {
-                tenant = _tenants.GetTenantByID(apiKey.ToString());
-            }
+            tenant ??= _tenants.GetTenantByID(apiKey.ToString());
 
             if (tenant == null || tenant.IsDisabled)
             {
