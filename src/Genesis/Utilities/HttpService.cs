@@ -4,7 +4,6 @@ using Polly.Retry;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using System.Web;
 
 namespace Blocks.Genesis
 {
@@ -31,10 +30,10 @@ namespace Blocks.Genesis
 
                         using (var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal, Activity.Current?.Context ?? default))
                         {
-                            retryActivity?.AddTag("retry.count", retryCount.ToString());
-                            retryActivity?.AddTag("retry.waitTime", timeSpan.ToString());
-                            retryActivity?.AddTag("retry.statusCode", result.Result.StatusCode.ToString());
-                            retryActivity?.AddTag("url.full", context["url"]?.ToString());
+                            retryActivity?.SetTag("retry.count", retryCount.ToString());
+                            retryActivity?.SetTag("retry.waitTime", timeSpan.ToString());
+                            retryActivity?.SetTag("retry.statusCode", result.Result.StatusCode.ToString());
+                            retryActivity?.SetTag("url.full", context["url"]?.ToString());
                             retryActivity?.Stop();
                         }
                     });
@@ -103,12 +102,10 @@ namespace Blocks.Genesis
             using (var client = _httpClientFactory.CreateClient())
             using (var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client, Activity.Current?.Context ?? default))
             {
-                requestActivity?.SetCustomProperty("TenantId", securityContext?.TenantId);
-                requestActivity?.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityContext));
-                requestActivity?.AddTag("url.full", url);
-                requestActivity?.AddTag("server.address", new Uri(url).Host);
-                requestActivity?.AddTag("http.request.method", method.Method);
-                requestActivity?.AddTag("content.type", contentType);
+                requestActivity?.SetTag("url.full", url);
+                requestActivity?.SetTag("server.address", new Uri(url).Host);
+                requestActivity?.SetTag("http.request.method", method.Method);
+                requestActivity?.SetTag("content.type", contentType);
 
                 try
                 {
@@ -122,8 +119,8 @@ namespace Blocks.Genesis
                         }
                     }, new Context { ["url"] = url });
 
-                    requestActivity?.AddTag("http.response.status_code", response.StatusCode);
-                    requestActivity?.AddTag("http.response.size", response.Content.Headers.ContentLength);
+                    requestActivity?.SetTag("http.response.status_code", response.StatusCode);
+                    requestActivity?.SetTag("http.response.size", response.Content.Headers.ContentLength);
 
                     if (response.IsSuccessStatusCode)
                     {
@@ -132,13 +129,14 @@ namespace Blocks.Genesis
                         // Handle empty responses
                         if (string.IsNullOrWhiteSpace(responseContent) && typeof(T) == typeof(object))
                         {
-                            return ((T)(object)new object(), string.Empty);
+                            return ((T)new object(), string.Empty);
                         }
 
                         try
                         {
                             var result = JsonSerializer.Deserialize<T>(responseContent);
-                            requestActivity?.AddTag("response.type", typeof(T).Name);
+                            requestActivity?.SetTag("response.type", typeof(T).Name);
+
                             _logger.LogDebug("Response successful. Content length: {length}", responseContent.Length);
                             return (result, string.Empty);
                         }
@@ -158,8 +156,8 @@ namespace Blocks.Genesis
                 }
                 catch (Exception e)
                 {
-                    requestActivity?.AddTag("error.message", e.Message);
-                    requestActivity?.AddTag("error.type", e.GetType().Name);
+                    requestActivity?.SetTag("error.message", e.Message);
+                    requestActivity?.SetTag("error.type", e.GetType().Name);
 
                     _logger.LogError("Exception during HTTP request: {error}", e);
                     return (null, e.Message);
@@ -208,26 +206,5 @@ namespace Blocks.Genesis
             return request;
         }
 
-        /// <summary>
-        /// Helper method to encode a dictionary as x-www-form-urlencoded string
-        /// </summary>
-        private string EncodeFormData(Dictionary<string, string> formData)
-        {
-            if (formData == null || formData.Count == 0)
-                return string.Empty;
-
-            var stringBuilder = new StringBuilder();
-            foreach (var kvp in formData)
-            {
-                if (stringBuilder.Length > 0)
-                    stringBuilder.Append('&');
-
-                stringBuilder.Append(HttpUtility.UrlEncode(kvp.Key));
-                stringBuilder.Append('=');
-                stringBuilder.Append(HttpUtility.UrlEncode(kvp.Value));
-            }
-
-            return stringBuilder.ToString();
-        }
     }
 }

@@ -163,8 +163,9 @@ namespace Blocks.Genesis
             
             if (activity != null)
             {
-                activity.SetCustomProperty("UserId", blocksContext.UserId);
-                activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(blocksContext));
+                activity.SetBaggage("UserId", blocksContext.UserId);
+                activity.SetBaggage("IsAuthenticate", "true");
+                activity.SetTag("SecurityContext", JsonSerializer.Serialize(blocksContext));
             }
         }
         private static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri, string jwtBearerToken)

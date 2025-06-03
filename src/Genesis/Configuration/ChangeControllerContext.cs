@@ -15,7 +15,7 @@ namespace Blocks.Genesis
         {
             var bc = BlocksContext.GetContext();
 
-            Activity.Current?.SetCustomProperty("ActualTenantId", bc.TenantId);
+            Activity.Current?.SetBaggage("ActualTenantId", bc.TenantId);
 
             if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
             var isRoot = _tenants.GetTenantByID(bc?.TenantId)?.IsRootTenant ?? false;
@@ -39,7 +39,7 @@ namespace Blocks.Genesis
                     oauthToken: bc?.OAuthToken ?? string.Empty
                 ));
 
-                Activity.Current?.SetCustomProperty("TenantId", projectKey.ProjectKey);
+                Activity.Current?.SetBaggage("TenantId", projectKey.ProjectKey);
             }
         }
     }

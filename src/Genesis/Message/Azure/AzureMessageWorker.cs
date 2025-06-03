@@ -141,6 +141,7 @@ namespace Blocks.Genesis
             var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
             var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
             var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
+            var baggageString = args.Message.ApplicationProperties.TryGetValue("Baggage", out var baggageObj) ? baggageObj.ToString() : "";
 
             BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
 
@@ -163,15 +164,24 @@ namespace Blocks.Genesis
                     isRemote: true
                 );
 
+                var baggages = JsonSerializer.Deserialize<Dictionary<string, string>>(baggageString ?? "{}");
+
                 using var activity = _activitySource.StartActivity("process.messaging.azure.service.bus", ActivityKind.Consumer, parentActivityContext);
                 activity?.SetTag("message", args.Message);
-                activity?.SetCustomProperty("SecurityContext", securityContextString);
-                activity?.SetCustomProperty("TenantId", tenantId);
-                activity?.SetCustomProperty("MessageId", messageId);
+                activity?.SetTag("SecurityContext", securityContextString);
+                activity?.SetTag("messageId", messageId);
+                foreach (var kvp in baggages)
+                {
+                    activity?.SetBaggage(kvp.Key, kvp.Value);
+                }
+                activity?.SetBaggage("TenantId", tenantId);
 
                 string body = args.Message.Body.ToString();
+
                 _logger.LogInformation($"Message received: {body}");
-                activity?.SetCustomProperty("Request", body);
+
+                activity?.SetTag("messaging.system", "azure.servicebus");
+                activity?.SetTag("message.body", body);
 
                 try
                 {
@@ -184,12 +194,16 @@ namespace Blocks.Genesis
 
                     processingStopwatch.Stop();
                     _logger.LogInformation($"Completed processing message {messageId} in {processingStopwatch.ElapsedMilliseconds}ms");
-                    activity?.SetCustomProperty("Response", "Successfully Completed");
+
+                    activity?.SetTag("response", "Successfully Completed");
+                    activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Error processing message {messageId}: {ex.Message}");
-                    activity?.SetCustomProperty("Response", ex);
+
+                    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    activity?.SetTag("error", ex.Message);
                 }
                 finally
                 {

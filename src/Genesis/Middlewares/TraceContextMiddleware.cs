@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -18,18 +17,24 @@ namespace Blocks.Genesis
         {
             var activity = Activity.Current;
 
-            activity.SetCustomProperty("Request", JsonSerializer.Serialize(new
-            {
-                Url = context.Request.Path.ToString()
-            }));
-
+            activity.SetTag("Request.Url", context.Request.Path.ToString());
+            activity.SetTag("Request.Headers", JsonSerializer.Serialize(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+            activity.SetTag("Request.Query", JsonSerializer.Serialize(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString())));
+            activity.SetTag("Request.ContentType", context.Request.ContentType ?? "No Content Type");
+            activity.SetTag("Request.Host", context.Request.Host.ToString());
+            activity.SetTag("Request.Scheme", context.Request.Scheme);
+            activity.SetTag("Request.Protocol", context.Request.Protocol);
+            activity.SetTag("Request.Method", context.Request.Method);
 
             await _next(context);
 
-            activity.SetCustomProperty("Response", JsonSerializer.Serialize(new
-            {
-                StatusCode = context.Response.StatusCode
-            }));
+            activity.SetTag("Response.StatusCode", context.Response.StatusCode);
+            activity.SetTag("Response.Headers", JsonSerializer.Serialize(context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+            activity.SetTag("Response.ContentType", context.Response.ContentType ?? "No Content Type");
+            activity.SetTag("Response.Scheme", context.Request.Scheme);
+            activity.SetTag("Response.Host", context.Request.Host.ToString());
+            activity.SetTag("Response.IsCompleted", context.Response.HasStarted ? "Yes" : "No");
+
 
             BlocksContext.ClearContext();
         }

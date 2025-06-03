@@ -271,7 +271,6 @@ namespace Blocks.Genesis
             var activity = _activitySource.StartActivity($"Redis::{operation}", ActivityKind.Producer, currentActivity?.Context ?? default);
 
             activity?.SetTag("Key", key);
-            activity?.SetTag("TenantId", context?.TenantId);
 
             return activity;
         }
