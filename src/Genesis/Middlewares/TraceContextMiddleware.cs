@@ -18,14 +18,6 @@ namespace Blocks.Genesis
         {
             var activity = Activity.Current;
 
-            context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out StringValues tenantId);
-            if (StringValues.IsNullOrEmpty(tenantId))
-            {
-                context.Request.Query.TryGetValue(BlocksConstants.BlocksKey, out tenantId);
-            }
-
-            activity.SetCustomProperty("TenantId", tenantId);
-
             activity.SetCustomProperty("Request", JsonSerializer.Serialize(new
             {
                 Url = context.Request.Path.ToString()

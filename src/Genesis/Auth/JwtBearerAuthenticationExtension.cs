@@ -160,8 +160,10 @@ namespace Blocks.Genesis
         private static void StoreBlocksContextInActivity(BlocksContext blocksContext)
         {
             var activity = Activity.Current;
+            
             if (activity != null)
             {
+                activity.SetCustomProperty("UserId", blocksContext.UserId);
                 activity.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(blocksContext));
             }
         }
