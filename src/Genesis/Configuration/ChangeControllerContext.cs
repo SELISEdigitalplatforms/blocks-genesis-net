@@ -15,6 +15,8 @@ namespace Blocks.Genesis
         {
             var bc = BlocksContext.GetContext();
 
+            Activity.Current?.SetCustomProperty("ActualTenantId", bc.TenantId);
+
             if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
             var isRoot = _tenants.GetTenantByID(bc?.TenantId)?.IsRootTenant ?? false;
 
