@@ -121,10 +121,8 @@ namespace Blocks.Genesis
 
             ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
-
-            // For now we comment it, after May we will enable this
+            services.AddHttpContextAccessor();
             services.AddHealthChecks();
-            //services.AddHostedService<HealthServiceWorker>();
 
             if (_blocksSwaggerOptions != null)
                 services.AddBlocksSwagger(_blocksSwaggerOptions);
