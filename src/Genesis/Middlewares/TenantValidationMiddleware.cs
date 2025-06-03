@@ -143,9 +143,9 @@ namespace Blocks.Genesis
             );
 
             BlocksContext.SetContext(securityData, false);
-            Activity.Current.SetCustomProperty("TenantId", tenant.TenantId);
-            Activity.Current.SetCustomProperty("IsFromCloud", tenant.IsRootTenant);
-            Activity.Current.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
+            Activity.Current.SetBaggage("TenantId", tenant.TenantId);
+            Activity.Current.SetBaggage("IsFromCloud", tenant.IsRootTenant.ToString());
+            Activity.Current.SetTag("SecurityContext", JsonSerializer.Serialize(securityData));
         }
 
     }

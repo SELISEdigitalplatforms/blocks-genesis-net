@@ -81,11 +81,11 @@ public sealed class RabbitMessageClient : IMessageClient
 
         using var activity = _activitySource.StartActivity("messaging.rabbitmq.send", ActivityKind.Producer, Activity.Current?.Context ?? default);
 
+        activity.DisplayName = $"Rabbit Send to {consumerMessage.ConsumerName}";
         activity?.SetTag("messaging.system", "rabbitmq");
         activity?.SetTag("messaging.destination.name", consumerMessage.ConsumerName);
         activity?.SetTag("messaging.destination.kind", isExchange ? "exchange" : "queue");
         activity?.SetTag("messaging.rabbitmq.routing_key", consumerMessage.RoutingKey ?? string.Empty);
-        activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
 
         try
         {
@@ -110,7 +110,8 @@ public sealed class RabbitMessageClient : IMessageClient
                     ["SpanId"] = activity?.SpanId.ToString() ?? string.Empty,
                     ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
                         ? JsonSerializer.Serialize(securityContext)
-                        : consumerMessage.Context
+                        : consumerMessage.Context,
+                    ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
                 }
             };
 

@@ -65,15 +65,16 @@ public sealed class RabbitMessageWorker : BackgroundService
         if (subscription?.ParallelProcessing ?? false)
         {
             _ = Task.Run(() => ProcessMessageInternalAsync(ea));
-        } else
+        }
+        else
         {
             await ProcessMessageInternalAsync(ea);
-        }   
+        }
     }
 
     private async Task ProcessMessageInternalAsync(BasicDeliverEventArgs ea)
     {
-        ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext);
+        ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext, out var baggage);
 
         BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
 
@@ -86,12 +87,20 @@ public sealed class RabbitMessageWorker : BackgroundService
         );
 
         using var activity = _activitySource.StartActivity("process.messaging.rabbitmq", ActivityKind.Consumer, parentContext);
-        activity?.SetTag("TenantId", tenantId);
+        foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}"))
+        {
+            activity?.SetBaggage(kvp.Key, kvp.Value);
+        }
+        activity?.SetBaggage("TenantId", tenantId);
+
         activity?.SetTag("SecurityContext", securityContext);
+        activity?.SetTag("messaging.destination.name", ea.RoutingKey);
+        activity?.SetTag("messaging.system", "rabbitmq");
+
 
         var body = ea.Body.ToArray();
         _logger.LogInformation("Received message: {Body}", Encoding.UTF8.GetString(body));
-        activity?.SetTag("MessageBody", Encoding.UTF8.GetString(body));
+        activity?.SetTag("message.body", Encoding.UTF8.GetString(body));
 
         try
         {
@@ -100,15 +109,16 @@ public sealed class RabbitMessageWorker : BackgroundService
             if (message != null)
             {
                 await _consumer.ProcessMessageAsync(message.Type, message.Body);
-                activity?.SetTag("ProcessingResult", "Success");
+                activity?.SetTag("response", "Successfully Completed");
+                activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
                 _logger.LogInformation("Message processed successfully.");
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error while processing message.");
-            activity?.SetTag("ProcessingResult", "Error");
-            activity?.SetTag("ErrorMessage", ex.Message);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetTag("error", ex.Message);
         }
         finally
         {
@@ -131,12 +141,13 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
     }
 
-    private static void ExtractHeaders(IReadOnlyBasicProperties properties, out string? tenantId, out string? traceId, out string? spanId, out string? securityContext)
+    private static void ExtractHeaders(IReadOnlyBasicProperties properties, out string? tenantId, out string? traceId, out string? spanId, out string? securityContext, out string baggage)
     {
         tenantId = GetHeader(properties, "TenantId");
         traceId = GetHeader(properties, "TraceId");
         spanId = GetHeader(properties, "SpanId");
         securityContext = GetHeader(properties, "SecurityContext");
+        baggage = GetHeader(properties, "Baggage");
     }
 
     private static string? GetHeader(IReadOnlyBasicProperties properties, string key)

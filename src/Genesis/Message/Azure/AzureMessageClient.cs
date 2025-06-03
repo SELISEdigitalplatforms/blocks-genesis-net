@@ -1,5 +1,4 @@
 ﻿using Azure.Messaging.ServiceBus;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
@@ -8,15 +7,15 @@ namespace Blocks.Genesis
 {
     public sealed class AzureMessageClient : IMessageClient
     {
-        private readonly ILogger<AzureMessageClient> _logger;
         private readonly MessageConfiguration _messageConfiguration;
         private readonly ServiceBusClient _client;
         private readonly ConcurrentDictionary<string, ServiceBusSender> _senders;
         private readonly ActivitySource _activitySource;
 
-        public AzureMessageClient(ILogger<AzureMessageClient> logger, MessageConfiguration messageConfiguration, ActivitySource activitySource)
+        public AzureMessageClient(
+            MessageConfiguration messageConfiguration,
+            ActivitySource activitySource)
         {
-            _logger = logger;
             _messageConfiguration = messageConfiguration;
             _client = new ServiceBusClient(_messageConfiguration.Connection);
             _senders = new ConcurrentDictionary<string, ServiceBusSender>();
@@ -43,43 +42,58 @@ namespace Blocks.Genesis
             return _senders.GetOrAdd(consumerName, name => _client.CreateSender(name));
         }
 
-        public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
+        private async Task SendToAzureBusAsync<T>(ConsumerMessage<T> consumerMessage, bool isTopic = false) where T : class
         {
             var securityContext = BlocksContext.GetContext();
 
-            using var activity = _activitySource.StartActivity("messaging.azure.service.bus.send", ActivityKind.Producer, Activity.Current?.Context ?? default);
+            using var activity = _activitySource.StartActivity(
+                "messaging.azure.servicebus.send",
+                ActivityKind.Producer,
+                Activity.Current?.Context ?? default);
 
-            activity?.SetCustomProperty("TenantId", securityContext?.TenantId);
-            activity?.SetTag("consumer", JsonSerializer.Serialize(consumerMessage));
+            if (activity != null)
+            {
+                activity.DisplayName = $"ServiceBus Send to {consumerMessage.ConsumerName}";
+                activity.SetTag("messaging.system", "azure.servicebus");
+                activity.SetTag("messaging.destination", consumerMessage.ConsumerName);
+                activity.SetTag("messaging.destination_kind", isTopic ? "topic" : "queue");
+                activity.SetTag("messaging.operation", "send");
+                activity.SetTag("messaging.message_type", typeof(T).Name);
+            }
 
             var sender = GetSender(consumerMessage.ConsumerName);
+
             var messageBody = new Message
             {
                 Body = JsonSerializer.Serialize(consumerMessage.Payload),
-                Type = consumerMessage.Payload.GetType().Name
+                Type = typeof(T).Name
             };
 
             var message = new ServiceBusMessage(JsonSerializer.Serialize(messageBody))
             {
                 ApplicationProperties =
-                    {
-                        ["TenantId"] = securityContext?.TenantId,
-                        ["TraceId"] = activity?.TraceId.ToString(),
-                        ["SpanId"] = activity?.SpanId.ToString(),
-                        ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context) ? JsonSerializer.Serialize(securityContext) : consumerMessage.Context
-                    }
+                {
+                    ["TenantId"] = securityContext?.TenantId,
+                    ["TraceId"] = activity?.TraceId.ToString(),
+                    ["SpanId"] = activity?.SpanId.ToString(),
+                    ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
+                        ? JsonSerializer.Serialize(securityContext)
+                        : consumerMessage.Context,
+                    ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
+                }
             };
 
-            // Send the message
             await sender.SendMessageAsync(message);
+        }
 
-            // Stop activity
-            activity?.Stop();
+        public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
+        {
+            await SendToAzureBusAsync(consumerMessage);
         }
 
         public async Task SendToMassConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
         {
-            await SendToConsumerAsync(consumerMessage);
+            await SendToAzureBusAsync(consumerMessage, true);
         }
     }
 }

@@ -11,7 +11,7 @@ namespace Blocks.Genesis
             var activity = Activity.Current;
             if (activity != null)
             {
-                var tenantId = activity?.GetCustomProperty("TenantId")?.ToString();
+                var tenantId = activity?.GetBaggageItem("TenantId");
                 tenantId = string.IsNullOrWhiteSpace(tenantId) ? BlocksConstants.Miscellaneous : tenantId;
 
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", tenantId));

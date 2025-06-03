@@ -34,13 +34,9 @@ namespace Blocks.Genesis
 
             if (activity != null)
             {
-                activity.AddTag("dbName", commandStartedEvent.DatabaseNamespace.DatabaseName);
-                activity.AddTag("operationName", commandStartedEvent.CommandName);
-                activity.AddTag("operationTime", commandStartedEvent.Timestamp.ToString());
-                activity.SetCustomProperty("TenantId", securityContext?.TenantId);
-                activity.AddTag("requestId", commandStartedEvent.RequestId.ToString());
-
-                // Store the activity with the request ID for later retrieval
+                activity.SetTag("operationName", commandStartedEvent.CommandName);
+                activity.SetTag("operationTime", commandStartedEvent.Timestamp.ToString());
+                activity.SetTag("requestId", commandStartedEvent.RequestId.ToString());
                 _activities[commandStartedEvent.RequestId] = activity;
             }
         }
@@ -50,8 +46,8 @@ namespace Blocks.Genesis
         {
             if (_activities.TryRemove(commandSucceededEvent.RequestId, out var activity))
             {
-                activity.AddTag("Status", "Success");
-                activity.AddTag("Duration", commandSucceededEvent.Duration.TotalMilliseconds);
+                activity.SetTag("Status", "Success");
+                activity.SetTag("Duration", commandSucceededEvent.Duration.TotalMilliseconds);
                 activity.Stop();
             }
         }
@@ -61,9 +57,9 @@ namespace Blocks.Genesis
         {
             if (_activities.TryRemove(commandFailedEvent.RequestId, out var activity))
             {
-                activity.AddTag("Status", "Failure");
-                activity.AddTag("Duration", commandFailedEvent.Duration.TotalMilliseconds);
-                activity.AddTag("ExceptionMessage", commandFailedEvent.Failure?.Message ?? "Unknown error");
+                activity.SetTag("Status", "Failure");
+                activity.SetTag("Duration", commandFailedEvent.Duration.TotalMilliseconds);
+                activity.SetTag("ExceptionMessage", commandFailedEvent.Failure?.Message ?? "Unknown error");
                 activity.Stop();
             }
         }

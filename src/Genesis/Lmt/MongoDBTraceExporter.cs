@@ -30,12 +30,8 @@ namespace Blocks.Genesis
         {
             var endTime = data.StartTimeUtc.Add(data.Duration);
 
-            // Retrieve TenantId from Activity or use a default if it's missing
-            var tenantId = data.GetCustomProperty("TenantId")?.ToString();
+            var tenantId = data.GetBaggageItem("TenantId");
             tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
-            var actualTenantId = data.GetCustomProperty("ActualTenantId")?.ToString() ?? "";
-            var userId = data.GetCustomProperty("UserId")?.ToString() ?? "";
-            var IsFromCloud = data.GetCustomProperty("IsFromCloud") as bool? ?? false;
 
             var document = new BsonDocument
             {
@@ -55,13 +51,7 @@ namespace Blocks.Genesis
                 { "StatusDescription", data.StatusDescription ?? string.Empty },
                 { "Baggage", new BsonArray(data.Baggage?.Select(kvp => new BsonDocument(kvp.Key, kvp.Value))) },
                 { "ServiceName", _serviceName },
-                { "TenantId", tenantId },
-                { "ActualTenantId", actualTenantId },
-                { "UserId", userId },
-                { "IsFromCloud", IsFromCloud },
-                { "Request", TryConvertToBsonValue(data.GetCustomProperty("Request")) },
-                { "Response", TryConvertToBsonValue(data.GetCustomProperty("Response")) },
-                { "SecurityContext", TryConvertToBsonValue(data.GetCustomProperty("SecurityContext")) }
+                { "TenantId", tenantId }
             };
 
             // Add the document to the batch
