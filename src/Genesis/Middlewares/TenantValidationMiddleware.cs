@@ -40,7 +40,6 @@ namespace Blocks.Genesis
                     await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                     return;
                 }
-                Activity.Current.SetCustomProperty("TenantId", tenant?.TenantId);
             }
 
             tenant ??= _tenants.GetTenantByID(apiKey.ToString());
@@ -142,8 +141,10 @@ namespace Blocks.Genesis
                 string.Empty,
                 string.Empty
             );
-            BlocksContext.SetContext(securityData, false);
 
+            BlocksContext.SetContext(securityData, false);
+            Activity.Current.SetCustomProperty("TenantId", tenant.TenantId);
+            Activity.Current.SetCustomProperty("IsFromCloud", tenant.IsRootTenant);
             Activity.Current.SetCustomProperty("SecurityContext", JsonSerializer.Serialize(securityData));
         }
 

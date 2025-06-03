@@ -33,6 +33,9 @@ namespace Blocks.Genesis
             // Retrieve TenantId from Activity or use a default if it's missing
             var tenantId = data.GetCustomProperty("TenantId")?.ToString();
             tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
+            var actualTenantId = data.GetCustomProperty("ActualTenantId")?.ToString() ?? "";
+            var userId = data.GetCustomProperty("UserId")?.ToString() ?? "";
+            var IsFromCloud = data.GetCustomProperty("IsFromCloud") as bool? ?? false;
 
             var document = new BsonDocument
             {
@@ -53,6 +56,9 @@ namespace Blocks.Genesis
                 { "Baggage", new BsonArray(data.Baggage?.Select(kvp => new BsonDocument(kvp.Key, kvp.Value))) },
                 { "ServiceName", _serviceName },
                 { "TenantId", tenantId },
+                { "ActualTenantId", actualTenantId },
+                { "UserId", userId },
+                { "IsFromCloud", IsFromCloud },
                 { "Request", TryConvertToBsonValue(data.GetCustomProperty("Request")) },
                 { "Response", TryConvertToBsonValue(data.GetCustomProperty("Response")) },
                 { "SecurityContext", TryConvertToBsonValue(data.GetCustomProperty("SecurityContext")) }
