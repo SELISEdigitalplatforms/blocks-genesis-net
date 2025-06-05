@@ -1,6 +1,7 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
@@ -145,6 +146,14 @@ namespace Blocks.Genesis
 
             BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
 
+            var baggages = JsonSerializer.Deserialize<Dictionary<string, string>>(baggageString ?? "{}");
+
+            foreach (var kvp in baggages)
+            {
+                Baggage.SetBaggage(kvp.Key, kvp.Value);
+            }
+            Baggage.SetBaggage("TenantId", tenantId);
+
             string messageId = args.Message.MessageId;
             var cancellationTokenSource = new CancellationTokenSource();
             var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationTokenSource.Token);
@@ -164,17 +173,11 @@ namespace Blocks.Genesis
                     isRemote: true
                 );
 
-                var baggages = JsonSerializer.Deserialize<Dictionary<string, string>>(baggageString ?? "{}");
-
                 using var activity = _activitySource.StartActivity("process.messaging.azure.service.bus", ActivityKind.Consumer, parentActivityContext);
+                
                 activity?.SetTag("message", args.Message);
                 activity?.SetTag("SecurityContext", securityContextString);
                 activity?.SetTag("messageId", messageId);
-                foreach (var kvp in baggages)
-                {
-                    activity?.SetBaggage(kvp.Key, kvp.Value);
-                }
-                activity?.SetBaggage("TenantId", tenantId);
 
                 string body = args.Message.Body.ToString();
 

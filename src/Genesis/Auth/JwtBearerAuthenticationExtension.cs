@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry;
 using StackExchange.Redis;
 using System.Diagnostics;
 using System.Security.Claims;
@@ -159,12 +160,12 @@ namespace Blocks.Genesis
 
         private static void StoreBlocksContextInActivity(BlocksContext blocksContext)
         {
+            Baggage.SetBaggage("UserId", blocksContext.UserId);
+            Baggage.SetBaggage("IsAuthenticate", "true");
             var activity = Activity.Current;
             
             if (activity != null)
             {
-                activity.SetBaggage("UserId", blocksContext.UserId);
-                activity.SetBaggage("IsAuthenticate", "true");
                 activity.SetTag("SecurityContext", JsonSerializer.Serialize(blocksContext));
             }
         }

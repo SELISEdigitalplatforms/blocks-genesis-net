@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
+using OpenTelemetry;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -124,8 +125,6 @@ namespace Blocks.Genesis
 
         private static void AttachTenantDataToActivity(Tenant tenant)
         {
-            if (Activity.Current == null) return;
-
             var securityData = BlocksContext.Create(
                 tenant.TenantId,
                 Array.Empty<string>(),
@@ -143,10 +142,18 @@ namespace Blocks.Genesis
             );
 
             BlocksContext.SetContext(securityData, false);
-            Activity.Current.SetBaggage("TenantId", tenant.TenantId);
-            Activity.Current.SetBaggage("IsFromCloud", tenant.IsRootTenant.ToString());
-            Activity.Current.SetTag("SecurityContext", JsonSerializer.Serialize(securityData));
+
+            Baggage.SetBaggage("TenantId", tenant.TenantId);
+            Baggage.SetBaggage("IsFromCloud", tenant.IsRootTenant.ToString());
+
+            var current = Activity.Current;
+            if (current != null)
+            {
+                current.SetTag("SecurityContext", JsonSerializer.Serialize(securityData));
+                current.SetTag("ApplicationDomain", tenant.ApplicationDomain);
+            }
         }
+
 
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Diagnostics;
@@ -77,6 +78,12 @@ public sealed class RabbitMessageWorker : BackgroundService
         ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext, out var baggage);
 
         BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
+        foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}"))
+        {
+            Baggage.SetBaggage(kvp.Key, kvp.Value);
+        }
+        Baggage.SetBaggage("TenantId", tenantId);
+
 
         var parentContext = new ActivityContext(
             ActivityTraceId.CreateFromString(traceId),
@@ -87,11 +94,6 @@ public sealed class RabbitMessageWorker : BackgroundService
         );
 
         using var activity = _activitySource.StartActivity("process.messaging.rabbitmq", ActivityKind.Consumer, parentContext);
-        foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}"))
-        {
-            activity?.SetBaggage(kvp.Key, kvp.Value);
-        }
-        activity?.SetBaggage("TenantId", tenantId);
 
         activity?.SetTag("SecurityContext", securityContext);
         activity?.SetTag("messaging.destination.name", ea.RoutingKey);
