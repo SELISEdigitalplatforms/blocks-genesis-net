@@ -131,9 +131,7 @@ namespace Blocks.Genesis
         {
             try
             {
-                return string.IsNullOrWhiteSpace(password)
-                    ? new X509Certificate2(certificateData)
-                    : new X509Certificate2(certificateData, password);
+                return X509CertificateLoader.LoadPkcs12(certificateData, password);
             }
             catch (Exception e)
             {
