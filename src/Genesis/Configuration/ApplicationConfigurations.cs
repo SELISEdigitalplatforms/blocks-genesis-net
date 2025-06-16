@@ -177,7 +177,6 @@ namespace Blocks.Genesis
                 app.UseSwaggerUI();
             }
 
-            app.UseMiddleware<TraceContextMiddleware>();
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
