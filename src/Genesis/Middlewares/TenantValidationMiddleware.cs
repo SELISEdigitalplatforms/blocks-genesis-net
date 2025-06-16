@@ -21,6 +21,11 @@ namespace Blocks.Genesis
 
         public async Task InvokeAsync(HttpContext context)
         {
+            var activity = Activity.Current;
+
+            activity.SetTag("http.headers", JsonSerializer.Serialize(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+            activity.SetTag("http.query", JsonSerializer.Serialize(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString())));
+
             context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
             bool apiKeyFoundInHeader = !StringValues.IsNullOrEmpty(apiKey);
 
@@ -71,6 +76,12 @@ namespace Blocks.Genesis
             }
 
             await _next(context);
+
+            activity.SetTag("response.status.code", context.Response.StatusCode);
+            activity.SetTag("response.headers", JsonSerializer.Serialize(context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+            activity.SetTag("Response.IsCompleted", context.Response.HasStarted ? "Yes" : "No");
+
+            BlocksContext.ClearContext();
         }
 
         private static bool IsValidOriginOrReferer(HttpContext context, Tenant tenant)
