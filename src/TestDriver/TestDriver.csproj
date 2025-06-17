@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Genesis\Blocks.Genesis.csproj" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<Protobuf Include="Protos\greet.proto" GrpcServices="Client" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Grpc.Tools" Version="2.71.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+	</ItemGroup>
+
+</Project>
