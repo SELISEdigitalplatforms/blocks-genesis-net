@@ -1,4 +1,5 @@
-﻿using MongoDB.Bson;
+﻿using Microsoft.AspNetCore.Mvc;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using OpenTelemetry;
 using System.Collections.Concurrent;
@@ -32,6 +33,10 @@ namespace Blocks.Genesis
 
             var tenantId = Baggage.GetBaggage("TenantId") ?? BlocksConstants.Miscellaneous; 
             var isFromCloud = Baggage.GetBaggage("IsFromCloud") ?? "False";
+            var userId = Baggage.GetBaggage("UserId") ?? "";
+            var actualTenantId = Baggage.GetBaggage("ActualTenantId") ?? BlocksConstants.Miscellaneous;
+            var isAuthenticate = Baggage.GetBaggage("IsAuthenticate") ?? "False";
+
             tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
 
             var document = new BsonDocument
@@ -50,7 +55,7 @@ namespace Blocks.Genesis
                 { "Attributes", new BsonDocument(data.Tags?.ToDictionary(kvp => kvp.Key, kvp => (BsonValue)kvp.Value) ?? new Dictionary<string, BsonValue>()) },
                 { "Status", data.Status.ToString() },
                 { "StatusDescription", data.StatusDescription ?? string.Empty },
-                { "Baggage", new BsonArray { new BsonDocument {{ "TenantId", tenantId }, { "IsFromCloud", isFromCloud } } } },
+                { "Baggage", new BsonArray { new BsonDocument {{ "TenantId", tenantId }, { "IsFromCloud", isFromCloud }, { "UserId", userId }, { "ActualTenantId", actualTenantId }, { "IsAuthenticate", isAuthenticate } } } },
                 { "ServiceName", _serviceName },
                 { "TenantId", tenantId }
             };
@@ -79,7 +84,7 @@ namespace Blocks.Genesis
                     var tenantId = document["TenantId"].AsString;
                     if (!tenantBatches.ContainsKey(tenantId))
                     {
-                        tenantBatches[tenantId] = new List<BsonDocument>();
+                        tenantBatches[tenantId] = [];
                     }
                     tenantBatches[tenantId].Add(document);
                 }
