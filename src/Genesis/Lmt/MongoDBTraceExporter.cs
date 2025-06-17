@@ -30,7 +30,8 @@ namespace Blocks.Genesis
         {
             var endTime = data.StartTimeUtc.Add(data.Duration);
 
-            var tenantId = data.GetBaggageItem("TenantId");
+            var tenantId = Baggage.GetBaggage("TenantId") ?? BlocksConstants.Miscellaneous; 
+            var isFromCloud = Baggage.GetBaggage("IsFromCloud") ?? "False";
             tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
 
             var document = new BsonDocument
@@ -49,7 +50,7 @@ namespace Blocks.Genesis
                 { "Attributes", new BsonDocument(data.Tags?.ToDictionary(kvp => kvp.Key, kvp => (BsonValue)kvp.Value) ?? new Dictionary<string, BsonValue>()) },
                 { "Status", data.Status.ToString() },
                 { "StatusDescription", data.StatusDescription ?? string.Empty },
-                { "Baggage", new BsonArray(data.Baggage?.Select(kvp => new BsonDocument(kvp.Key, kvp.Value))) },
+                { "Baggage", new BsonArray { new BsonDocument {{ "TenantId", tenantId }, { "IsFromCloud", isFromCloud } } } },
                 { "ServiceName", _serviceName },
                 { "TenantId", tenantId }
             };
@@ -62,16 +63,6 @@ namespace Blocks.Genesis
             {
                 Task.Run(() => FlushBatchAsync());
             }
-        }
-
-        private static BsonValue TryConvertToBsonValue(object? value)
-        {
-            return value switch
-            {
-                null => BsonNull.Value,
-                string str => BsonValue.Create(str),
-                _ => BsonValue.Create(value)
-            };
         }
 
         private async Task FlushBatchAsync()
