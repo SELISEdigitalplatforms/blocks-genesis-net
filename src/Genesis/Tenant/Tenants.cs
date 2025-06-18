@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
@@ -233,9 +234,16 @@ namespace Blocks.Genesis
 
             try
             {
+                var builder = Builders<Tenant>.Filter;
+
+                var domainMatch = builder.Or(
+                    builder.Eq(t => t.ApplicationDomain, appName),
+                    builder.Regex(t => t.ApplicationDomain, new BsonRegularExpression(appName)),
+                    builder.Regex("AllowedDomains", new BsonRegularExpression(appName))
+                );
                 return _database
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(t => t.ApplicationDomain.Equals(appName) || t.AllowedDomains.Contains(appName))
+                    .Find(domainMatch)
                     .FirstOrDefault();
             }
             catch (Exception ex)
