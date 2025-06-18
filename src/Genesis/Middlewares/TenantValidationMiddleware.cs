@@ -37,7 +37,7 @@ namespace Blocks.Genesis
             Tenant? tenant = null;
             if (StringValues.IsNullOrEmpty(apiKey))
             {
-                var baseUrl = $"{context.Request.Scheme}://{context.Request.Host.Value}";
+                var baseUrl = context.Request.Host.Value;
 
                 tenant = _tenants.GetTenantByApplicationDomain(baseUrl);
 
