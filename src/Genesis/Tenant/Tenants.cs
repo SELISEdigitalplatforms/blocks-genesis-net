@@ -232,15 +232,16 @@ namespace Blocks.Genesis
         {
             if (string.IsNullOrWhiteSpace(appName)) return null;
 
+            appName = appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase)? appName : $"https://{appName}";
+
             try
             {
                 var builder = Builders<Tenant>.Filter;
 
                 var domainMatch = builder.Or(
-                    builder.Eq(t => t.ApplicationDomain, appName),
-                    builder.Regex(t => t.ApplicationDomain, new BsonRegularExpression(appName)),
-                    builder.Regex("AllowedDomains", new BsonRegularExpression(appName))
-                );
+                    builder.Eq(t => t.ApplicationDomain.Replace("https://", string.Empty), appName),
+                    builder.AnyEq(t => t.AllowedDomains, appName));
+
                 return _database
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
                     .Find(domainMatch)

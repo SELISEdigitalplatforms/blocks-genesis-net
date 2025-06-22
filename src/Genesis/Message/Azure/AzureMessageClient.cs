@@ -26,12 +26,12 @@ namespace Blocks.Genesis
 
         private void InitializeSenders(MessageConfiguration messageConfiguration)
         {
-            foreach (var queue in messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? new())
+            foreach (var queue in messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? [])
             {
                 _senders.TryAdd(queue, _client.CreateSender(queue));
             }
 
-            foreach (var topic in messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? new())
+            foreach (var topic in messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? [])
             {
                 _senders.TryAdd(topic, _client.CreateSender(topic));
             }

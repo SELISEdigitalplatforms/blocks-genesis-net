@@ -15,7 +15,7 @@ namespace Blocks.Genesis
             _blocksSecret = blocksSecret;
         }
 
-        private BsonDocument CreateLogBsonDocument(LogEvent logEvent)
+        private BsonDocument CreateLogBisonDocument(LogEvent logEvent)
         {
             var document = new BsonDocument
             {
@@ -27,7 +27,7 @@ namespace Blocks.Genesis
                 { "ServiceName", _serviceName },
             };
 
-            if (logEvent.Properties != null)
+            if (logEvent?.Properties != null)
             {
                 foreach (var property in logEvent.Properties)
                 {
@@ -74,11 +74,11 @@ namespace Blocks.Genesis
 
             foreach (var logEvent in batch)
             {
-                documents.Add(CreateLogBsonDocument(logEvent));
+                documents.Add(CreateLogBisonDocument(logEvent));
             }
 
             await collection.InsertManyAsync(documents);
-            documents = null;
+            documents.Clear();
         }
     }
 }
