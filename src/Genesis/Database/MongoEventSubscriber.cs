@@ -8,7 +8,7 @@ namespace Blocks.Genesis
     {
         private readonly ActivitySource _activitySource;
         private readonly ReflectionEventSubscriber _subscriber;
-        private readonly ConcurrentDictionary<int, Activity> _activities = new ConcurrentDictionary<int, Activity>();
+        private readonly ConcurrentDictionary<int, Activity> _activities = new ();
 
         public MongoEventSubscriber(ActivitySource activitySource)
         {

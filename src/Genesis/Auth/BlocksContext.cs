@@ -34,7 +34,7 @@ namespace Blocks.Genesis
 
         // Properties
         public string TenantId { get; private init; } = string.Empty;
-        public IEnumerable<string> Roles { get; private init; } = Array.Empty<string>();
+        public IEnumerable<string> Roles { get; private init; } = [];
         public string UserId { get; private init; } = string.Empty;
         public DateTime ExpireOn { get; private init; } = DateTime.MinValue;
         public string RequestUri { get; private init; } = string.Empty;
@@ -42,7 +42,7 @@ namespace Blocks.Genesis
         public string OrganizationId { get; private init; } = string.Empty;
         public bool IsAuthenticated { get; private init; }
         public string Email { get; private init; } = string.Empty;
-        public IEnumerable<string> Permissions { get; private init; } = Array.Empty<string>();
+        public IEnumerable<string> Permissions { get; private init; } = [];
         public string UserName { get; private init; } = string.Empty;
         public string PhoneNumber { get; private init; } = string.Empty;
         public string DisplayName { get; private init; } = string.Empty;
@@ -84,6 +84,7 @@ namespace Blocks.Genesis
             DisplayName = displayName ?? string.Empty;
             OAuthToken = oauthToken ?? string.Empty;
         }
+
 
         /// <summary>
         /// Creates BlocksContext from ClaimsIdentity
