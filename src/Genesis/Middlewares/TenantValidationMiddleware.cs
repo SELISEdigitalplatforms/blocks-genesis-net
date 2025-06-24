@@ -25,7 +25,6 @@ namespace Blocks.Genesis
 
             activity.SetTag("http.headers", JsonSerializer.Serialize(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
             activity.SetTag("http.query", JsonSerializer.Serialize(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString())));
-
             context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
             bool apiKeyFoundInHeader = !StringValues.IsNullOrEmpty(apiKey);
 
