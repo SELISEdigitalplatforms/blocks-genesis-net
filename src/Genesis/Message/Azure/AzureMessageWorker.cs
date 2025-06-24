@@ -146,9 +146,7 @@ namespace Blocks.Genesis
 
             BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
 
-            var baggages = JsonSerializer.Deserialize<Dictionary<string, string>>(baggageString ?? "{}");
-
-            foreach (var kvp in baggages)
+            foreach (var kvp in DeserializeBaggage(baggageString))
             {
                 Baggage.SetBaggage(kvp.Key, kvp.Value);
             }
@@ -227,6 +225,18 @@ namespace Blocks.Genesis
             }
 
             BlocksContext.ClearContext();
+        }
+
+        private static Dictionary<string, string> DeserializeBaggage(string? baggageString)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<Dictionary<string, string>>(baggageString ?? "{}")?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
         }
 
         private async Task StartAutoRenewalTask(ProcessMessageEventArgs args, CancellationToken cancellationToken)

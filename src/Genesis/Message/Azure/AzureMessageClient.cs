@@ -1,4 +1,5 @@
 ﻿using Azure.Messaging.ServiceBus;
+using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
@@ -79,11 +80,23 @@ namespace Blocks.Genesis
                     ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
                         ? JsonSerializer.Serialize(securityContext)
                         : consumerMessage.Context,
-                    ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
+                    ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary)
                 }
             };
 
             await sender.SendMessageAsync(message);
+        }
+
+        private static Dictionary<string, string> GetBaggageDictionary()
+        {
+            var baggageDict = new Dictionary<string, string>();
+
+            foreach (var item in Baggage.Current)
+            {
+                baggageDict[item.Key] = item.Value;
+            }
+
+            return baggageDict;
         }
 
         public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
