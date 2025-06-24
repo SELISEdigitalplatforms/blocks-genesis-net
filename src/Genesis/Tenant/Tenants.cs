@@ -239,7 +239,7 @@ namespace Blocks.Genesis
                 var builder = Builders<Tenant>.Filter;
 
                 var domainMatch = builder.Or(
-                    builder.Eq(t => t.ApplicationDomain.Replace("https://", string.Empty), appName),
+                    builder.Eq(t => t.ApplicationDomain, appName),
                     builder.AnyEq(t => t.AllowedDomains, appName));
 
                 return _database
