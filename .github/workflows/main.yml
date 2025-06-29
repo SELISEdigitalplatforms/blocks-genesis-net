@@ -38,4 +38,4 @@ jobs:
     uses: ./.github/workflows/2_sonar.yml
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_GLOBAL }}
-    #needs: [test-job]
+    needs: [initialization]
