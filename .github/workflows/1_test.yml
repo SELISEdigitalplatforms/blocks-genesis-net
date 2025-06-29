@@ -1,33 +1,57 @@
 name: Run Tests
 on: workflow_call
 jobs:
-  build:
-    name: Test Execution
-    runs-on: ubuntu-latest
-
-    steps:
-      
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0  
-
-      - name: Set Environment Variables
-        uses: ./.github/actions/setvars
-        with:
-          varFilePath: ./.github/variables/vars.env
-      
-      - name: Run Tests
-        working-directory: ./src
-        shell: pwsh
-        run: |
-          dotnet restore "./${{ env.SOLUTION_NAME }}" -s https://api.nuget.org/v3/index.json -s https://nuget.selise.biz/nuget
-          dotnet build "./${{ env.SOLUTION_NAME }}" --no-incremental
-          dotnet test ./XUnitTests/XUnitTests.csproj /p:CollectCoverage=true --no-build --collect:"XPlat Code Coverage"
-          dotnet test "./XUnitTests/XUnitTests.csproj" --no-build --verbosity normal --logger:"junit;LogFilePath=test-results/xunit_results.xml"
+    build:
+        name: Test Execution
+        runs-on: ubuntu-latest
+    
+        steps:
           
-      - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v1
-        id: test-results
-        if: always()
-        with:
-          files: "./src/XUnitTests/test-results/*.xml"
+        - uses: actions/checkout@v2
+          with:
+            fetch-depth: 0  
+    
+        - name: Set Environment Variables
+          uses: ./.github/actions/setvars
+          with:
+            varFilePath: ./.github/variables/vars.env
+    
+        - name: Install coverlet.console
+          run: dotnet tool install --global coverlet.console
+    
+        - name: Initialize dotnet
+          uses: actions/setup-dotnet@v2
+          with:
+            dotnet-version: | 
+              6.0.x
+              7.0.x
+              8.0.x
+          
+        - name: Find test projects
+          id: find-projects
+          run: |
+            test_projects=$(find . -type f \( -name '*Test.csproj' -o -name '*Tests.csproj' -o -name 'Test*.csproj' \) -exec dirname {} \;)
+            test_projects=${test_projects//$'\n'/ }
+            test_projects=${test_projects//.\/src\//.\/}
+            echo "::set-output name=projects::${test_projects}"
+        
+        - name: Run Tests
+          working-directory: ./src
+          shell: bash
+          run: |
+            dotnet restore "./${{ env.SOLUTION_NAME }}" -s https://api.nuget.org/v3/index.json -s https://nuget.selise.biz/nuget
+            dotnet build "./${{ env.SOLUTION_NAME }}" --no-incremental
+            
+            for project in ${{ steps.find-projects.outputs.projects }}; do
+              dotnet test "$project" --no-build --verbosity normal --logger "trx;LogFileName=test_results.trx" /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+            done
+    
+        - name: List all files
+          run: |
+            find . -type f
+    
+        - name: Publish test results
+          uses: EnricoMi/publish-unit-test-result-action@v2
+          with:
+            files: "**/*.trx"
+            failTaskOnFailedTests: true 
