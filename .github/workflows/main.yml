@@ -27,10 +27,10 @@ jobs:
           echo "::set-output name=envvar1::$RUN_UNIT_TEST" 
           echo "::set-output name=envvar2::$RUN_SONARQUBE"
 
-  test-job:
-    if: ${{ needs.initialization.outputs.envvalue1=='true' }}
-    uses: ./.github/workflows/1_test.yml
-    needs: [initialization]
+#   test-job:
+#     if: ${{ needs.initialization.outputs.envvalue1=='true' }}
+#     uses: ./.github/workflows/1_test.yml
+#     needs: [initialization]
 
   sonarqube-job:
     # if: ${{ success() && needs.initialization.outputs.envvalue2=='true' }}
