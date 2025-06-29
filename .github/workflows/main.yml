@@ -1,0 +1,40 @@
+name: Build (main)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: 
+      - opened
+    branches:
+      - main
+
+env:
+  RUN_UNIT_TEST: "true"
+  RUN_SONARQUBE: "true"
+
+jobs:
+  initialization:
+    runs-on: ubuntu-latest
+    outputs:
+      envvalue1: ${{ steps.setvar.outputs.envvar1 }}
+      envvalue2: ${{ steps.setvar.outputs.envvar2 }}
+    steps:
+      - name: set value
+        id: setvar
+        run: |
+          echo "::set-output name=envvar1::$RUN_UNIT_TEST" 
+          echo "::set-output name=envvar2::$RUN_SONARQUBE"
+
+  test-job:
+    if: ${{ needs.initialization.outputs.envvalue1=='true' }}
+    uses: ./.github/workflows/1_test.yml
+    needs: [initialization]
+
+  sonarqube-job:
+    if: ${{ success() && needs.initialization.outputs.envvalue2=='true' }}
+    uses: ./.github/workflows/2_sonar.yml
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_GLOBAL }}
+    needs: [test-job]
