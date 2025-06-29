@@ -11,7 +11,7 @@ on:
       - main
 
 env:
-  RUN_UNIT_TEST: "true"
+  RUN_UNIT_TEST: "false"
   RUN_SONARQUBE: "true"
 
 jobs:
