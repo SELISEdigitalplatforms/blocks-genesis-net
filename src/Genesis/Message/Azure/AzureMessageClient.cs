@@ -1,4 +1,5 @@
 ﻿using Azure.Messaging.ServiceBus;
+using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
@@ -26,12 +27,12 @@ namespace Blocks.Genesis
 
         private void InitializeSenders(MessageConfiguration messageConfiguration)
         {
-            foreach (var queue in messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? new())
+            foreach (var queue in messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? [])
             {
                 _senders.TryAdd(queue, _client.CreateSender(queue));
             }
 
-            foreach (var topic in messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? new())
+            foreach (var topic in messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? [])
             {
                 _senders.TryAdd(topic, _client.CreateSender(topic));
             }
@@ -79,11 +80,23 @@ namespace Blocks.Genesis
                     ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
                         ? JsonSerializer.Serialize(securityContext)
                         : consumerMessage.Context,
-                    ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
+                    ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary())
                 }
             };
 
             await sender.SendMessageAsync(message);
+        }
+
+        private static Dictionary<string, string> GetBaggageDictionary()
+        {
+            var baggageDict = new Dictionary<string, string>();
+
+            foreach (var item in Baggage.Current)
+            {
+                baggageDict[item.Key] = item.Value;
+            }
+
+            return baggageDict;
         }
 
         public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class

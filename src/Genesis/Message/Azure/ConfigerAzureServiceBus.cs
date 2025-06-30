@@ -42,11 +42,13 @@ namespace Blocks.Genesis
                     var isExist = await CheckQueueExistsAsync(queueName);
                     if (isExist) continue;
 
-                    var createQueueOptions = new CreateQueueOptions(queueName);
-                    createQueueOptions.MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxSizeInMegabytes ?? 1024;
-                    createQueueOptions.MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxDeliveryCount ?? 2;
-                    createQueueOptions.DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.QueueDefaultMessageTimeToLive ?? TimeSpan.FromDays(7);
-                    createQueueOptions.LockDuration = TimeSpan.FromHours(1);
+                    var createQueueOptions = new CreateQueueOptions(queueName)
+                    {
+                        MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxSizeInMegabytes ?? 1024,
+                        MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxDeliveryCount ?? 2,
+                        DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.QueueDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
+                        LockDuration = TimeSpan.FromMinutes(5)
+                    };
 
                     tasks.Add(_adminClient.CreateQueueAsync(createQueueOptions));
                 }
@@ -73,15 +75,17 @@ namespace Blocks.Genesis
             {
                 var tasks = new List<Task>();
 
-                foreach (var topicName in _messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? new())
+                foreach (var topicName in _messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? [])
                 {
 
                     var isExist = await CheckTopicExistsAsync(topicName);
                     if (isExist) continue;
 
-                    var createTopicOptions = new CreateTopicOptions(topicName);
-                    createTopicOptions.MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.TopicMaxSizeInMegabytes ?? 1024;
-                    createTopicOptions.DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicDefaultMessageTimeToLive ?? TimeSpan.FromDays(30);
+                    var createTopicOptions = new CreateTopicOptions(topicName)
+                    {
+                        MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.TopicMaxSizeInMegabytes ?? 1024,
+                        DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicDefaultMessageTimeToLive ?? TimeSpan.FromDays(30)
+                    };
 
                     tasks.Add(_adminClient.CreateTopicAsync(createTopicOptions)); 
                 }
@@ -114,10 +118,12 @@ namespace Blocks.Genesis
                 var isExist = await CheckSubscriptionExistsAsync(topicName, _messageConfiguration.GetSubscriptionName(topicName));
                 if (isExist) return;
 
-                var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, _messageConfiguration.GetSubscriptionName(topicName));
-                createTopicSubscriptionOptions.MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 2;
-                createTopicSubscriptionOptions.DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionDefaultMessageTimeToLive ?? TimeSpan.FromDays(7);
-                createTopicSubscriptionOptions.LockDuration = TimeSpan.FromMinutes(5);
+                var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, _messageConfiguration.GetSubscriptionName(topicName))
+                {
+                    MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 2,
+                    DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
+                    LockDuration = TimeSpan.FromMinutes(5)
+                };
 
                 await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions); // don't await it need synchronization
 

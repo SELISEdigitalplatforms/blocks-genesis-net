@@ -37,8 +37,8 @@
     /// </summary>
     public class AzureServiceBusConfiguration
     {
-        private List<string> _queues = new();
-        private List<string> _topics = new();
+        private List<string> _queues = [];
+        private List<string> _topics = [];
 
         /// <summary>
         /// Gets or sets the list of queue names.
