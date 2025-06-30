@@ -46,7 +46,8 @@ namespace Blocks.Genesis
                     {
                         MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxSizeInMegabytes ?? 1024,
                         MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxDeliveryCount ?? 2,
-                        DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.QueueDefaultMessageTimeToLive ?? TimeSpan.FromDays(7)
+                        DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.QueueDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
+                        LockDuration = TimeSpan.FromMinutes(5)
                     };
 
                     tasks.Add(_adminClient.CreateQueueAsync(createQueueOptions));

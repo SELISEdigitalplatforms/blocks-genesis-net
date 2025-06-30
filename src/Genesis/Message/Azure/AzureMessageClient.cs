@@ -80,7 +80,7 @@ namespace Blocks.Genesis
                     ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
                         ? JsonSerializer.Serialize(securityContext)
                         : consumerMessage.Context,
-                    ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary)
+                    ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary())
                 }
             };
 
