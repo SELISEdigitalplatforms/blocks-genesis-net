@@ -18,7 +18,7 @@ namespace Blocks.Genesis
         private Consumer _consumer;
 
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeMessageRenewals = new ConcurrentDictionary<string, CancellationTokenSource>();
-
+        public event EventHandler<AutoRenewalEventArgs> MessageProcessingStarted;
 
         public AzureMessageWorker(ILogger<AzureMessageWorker> logger, MessageConfiguration messageConfiguration, Consumer consumer, ActivitySource activitySource)
         {
@@ -89,6 +89,11 @@ namespace Blocks.Genesis
                     throw new InvalidOperationException("Service Bus Client is not initialized");
                 }
 
+                MessageProcessingStarted += async (sender, e) =>
+                {
+                   await StartAutoRenewalTask(e.Args, e.Token);
+                };
+
                 var queueProcessingTask = ProcessQueues(stoppingToken);
                 var topicesProcessingTask = ProcessTopics(stoppingToken);
 
@@ -146,9 +151,7 @@ namespace Blocks.Genesis
 
             BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
 
-            var baggages = JsonSerializer.Deserialize<Dictionary<string, string>>(baggageString ?? "{}");
-
-            foreach (var kvp in baggages)
+            foreach (var kvp in DeserializeBaggage(baggageString))
             {
                 Baggage.SetBaggage(kvp.Key, kvp.Value);
             }
@@ -160,7 +163,13 @@ namespace Blocks.Genesis
             _activeMessageRenewals.TryAdd(messageId, cancellationTokenSource);
 
             // Start a task to auto-renew the message lock
-            _ = StartAutoRenewalTask(args, linkedTokenSource.Token);
+            MessageProcessingStarted?.Invoke(this, new AutoRenewalEventArgs
+            {
+                Args = args,
+                Token = linkedTokenSource.Token,
+                CancellationTokenSource = cancellationTokenSource
+            });
+
             _logger.LogInformation($"Received message: {args.Message.Body.ToString()} at: {DateTimeOffset.Now}");
 
             try
@@ -227,6 +236,18 @@ namespace Blocks.Genesis
             }
 
             BlocksContext.ClearContext();
+        }
+
+        private static Dictionary<string, string> DeserializeBaggage(string? baggageString)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<Dictionary<string, string>>(baggageString ?? "{}")?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
         }
 
         private async Task StartAutoRenewalTask(ProcessMessageEventArgs args, CancellationToken cancellationToken)

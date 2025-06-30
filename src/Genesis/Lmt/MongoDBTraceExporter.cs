@@ -4,6 +4,7 @@ using MongoDB.Driver;
 using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -30,13 +31,9 @@ namespace Blocks.Genesis
         public override void OnEnd(Activity data)
         {
             var endTime = data.StartTimeUtc.Add(data.Duration);
+            var baggage = JsonSerializer.Serialize(Baggage.Current);
 
-            var tenantId = Baggage.GetBaggage("TenantId") ?? BlocksConstants.Miscellaneous; 
-            var isFromCloud = Baggage.GetBaggage("IsFromCloud") ?? "False";
-            var userId = Baggage.GetBaggage("UserId") ?? "";
-            var actualTenantId = Baggage.GetBaggage("ActualTenantId") ?? BlocksConstants.Miscellaneous;
-            var isAuthenticate = Baggage.GetBaggage("IsAuthenticate") ?? "False";
-
+            var tenantId = Baggage.GetBaggage("TenantId") ?? BlocksConstants.Miscellaneous;
             tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
 
             var document = new BsonDocument
@@ -55,7 +52,7 @@ namespace Blocks.Genesis
                 { "Attributes", new BsonDocument(data.Tags?.ToDictionary(kvp => kvp.Key, kvp => (BsonValue)kvp.Value) ?? new Dictionary<string, BsonValue>()) },
                 { "Status", data.Status.ToString() },
                 { "StatusDescription", data.StatusDescription ?? string.Empty },
-                { "Baggage", new BsonArray { new BsonDocument {{ "TenantId", tenantId }, { "IsFromCloud", isFromCloud }, { "UserId", userId }, { "ActualTenantId", actualTenantId }, { "IsAuthenticate", isAuthenticate } } } },
+                { "Baggage", GetBaggageItems() },
                 { "ServiceName", _serviceName },
                 { "TenantId", tenantId }
             };
@@ -68,6 +65,18 @@ namespace Blocks.Genesis
             {
                 Task.Run(() => FlushBatchAsync());
             }
+        }
+
+        private static BsonDocument GetBaggageItems()
+        {
+            var baggageDoc = new BsonDocument();
+
+            foreach (var baggageItem in Baggage.Current)
+            {
+                baggageDoc[baggageItem.Key] = baggageItem.Value;
+            }
+
+            return baggageDoc;
         }
 
         private async Task FlushBatchAsync()

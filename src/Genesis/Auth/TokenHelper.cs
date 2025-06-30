@@ -31,13 +31,12 @@ namespace Blocks.Genesis
 
         public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri)
         {
-            if (claimsIdentity == null) throw new ArgumentNullException(nameof(claimsIdentity));
+            ArgumentNullException.ThrowIfNull(claimsIdentity);
 
-            claimsIdentity.AddClaims(new[]
-            {
+            claimsIdentity.AddClaims(
+            [
                 new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri)
-            });
+            ]);
         }
-
     }
 }

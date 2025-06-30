@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry;
 using StackExchange.Redis;
 using System.Diagnostics;
+using System.Dynamic;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
@@ -68,10 +69,8 @@ namespace Blocks.Genesis
                     };
                 });
 
-            services.AddAuthorization(options =>
-            {
-                options.AddPolicy("Protected", policy => policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
-            });
+            services.AddAuthorizationBuilder()
+                    .AddPolicy("Protected", policy => policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
 
             services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
         }
@@ -161,18 +160,35 @@ namespace Blocks.Genesis
             Baggage.SetBaggage("UserId", blocksContext.UserId);
             Baggage.SetBaggage("IsAuthenticate", "true");
             var activity = Activity.Current;
-            
-            if (activity != null)
-            {
-                activity.SetTag("SecurityContext", JsonSerializer.Serialize(blocksContext));
-            }
+
+            var contextWithOutToken = GetContextWithOutToken(blocksContext);
+            activity?.SetTag("SecurityContext", JsonSerializer.Serialize(contextWithOutToken));
         }
+
+        private static BlocksContext GetContextWithOutToken(BlocksContext blocksContext)
+        {
+            return BlocksContext.Create(tenantId: blocksContext.TenantId,
+                                        roles: blocksContext?.Roles ?? [],
+                                        userId: blocksContext?.UserId ?? string.Empty,
+                                        isAuthenticated: blocksContext?.IsAuthenticated ?? false,
+                                        requestUri: blocksContext?.RequestUri ?? string.Empty,
+                                        organizationId: blocksContext?.OrganizationId ?? string.Empty,
+                                        expireOn: blocksContext?.ExpireOn ?? DateTime.UtcNow.AddHours(1),
+                                        email: blocksContext?.Email ?? string.Empty,
+                                        permissions: blocksContext?.Permissions ?? [],
+                                        userName: blocksContext?.UserName ?? string.Empty,
+                                        phoneNumber: blocksContext?.PhoneNumber ?? string.Empty,
+                                        displayName: blocksContext?.DisplayName ?? string.Empty,
+                                        oauthToken: string.Empty);
+        }
+
+
         private static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri, string jwtBearerToken)
         {
             var requestClaims = new Claim[]
             {
-                new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri),
-                new Claim(BlocksContext.TOKEN_CLAIM, jwtBearerToken)
+                new (BlocksContext.REQUEST_URI_CLAIM, requestUri),
+                new (BlocksContext.TOKEN_CLAIM, jwtBearerToken)
             };
 
             claimsIdentity.AddClaims(requestClaims);
