@@ -136,7 +136,6 @@ public sealed class RabbitMessageClient : IMessageClient
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send message to {ConsumerName}", consumerMessage.ConsumerName);
-            throw;
         }
     }
 

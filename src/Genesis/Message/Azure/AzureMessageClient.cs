@@ -8,7 +8,6 @@ namespace Blocks.Genesis
 {
     public sealed class AzureMessageClient : IMessageClient
     {
-        private readonly MessageConfiguration _messageConfiguration;
         private readonly ServiceBusClient _client;
         private readonly ConcurrentDictionary<string, ServiceBusSender> _senders;
         private readonly ActivitySource _activitySource;
@@ -17,8 +16,7 @@ namespace Blocks.Genesis
             MessageConfiguration messageConfiguration,
             ActivitySource activitySource)
         {
-            _messageConfiguration = messageConfiguration;
-            _client = new ServiceBusClient(_messageConfiguration.Connection);
+            _client = new ServiceBusClient(messageConfiguration.Connection);
             _senders = new ConcurrentDictionary<string, ServiceBusSender>();
             _activitySource = activitySource;
 

@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using MongoDB.Bson;
+﻿using MongoDB.Bson;
 using MongoDB.Driver;
 using OpenTelemetry;
 using System.Collections.Concurrent;
@@ -15,24 +14,21 @@ namespace Blocks.Genesis
         private readonly Timer _timer;
         private readonly IMongoDatabase _database;
         private readonly int _batchSize;
-        private readonly TimeSpan _flushInterval;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
         public MongoDBTraceExporter(string serviceName, int batchSize = 1000, TimeSpan? flushInterval = null, IBlocksSecret? blocksSecret = null)
         {
             _serviceName = serviceName;
             _batchSize = batchSize;
-            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(3);
+             var interval = flushInterval ?? TimeSpan.FromSeconds(3);
             _batch = new ConcurrentQueue<BsonDocument>();
             _database = LmtConfiguration.GetMongoDatabase(blocksSecret?.TraceConnectionString ?? string.Empty, LmtConfiguration.TraceDatabaseName);
-            _timer = new Timer(async _ => await FlushBatchAsync(), null, _flushInterval, _flushInterval);
+            _timer = new Timer(async _ => await FlushBatchAsync(), null, interval, interval);
         }
 
         public override void OnEnd(Activity data)
         {
             var endTime = data.StartTimeUtc.Add(data.Duration);
-            var baggage = JsonSerializer.Serialize(Baggage.Current);
-
             var tenantId = Baggage.GetBaggage("TenantId") ?? BlocksConstants.Miscellaneous;
             tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
 

@@ -2,10 +2,10 @@ using Blocks.Genesis;
 using GrpcServiceTestTemp.Services;
 
 const string _serviceName = "Service-API-Test_Two";
-var blocksSecret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.OnPrem);
+await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.OnPrem);
 var builder = WebApplication.CreateBuilder(args);
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
-//ApplicationConfigurations.ConfigureKestrel(builder);
+ApplicationConfigurations.ConfigureKestrel(builder);
 
 var services = builder.Services;
 

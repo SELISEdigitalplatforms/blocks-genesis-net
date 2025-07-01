@@ -15,7 +15,7 @@ namespace Blocks.Genesis
         private readonly MessageConfiguration _messageConfiguration;
         private readonly ActivitySource _activitySource;
         private ServiceBusClient _serviceBusClient;
-        private Consumer _consumer;
+        private readonly Consumer _consumer;
 
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeMessageRenewals = new ConcurrentDictionary<string, CancellationTokenSource>();
         public event EventHandler<AutoRenewalEventArgs> MessageProcessingStarted;
@@ -41,12 +41,11 @@ namespace Blocks.Genesis
                 }
 
                 _serviceBusClient = new ServiceBusClient(_messageConfiguration.Connection);
-                _logger.LogInformation("Service Bus Client initialized at: {time}", DateTimeOffset.Now);
+                _logger.LogInformation("Service Bus Client initialized at: {Time}", DateTimeOffset.Now);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during initialization");
-                throw;
             }
         }
 
@@ -170,7 +169,7 @@ namespace Blocks.Genesis
                 CancellationTokenSource = cancellationTokenSource
             });
 
-            _logger.LogInformation($"Received message: {args.Message.Body.ToString()} at: {DateTimeOffset.Now}");
+            _logger.LogInformation("Received message: {MessageBody} at: {ReceivedAt}", args.Message.Body.ToString(), DateTimeOffset.Now);
 
             try
             {
@@ -199,7 +198,7 @@ namespace Blocks.Genesis
                 {
                     // Start processing timer
                     var processingStopwatch = Stopwatch.StartNew();
-                    _logger.LogInformation($"Started processing message {messageId} at: {DateTimeOffset.Now}");
+                    _logger.LogInformation("Started processing message {MessageId} at: {StartTime}", messageId, DateTimeOffset.Now);
 
                     var message = JsonSerializer.Deserialize<Message>(body);
                     await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
@@ -212,8 +211,7 @@ namespace Blocks.Genesis
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"Error processing message {messageId}: {ex.Message}");
-
+                    _logger.LogError(ex, "Error processing message {MessageId}: {ErrorMessage}", messageId, ex.Message);
                     activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                     activity?.SetTag("error", ex.Message);
                 }
@@ -229,7 +227,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Unexpected error processing message {messageId}");
+                _logger.LogError(ex, "Unexpected error processing message {messageId}: {ErrorMessage}", messageId, ex.Message);
                 cancellationTokenSource.Cancel();
                 linkedTokenSource.Dispose();
                 _activeMessageRenewals.TryRemove(messageId, out _);
@@ -268,8 +266,8 @@ namespace Blocks.Genesis
                     TimeSpan maxProcessingTime = TimeSpan.FromMinutes(_messageConfiguration?.AzureServiceBusConfiguration?.MaxMessageProcessingTimeInMinutes ?? 60);
                     if (processingTime > maxProcessingTime)
                     {
-                        _logger.LogWarning($"Message {messageId} exceeded maximum processing time of {maxProcessingTime.TotalMinutes} minutes. " +
-                                          $"Stopping auto-renewal after {renewalCount} renewals.");
+                        _logger.LogWarning("Message {MessageId} exceeded maximum processing time of {MaxProcessingTimeMinutes} minutes. " +
+                                           "Stopping auto-renewal after {RenewalCount} renewals.", messageId, maxProcessingTime.TotalMinutes, renewalCount);
                         break;
                     }
 
@@ -277,17 +275,17 @@ namespace Blocks.Genesis
                     {
                         await args.RenewMessageLockAsync(message, cancellationToken);
                         renewalCount++;
-                        _logger.LogInformation($"Renewed lock for message {messageId} (renewal #{renewalCount}, " +
-                                              $"processing time: {processingTime.TotalSeconds:F1}s)");
+                        _logger.LogInformation("Renewed lock for message {MessageId} (renewal #{RenewalCount}, processing time: {ProcessingTimeSeconds:F1}s)",
+                                                messageId, renewalCount, processingTime.TotalSeconds);
                     }
                     catch (Exception ex) when (ex is ServiceBusException or OperationCanceledException)
                     {
-                        _logger.LogWarning($"Failed to renew lock for message {messageId}: {ex.Message}");
+                        _logger.LogWarning("Failed to renew lock for message {MessageId}: {ErrorMessage}", messageId, ex.Message);
                         break;
                     }
                 }
 
-                _logger.LogInformation($"Auto-renewal for message {messageId} completed after {renewalCount} renewals");
+                _logger.LogInformation("Auto-renewal for message {MessageId} completed after {RenewalCount} renewals", messageId, renewalCount);
             }
             catch (OperationCanceledException)
             {
@@ -295,13 +293,13 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error in auto-renewal task for message {messageId}");
+                _logger.LogError(ex, "Error in auto-renewal task for message {MessageId}", messageId);
             }
         }
 
         private Task ErrorHandler(ProcessErrorEventArgs args)
         {
-            _logger.LogError(args.Exception, $"Service Bus error: {args.Exception.Message} (Entity: {args.EntityPath})");
+            _logger.LogError(args.Exception, "Service Bus error: {ExceptionMessage} (Entity: {EntityPath})", args.Exception.Message, args.EntityPath);
             return Task.CompletedTask;
         }
     }
