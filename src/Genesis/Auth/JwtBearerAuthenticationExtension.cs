@@ -71,8 +71,11 @@ namespace Blocks.Genesis
 
             services.AddAuthorizationBuilder()
                     .AddPolicy("Protected", policy => policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
+            services.AddAuthorizationBuilder()
+                   .AddPolicy("Secret", policy => policy.Requirements.Add(new SecretEndPointRequirement()));
 
             services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
+            services.AddScoped<IAuthorizationHandler, SecretAuthorizationHandler>();
         }
 
         private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
