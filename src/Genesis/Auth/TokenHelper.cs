@@ -8,12 +8,9 @@ namespace Blocks.Genesis
     {
         public static string GetToken(HttpRequest request)
         {
-            if (request.Headers.TryGetValue(BlocksConstants.AuthorizationHeaderName, out StringValues token) && !StringValues.IsNullOrEmpty(token))
+            if (request.Headers.TryGetValue(BlocksConstants.AuthorizationHeaderName, out StringValues token) && !StringValues.IsNullOrEmpty(token) && token.ToString().StartsWith(BlocksConstants.Bearer, StringComparison.OrdinalIgnoreCase))
             {
-                if (token.ToString().StartsWith(BlocksConstants.Bearer, StringComparison.OrdinalIgnoreCase))
-                {
-                    return token.ToString().Substring(BlocksConstants.Bearer.Length).Trim();
-                }
+                return token.ToString().Substring(BlocksConstants.Bearer.Length).Trim();
             }
 
             return GetTokenFromCookie(request);

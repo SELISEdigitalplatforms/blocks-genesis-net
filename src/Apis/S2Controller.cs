@@ -27,13 +27,13 @@ public class S2Controller : ControllerBase
     }
 
     [HttpGet("process_1")]
-    public IActionResult Process1Request()
+    public BlocksContext Process1Request()
     {
         _logger.LogInformation("Processing request in S2: process_1");
 
         var sc = BlocksContext.GetContext();
 
-        return Ok(sc);
+        return sc;
     }
 
     public record W2Context

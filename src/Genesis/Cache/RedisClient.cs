@@ -10,7 +10,11 @@ namespace Blocks.Genesis
         private readonly ActivitySource _activitySource;
         private readonly ISubscriber _subscriber;
         private readonly ConcurrentDictionary<string, Action<RedisChannel, RedisValue>> _subscriptions = new();
+
         private bool _disposed = false;
+        private const string _valueLength = "ValueLength";
+        private const string _tTLSeconds = "TTLSeconds";
+        private const string _hashFieldCount = "HashFieldCount";
 
         public RedisClient(IBlocksSecret blocksSecret, ActivitySource activitySource)
         {
@@ -35,7 +39,7 @@ namespace Blocks.Genesis
         public bool AddStringValue(string key, string value)
         {
             using var activity = SetActivity(key, "AddStringValue");
-            activity?.SetTag("ValueLength", value?.Length ?? 0);
+            activity?.SetTag(_valueLength, value?.Length ?? 0);
             var result = _database.StringSet(key, value);
             activity?.SetTag("Success", result);
             return result;
@@ -44,8 +48,8 @@ namespace Blocks.Genesis
         public bool AddStringValue(string key, string value, long keyLifeSpan)
         {
             using var activity = SetActivity(key, "AddStringValueWithTTL");
-            activity?.SetTag("ValueLength", value?.Length ?? 0);
-            activity?.SetTag("TTLSeconds", keyLifeSpan);
+            activity?.SetTag(_valueLength, value?.Length ?? 0);
+            activity?.SetTag(_tTLSeconds, keyLifeSpan);
             _database.StringSet(key, value);
             var result = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
             activity?.SetTag("TTLSetSuccess", result);
@@ -72,7 +76,7 @@ namespace Blocks.Genesis
         {
             using var activity = SetActivity(key, "AddHashValue");
             var entries = value.ToArray();
-            activity?.SetTag("HashFieldCount", entries.Length);
+            activity?.SetTag(_hashFieldCount, entries.Length);
             _database.HashSet(key, entries);
             return true;
         }
@@ -81,8 +85,8 @@ namespace Blocks.Genesis
         {
             using var activity = SetActivity(key, "AddHashValueWithTTL");
             var entries = value.ToArray();
-            activity?.SetTag("HashFieldCount", entries.Length);
-            activity?.SetTag("TTLSeconds", keyLifeSpan);
+            activity?.SetTag(_hashFieldCount, entries.Length);
+            activity?.SetTag(_tTLSeconds, keyLifeSpan);
             _database.HashSet(key, entries);
             var result = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
             activity?.SetTag("TTLSetSuccess", result);
@@ -112,7 +116,7 @@ namespace Blocks.Genesis
         public async Task<bool> AddStringValueAsync(string key, string value)
         {
             using var activity = SetActivity(key, "AddStringValueAsync");
-            activity?.SetTag("ValueLength", value?.Length ?? 0);
+            activity?.SetTag(_valueLength, value?.Length ?? 0);    
             var result = await _database.StringSetAsync(key, value);
             activity?.SetTag("Success", result);
             return result;
@@ -121,8 +125,8 @@ namespace Blocks.Genesis
         public async Task<bool> AddStringValueAsync(string key, string value, long keyLifeSpan)
         {
             using var activity = SetActivity(key, "AddStringValueWithTTLAsync");
-            activity?.SetTag("ValueLength", value?.Length ?? 0);
-            activity?.SetTag("TTLSeconds", keyLifeSpan);
+            activity?.SetTag(_valueLength, value?.Length ?? 0);
+            activity?.SetTag(_tTLSeconds, keyLifeSpan);
             await _database.StringSetAsync(key, value);
             var result = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
             activity?.SetTag("TTLSetSuccess", result);
@@ -149,7 +153,7 @@ namespace Blocks.Genesis
         {
             using var activity = SetActivity(key, "AddHashValueAsync");
             var entries = value.ToArray();
-            activity?.SetTag("HashFieldCount", entries.Length);
+            activity?.SetTag(_hashFieldCount, entries.Length);
             await _database.HashSetAsync(key, entries);
             return true;
         }
@@ -158,8 +162,8 @@ namespace Blocks.Genesis
         {
             using var activity = SetActivity(key, "AddHashValueWithTTLAsync");
             var entries = value.ToArray();
-            activity?.SetTag("HashFieldCount", entries.Length);
-            activity?.SetTag("TTLSeconds", keyLifeSpan);
+            activity?.SetTag(_hashFieldCount, entries.Length);
+            activity?.SetTag(_tTLSeconds, keyLifeSpan);
             await _database.HashSetAsync(key, entries);
             var result = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
             activity?.SetTag("TTLSetSuccess", result);

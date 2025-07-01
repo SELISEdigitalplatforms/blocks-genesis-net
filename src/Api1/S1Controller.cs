@@ -58,14 +58,10 @@ namespace ApiOne
             // Make HTTP call to S2
             var sc = BlocksContext.GetContext();
             Console.WriteLine(sc);
-            var response = await _httpService.Get<object>("http://localhost:3000/api/s2/process",
+           await _httpService.Get<object>("http://localhost:3000/api/s2/process",
                 new Dictionary<string, string> { { BlocksConstants.BlocksKey, sc.TenantId } });
 
-            //var collection = _dbContextProvider.GetCollection<W2Context>("W2Context");
-
-            //collection.InsertOne(new W2Context { Data = "Test", Id = Guid.NewGuid().ToString() });
-
-            _logger.LogInformation("S1 call to S2 {r}", true);
+            _logger.LogInformation("S1 call to S2 {R}", true);
         }
 
         [HttpGet("cert")]
@@ -76,19 +72,7 @@ namespace ApiOne
 
             var sc = BlocksContext.GetContext();
 
-            //ICloudVault cloudVault = CloudVault.GetCloudVault(CloudType.Azure);
-            //var blocksSecretVault = await cloudVault.ProcessCertificateAsync("***REMOVED***", GetVaultConfig());
-
             return Ok(sc);
-        }
-
-        private static Dictionary<string, string> GetVaultConfig()
-        {
-            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
-            var keyVaultConfig = new Dictionary<string, string>();
-            configuration.GetSection("KeyVault").Bind(keyVaultConfig);
-
-            return keyVaultConfig;
         }
     }
 
