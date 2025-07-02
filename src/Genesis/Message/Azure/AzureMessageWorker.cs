@@ -286,9 +286,9 @@ namespace Blocks.Genesis
 
                 _logger.LogInformation("Auto-renewal for message {MessageId} completed after {RenewalCount} renewals", messageId, renewalCount);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                _logger.LogInformation("Auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals", messageId, renewalCount);
+                _logger.LogInformation(ex, "Auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals", messageId, renewalCount);
             }
             catch (Exception ex)
             {
