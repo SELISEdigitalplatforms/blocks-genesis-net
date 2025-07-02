@@ -28,7 +28,7 @@ namespace Blocks.Genesis
                 .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                     (result, timeSpan, retryCount, context) =>
                     {
-                        _logger.LogWarning("Request failed. Waiting {TimeSpan} before retry {RetryCount}. Status code: {Result.Result.StatusCode}", timeSpan, retryCount, result.Result.StatusCode);
+                        _logger.LogWarning("Request failed. Waiting {TimeSpan} before retry {RetryCount}. Status code: {StatusCode}", timeSpan, retryCount, result.Result.StatusCode);
 
                         using (var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal, Activity.Current?.Context ?? default))
                         {

@@ -7,7 +7,7 @@ using System.Text.Json;
 
 namespace Blocks.Genesis
 {
-    public class MongoDBTraceExporter : BaseProcessor<Activity>, IDisposable
+    public class MongoDBTraceExporter : BaseProcessor<Activity>
     {
         private readonly string _serviceName;
         private readonly ConcurrentQueue<BsonDocument> _batch;
