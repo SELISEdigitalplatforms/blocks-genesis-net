@@ -7,9 +7,7 @@ namespace Blocks.Genesis
     {
         public string Hash(string value, string salt)
         {
-            var sc = BlocksContext.GetContext();
             var valueBytes = Encoding.UTF8.GetBytes(value);
-
             var saltedValue = valueBytes.Concat(Encoding.UTF8.GetBytes(salt ?? string.Empty)).ToArray();
 
             return Hash(saltedValue);

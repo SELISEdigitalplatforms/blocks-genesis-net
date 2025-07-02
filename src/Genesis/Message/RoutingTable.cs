@@ -26,7 +26,7 @@ namespace Blocks.Genesis
 
                 foreach (var consumerMethod in consumerMethods)
                 {
-                    var messageType = consumerMethod.GetParameters().First().ParameterType;
+                    var messageType = consumerMethod.GetParameters()[0].ParameterType;
 
                     var routingInfo = new RoutingInfo(
                         messageType.Name,
@@ -37,7 +37,7 @@ namespace Blocks.Genesis
 
                     if (Routes.ContainsKey(routingInfo.ContextName))
                     {
-                        throw new Exception($"Message of type {routingInfo.ContextType} is being used by {Routes[routingInfo.ContextName].ConsumerType}");
+                        throw new InvalidOperationException($"Message of type {routingInfo.ContextType} is being used by {Routes[routingInfo.ContextName].ConsumerType}");
                     }
 
                     Routes.Add(routingInfo.ContextName, routingInfo);

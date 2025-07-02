@@ -14,6 +14,8 @@ namespace Blocks.Genesis
         private readonly ActivitySource _activitySource;
         private readonly AsyncRetryPolicy<HttpResponseMessage> _retryPolicy;
 
+        private const string _contentType = "application/json";
+
         public HttpService(IHttpClientFactory httpClientFactory, ILogger<HttpService> logger, ActivitySource activitySource)
         {
             _httpClientFactory = httpClientFactory;
@@ -26,7 +28,7 @@ namespace Blocks.Genesis
                 .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                     (result, timeSpan, retryCount, context) =>
                     {
-                        _logger.LogWarning($"Request failed. Waiting {timeSpan} before retry {retryCount}. Status code: {result.Result.StatusCode}");
+                        _logger.LogWarning("Request failed. Waiting {TimeSpan} before retry {RetryCount}. Status code: {Result.Result.StatusCode}", timeSpan, retryCount, result.Result.StatusCode);
 
                         using (var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal, Activity.Current?.Context ?? default))
                         {
@@ -39,7 +41,7 @@ namespace Blocks.Genesis
                     });
         }
 
-        public async Task<(T, string)> Post<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T, string)> Post<T>(object payload, string url, string contentType = _contentType, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Post, url, payload, contentType, headers, cancellationToken);
         }
@@ -49,7 +51,7 @@ namespace Blocks.Genesis
             return await MakeRequest<T>(HttpMethod.Get, url, null, null, headers, cancellationToken);
         }
 
-        public async Task<(T, string)> Put<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T, string)> Put<T>(object payload, string url, string contentType = _contentType, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Put, url, payload, contentType, headers, cancellationToken);
         }
@@ -59,7 +61,7 @@ namespace Blocks.Genesis
             return await MakeRequest<T>(HttpMethod.Delete, url, null, null, headers, cancellationToken);
         }
 
-        public async Task<(T, string)> Patch<T>(object payload, string url, string contentType = "application/json", Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T, string)> Patch<T>(object payload, string url, string contentType = _contentType, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, headers, cancellationToken);
         }
@@ -68,7 +70,7 @@ namespace Blocks.Genesis
         /// Generic method for making any HTTP request with custom HttpMethod
         /// </summary>
         public async Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object payload = null,
-            string contentType = "application/json", Dictionary<string, string> headers = null,
+            string contentType = _contentType, Dictionary<string, string> headers = null,
             CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(method, url, payload, contentType, headers, cancellationToken);
@@ -95,10 +97,9 @@ namespace Blocks.Genesis
         }
 
         private async Task<(T, string)> MakeRequest<T>(HttpMethod method, string url, object payload = null,
-            string contentType = "application/json", Dictionary<string, string> headers = null,
+            string contentType = _contentType, Dictionary<string, string> headers = null,
             CancellationToken cancellationToken = default, bool isFormUrlEncoded = false) where T : class
         {
-            var securityContext = BlocksContext.GetContext();
             using (var client = _httpClientFactory.CreateClient())
             using (var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client, Activity.Current?.Context ?? default))
             {
@@ -137,19 +138,19 @@ namespace Blocks.Genesis
                             var result = JsonSerializer.Deserialize<T>(responseContent);
                             requestActivity?.SetTag("response.type", typeof(T).Name);
 
-                            _logger.LogDebug("Response successful. Content length: {length}", responseContent.Length);
+                            _logger.LogDebug("Response successful. Content length: {Length}", responseContent.Length);
                             return (result, string.Empty);
                         }
                         catch (JsonException ex)
                         {
-                            _logger.LogError("Error deserializing response: {error}. Response content: {content}", ex.Message, responseContent);
+                            _logger.LogError(ex, "Error deserializing response: {Error}. Response content: {Content}", ex.Message, responseContent);
                             return (null, $"Error deserializing response: {ex.Message}");
                         }
                     }
                     else
                     {
                         var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                        _logger.LogError("HTTP request failed with status code {statusCode}. Error: {error}",
+                        _logger.LogError("HTTP request failed with status code {StatusCode}. Error: {Error}",
                             response.StatusCode, errorContent);
                         return (null, errorContent);
                     }

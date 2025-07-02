@@ -14,6 +14,8 @@ namespace Blocks.Genesis
         private readonly Timer _timer;
         private readonly IMongoDatabase _database;
         private readonly int _batchSize;
+        private bool _disposed;
+
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
         public MongoDBTraceExporter(string serviceName, int batchSize = 1000, TimeSpan? flushInterval = null, IBlocksSecret? blocksSecret = null)
@@ -116,11 +118,23 @@ namespace Blocks.Genesis
             }
         }
 
-        void IDisposable.Dispose()
+        protected virtual void Dispose(bool disposing)
         {
-            _timer.Dispose();
-            FlushBatchAsync().GetAwaiter().GetResult();
-            _semaphore.Dispose();
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                // Dispose managed resources
+                _timer.Dispose();
+                _semaphore.Dispose();
+                // Flush any remaining batch synchronously
+                FlushBatchAsync().GetAwaiter().GetResult();
+            }
+
+            // No unmanaged resources to clean up
+
+            _disposed = true;
             base.Dispose();
         }
     }

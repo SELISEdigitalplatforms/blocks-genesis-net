@@ -35,7 +35,7 @@ namespace Blocks.Genesis
                 !cloudConfig.TryGetValue("ClientId", out _clientId) ||
                 !cloudConfig.TryGetValue("ClientSecret", out _clientSecret))
             {
-                throw new Exception("One or more required Azure config values are missing. Please check your environment configuration.");
+                throw new InvalidOperationException("One or more required Azure config values are missing. Please check your environment configuration.");
             }
         }
 

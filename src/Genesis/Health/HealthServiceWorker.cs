@@ -10,7 +10,6 @@ namespace Blocks.Genesis
     public class HealthServiceWorker : BackgroundService
     {
         private readonly ILogger<HealthServiceWorker> _logger;
-        private readonly IBlocksSecret _blocksSecret;
         private readonly IMongoDatabase _database;
         private readonly ICacheClient _cacheClient;
         private readonly MessageConfiguration _messageConfiguration;
@@ -31,7 +30,6 @@ namespace Blocks.Genesis
             ITenants tenants)
         {
             _logger = logger;
-            _blocksSecret = blocksSecret;
             _database = LmtConfiguration.GetMongoDatabase(blocksSecret.DatabaseConnectionString, LmtConfiguration.HealthDatabaseName);
             _cacheClient = cacheClient;
             _messageConfiguration = messageConfiguration;
@@ -57,7 +55,7 @@ namespace Blocks.Genesis
                 InitializeRabbitMqConnection();
             }
 
-            LmtConfiguration.CreateCollectionForHealth(_blocksSecret.DatabaseConnectionString);
+            LmtConfiguration.CreateCollectionForHealth(blocksSecret.DatabaseConnectionString);
         }
 
         private async Task InitializeRabbitMqConnection()
