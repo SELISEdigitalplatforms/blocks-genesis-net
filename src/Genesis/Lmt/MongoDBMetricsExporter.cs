@@ -9,12 +9,12 @@ namespace Blocks.Genesis
     public class MongoDBMetricsExporter : BaseExporter<Metric>
     {
         private readonly string _serviceName;
-        private readonly IMongoCollection<BsonDocument> _collection;
+        private const string _value = "Value";
 
         public MongoDBMetricsExporter(string serviceName, IBlocksSecret blocksSecret)
         {
             _serviceName = serviceName;
-            _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(blocksSecret.MetricConnectionString, LmtConfiguration.MetricDatabaseName, _serviceName);
+            LmtConfiguration.GetMongoCollection<BsonDocument>(blocksSecret.MetricConnectionString, LmtConfiguration.MetricDatabaseName, _serviceName);
         }
 
         public override ExportResult Export(in Batch<Metric> batch)
@@ -41,16 +41,16 @@ namespace Blocks.Genesis
                     switch (data.MetricType)
                     {
                         case MetricType.LongSum:
-                            document["Value"] = metricPoint.GetSumLong();
+                            document[_value] = metricPoint.GetSumLong();
                             break;
                         case MetricType.DoubleSum:
-                            document["Value"] = metricPoint.GetSumDouble();
+                            document[_value] = metricPoint.GetSumDouble();
                             break;
                         case MetricType.LongGauge:
-                            document["Value"] = metricPoint.GetGaugeLastValueLong();
+                            document[_value] = metricPoint.GetGaugeLastValueLong();
                             break;
                         case MetricType.DoubleGauge:
-                            document["Value"] = metricPoint.GetGaugeLastValueDouble();
+                            document[_value] = metricPoint.GetGaugeLastValueDouble();
                             break;
                         case MetricType.Histogram:
                             document["Count"] = metricPoint.GetHistogramCount();
@@ -64,18 +64,16 @@ namespace Blocks.Genesis
 
             try
             {
-                //_collection.InsertMany(documents);
                 return ExportResult.Success;
             }
             catch (Exception ex)
             {
-                // Log the exception
                 Console.WriteLine($"Error exporting metrics: {ex.Message}");
                 return ExportResult.Failure;
             }
             finally
             {
-                documents = null; // Explicitly setting the documents list to null
+                documents.Clear();
             }
         }
     }

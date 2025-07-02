@@ -203,7 +203,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to retrieve tenant from DB for ID: {tenantId}");
+                _logger.LogError(ex, "Failed to retrieve tenant from DB for ID: {TenantId}", tenantId);
                 return null;
             }
         }
@@ -249,7 +249,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to retrieve tenant from DB for Application name: {appName}");
+                _logger.LogError(ex, "Failed to retrieve tenant from DB for Application name: {AppName}", appName);
                 return null;
             }
         }

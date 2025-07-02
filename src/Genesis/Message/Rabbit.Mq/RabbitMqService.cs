@@ -43,7 +43,6 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, "An error occurred while creating the RabbitMQ connection.");
-                throw;
             }
         }
 
@@ -65,7 +64,7 @@ namespace Blocks.Genesis
                     }
 
                     await _channel.BasicQosAsync(0, subscription.PrefetchCount, global: false);
-                    _logger.LogInformation("RabbitMQ subscription for -- {subscription}", JsonSerializer.Serialize(subscription));
+                    _logger.LogInformation("RabbitMQ subscription for -- {Subscription}", JsonSerializer.Serialize(subscription));
                 }
 
                 _logger.LogInformation("RabbitMQ subscriptions initialized successfully.");

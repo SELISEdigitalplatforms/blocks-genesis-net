@@ -28,7 +28,7 @@ namespace Blocks.Genesis
             // Use lazy loading for tenant databases
             return _databases.GetOrAdd(tenantId, id =>
             {
-                _logger.LogInformation("Loading database for tenant: {tenantId}", id);
+                _logger.LogInformation("Loading database for tenant: {TenantId}", id);
                 return InitializeDatabaseForTenant(id);
             });
         }
@@ -56,7 +56,7 @@ namespace Blocks.Genesis
 
             return _databases.GetOrAdd(dbKey, _ =>
             {
-                _logger.LogInformation("Creating database instance for: {databaseName}", dbKey);
+                _logger.LogInformation("Creating database instance for: {DatabaseName}", dbKey);
                 return CreateMongoClient(connectionString).GetDatabase(databaseName);
             });
         }

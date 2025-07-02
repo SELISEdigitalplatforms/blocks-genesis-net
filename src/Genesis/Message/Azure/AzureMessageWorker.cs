@@ -75,7 +75,7 @@ namespace Blocks.Genesis
             }
 
             await base.StopAsync(cancellationToken);
-            _logger.LogInformation("Worker stopped at: {time}", DateTimeOffset.Now);
+            _logger.LogInformation("Worker stopped at: {Time}", DateTimeOffset.Now);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -101,7 +101,6 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in ExecuteAsync");
-                throw;
             }
         }
 
@@ -189,7 +188,7 @@ namespace Blocks.Genesis
 
                 string body = args.Message.Body.ToString();
 
-                _logger.LogInformation($"Message received: {body}");
+                _logger.LogInformation("Message received: {Body}", body);
 
                 activity?.SetTag("messaging.system", "azure.servicebus");
                 activity?.SetTag("message.body", body);
@@ -227,7 +226,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error processing message {messageId}: {ErrorMessage}", messageId, ex.Message);
+                _logger.LogError(ex, "Unexpected error processing message {MessageId}: {ErrorMessage}", messageId, ex.Message);
                 cancellationTokenSource.Cancel();
                 linkedTokenSource.Dispose();
                 _activeMessageRenewals.TryRemove(messageId, out _);
@@ -280,7 +279,7 @@ namespace Blocks.Genesis
                     }
                     catch (Exception ex) when (ex is ServiceBusException or OperationCanceledException)
                     {
-                        _logger.LogWarning("Failed to renew lock for message {MessageId}: {ErrorMessage}", messageId, ex.Message);
+                        _logger.LogWarning(ex, "Failed to renew lock for message {MessageId}: {ErrorMessage}", messageId, ex.Message);
                         break;
                     }
                 }
@@ -289,7 +288,7 @@ namespace Blocks.Genesis
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation($"Auto-renewal for message {messageId} was cancelled after {renewalCount} renewals");
+                _logger.LogInformation("Auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals", messageId, renewalCount);
             }
             catch (Exception ex)
             {

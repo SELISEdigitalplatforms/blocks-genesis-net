@@ -15,6 +15,9 @@ namespace Blocks.Genesis
         private const string _valueLength = "ValueLength";
         private const string _tTLSeconds = "TTLSeconds";
         private const string _hashFieldCount = "HashFieldCount";
+        private const string _tTLSetSuccess = "TTLSetSuccess";
+        private const string _error = "Error";
+        private const string _errorMessage = "errorMessage";
 
         public RedisClient(IBlocksSecret blocksSecret, ActivitySource activitySource)
         {
@@ -52,7 +55,7 @@ namespace Blocks.Genesis
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
             _database.StringSet(key, value);
             var result = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag("TTLSetSuccess", result);
+            activity?.SetTag(_tTLSetSuccess, result);
             return result;
         }
 
@@ -89,7 +92,7 @@ namespace Blocks.Genesis
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
             _database.HashSet(key, entries);
             var result = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag("TTLSetSuccess", result);
+            activity?.SetTag(_tTLSetSuccess, result);
             return result;
         }
 
@@ -129,7 +132,7 @@ namespace Blocks.Genesis
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
             await _database.StringSetAsync(key, value);
             var result = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag("TTLSetSuccess", result);
+            activity?.SetTag(_tTLSetSuccess, result);
             return result;
         }
 
@@ -166,7 +169,7 @@ namespace Blocks.Genesis
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
             await _database.HashSetAsync(key, entries);
             var result = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag("TTLSetSuccess", result);
+            activity?.SetTag(_tTLSetSuccess, result);
             return result;
         }
 
@@ -198,8 +201,8 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                activity?.SetTag("error", true);
-                activity?.SetTag("errorMessage", ex.Message);
+                activity?.SetTag(_error, true);
+                activity?.SetTag(_errorMessage, ex.Message);
                 throw;
             }
         }
@@ -228,15 +231,15 @@ namespace Blocks.Genesis
                     }
                     catch (Exception ex)
                     {
-                        messageActivity?.SetTag("error", true);
-                        messageActivity?.SetTag("errorMessage", ex.Message);
+                        messageActivity?.SetTag(_error, true);
+                        messageActivity?.SetTag(_errorMessage, ex.Message);
                     }
                 });
             }
             catch (Exception ex)
             {
-                activity?.SetTag("error", true);
-                activity?.SetTag("errorMessage", ex.Message);
+                activity?.SetTag(_error, true);
+                activity?.SetTag(_errorMessage, ex.Message);
                 _subscriptions.TryRemove(channel, out _);
                 throw;
             }
@@ -257,8 +260,8 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                activity?.SetTag("error", true);
-                activity?.SetTag("errorMessage", ex.Message);
+                activity?.SetTag(_error, true);
+                activity?.SetTag(_errorMessage, ex.Message);
                 throw;
             }
         }
@@ -270,10 +273,7 @@ namespace Blocks.Genesis
         private Activity? SetActivity(string key, string operation)
         {
             var currentActivity = Activity.Current;
-            var context = BlocksContext.GetContext();
-
             var activity = _activitySource.StartActivity($"Redis::{operation}", ActivityKind.Producer, currentActivity?.Context ?? default);
-
             activity?.SetTag("Key", key);
 
             return activity;
