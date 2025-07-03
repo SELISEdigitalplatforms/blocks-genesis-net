@@ -46,6 +46,7 @@ namespace Blocks.Genesis
         public string UserName { get; private init; } = string.Empty;
         public string PhoneNumber { get; private init; } = string.Empty;
         public string DisplayName { get; private init; } = string.Empty;
+        public string ActualTenantId { get; private init; } = string.Empty;
 
         // Thread-safe test mode property
         public static bool IsTestMode
@@ -68,7 +69,8 @@ namespace Blocks.Genesis
             string userName,
             string phoneNumber,
             string displayName,
-            string oauthToken)
+            string oauthToken,
+            string actualTenantId)
         {
             TenantId = tenantId ?? string.Empty;
             Roles = roles ?? Array.Empty<string>();
@@ -83,6 +85,7 @@ namespace Blocks.Genesis
             PhoneNumber = phoneNumber ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
             OAuthToken = oauthToken ?? string.Empty;
+            ActualTenantId = actualTenantId ?? string.Empty;
         }
 
 
@@ -106,7 +109,8 @@ namespace Blocks.Genesis
                 userName: claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value,
                 phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
                 displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
-                oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value
+                oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
+                actualTenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty
             );
         }
 
@@ -126,10 +130,11 @@ namespace Blocks.Genesis
             string? userName,
             string? phoneNumber,
             string? displayName,
-            string? oauthToken)
+            string? oauthToken,
+            string? actualTentId)
         {
             return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken);
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, actualTentId);
         }
 
         /// <summary>

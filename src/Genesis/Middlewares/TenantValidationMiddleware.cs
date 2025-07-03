@@ -149,7 +149,8 @@ namespace Blocks.Genesis
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                string.Empty
+                string.Empty,
+                tenant.TenantId
             );
 
             BlocksContext.SetContext(securityData, false);
