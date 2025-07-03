@@ -182,7 +182,8 @@ namespace Blocks.Genesis
                                         userName: blocksContext?.UserName ?? string.Empty,
                                         phoneNumber: blocksContext?.PhoneNumber ?? string.Empty,
                                         displayName: blocksContext?.DisplayName ?? string.Empty,
-                                        oauthToken: string.Empty);
+                                        oauthToken: string.Empty,
+                                        actualTentId: blocksContext?.TenantId);
         }
 
 
