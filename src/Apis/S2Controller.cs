@@ -1,48 +1,51 @@
 using Blocks.Genesis;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-[ApiController]
-[Route("api/[controller]")]
-public class S2Controller : ControllerBase
+namespace ApiTwo
 {
-    private readonly ILogger<S2Controller> _logger;
-    private readonly IMessageClient _messageClient;
 
-    public S2Controller(ILogger<S2Controller> logger, IMessageClient messageClient)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class S2Controller : ControllerBase
     {
-        _logger = logger;
-        _messageClient = messageClient;
-    }
+        private readonly ILogger<S2Controller> _logger;
+        private readonly IMessageClient _messageClient;
 
-    [HttpGet("process")]
-    public async Task<IActionResult> ProcessRequest()
-    {
-        _logger.LogInformation("Processing request in S2: process");
+        public S2Controller(ILogger<S2Controller> logger, IMessageClient messageClient)
+        {
+            _logger = logger;
+            _messageClient = messageClient;
+        }
 
-        var sc = BlocksContext.GetContext();
-        Console.WriteLine(sc);
-        await _messageClient.SendToConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "test_from_cloud_queue_1", Payload = new W1Context { Data = "Hello from blocks" } });
-        return Ok(sc);
-    }
+        [HttpGet("process")]
+        public async Task<IActionResult> ProcessRequest()
+        {
+            _logger.LogInformation("Processing request in S2: process");
 
-    [HttpGet("process_1")]
-    public BlocksContext Process1Request()
-    {
-        _logger.LogInformation("Processing request in S2: process_1");
+            var sc = BlocksContext.GetContext();
+            Console.WriteLine(sc);
+            await _messageClient.SendToConsumerAsync(new ConsumerMessage<W1Context> { ConsumerName = "test_from_cloud_queue_1", Payload = new W1Context { Data = "Hello from blocks" } });
+            return Ok(sc);
+        }
 
-        var sc = BlocksContext.GetContext();
+        [HttpGet("process_1")]
+        public BlocksContext Process1Request()
+        {
+            _logger.LogInformation("Processing request in S2: process_1");
 
-        return sc;
-    }
+            var sc = BlocksContext.GetContext();
 
-    public record W2Context
-    {
-        public string Data { get; set; }
-    }
+            return sc;
+        }
 
-    public record W1Context
-    {
-        public string Data { get; set; }
+        public record W2Context
+        {
+            public string Data { get; set; }
+        }
+
+        public record W1Context
+        {
+            public string Data { get; set; }
+        }
     }
 }
