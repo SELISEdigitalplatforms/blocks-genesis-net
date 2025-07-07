@@ -54,9 +54,9 @@ namespace Blocks.Genesis
 
             var dbKey = databaseName.ToLower();
 
-            return _databases.GetOrAdd(dbKey, _ =>
+            return _databases.GetOrAdd(dbKey, key =>
             {
-                _logger.LogInformation("Creating database instance for: {DatabaseName}", dbKey);
+                _logger.LogInformation("Creating database instance for: {DatabaseName}", key);
                 return CreateMongoClient(connectionString).GetDatabase(databaseName);
             });
         }
@@ -92,8 +92,8 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to initialize database for tenant: {tenantId}", tenantId);
-                throw;
+                _logger.LogError(ex, "Failed to initialize database for tenant: {TenantId}", tenantId);
+                throw new InvalidOperationException($"Could not initialize database for tenant '{tenantId}'", ex);
             }
         }
 

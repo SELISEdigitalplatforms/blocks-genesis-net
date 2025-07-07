@@ -72,7 +72,6 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to initialize RabbitMQ subscriptions.");
-                throw;
             }
         }
 
