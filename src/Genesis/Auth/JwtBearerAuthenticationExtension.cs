@@ -133,14 +133,25 @@ namespace Blocks.Genesis
         {
             try
             {
+                // Try to load as PKCS12 (with password if provided)
                 return X509CertificateLoader.LoadPkcs12(certificateData, password);
             }
-            catch (Exception e)
+            catch (Exception pkcs12Ex)
             {
-                Console.WriteLine($"Failed to create certificate: {e.Message}");
-                return null!;
+                Console.WriteLine($"PKCS12 certificate loading failed: {pkcs12Ex.Message}. Trying fallback loader...");
+                try
+                {
+                    // Fallback: try to load as a standard certificate
+                    return X509CertificateLoader.LoadCertificate(certificateData);
+                }
+                catch (Exception fallbackEx)
+                {
+                    Console.WriteLine($"Fallback certificate loading failed: {fallbackEx.Message}");
+                    throw new InvalidOperationException("Failed to load X509 certificate from provided data.", fallbackEx);
+                }
             }
         }
+
 
         private static TokenValidationParameters CreateTokenValidationParameters(X509Certificate2 certificate, JwtTokenParameters? validationParams)
         {

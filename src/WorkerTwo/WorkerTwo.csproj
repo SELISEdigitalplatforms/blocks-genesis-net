@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <SonarQubeExclude>true</SonarQubeExclude>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-WorkerTwo-cc101d43-5f33-4ee6-a759-717ad81dfb9f</UserSecretsId>
   </PropertyGroup>
