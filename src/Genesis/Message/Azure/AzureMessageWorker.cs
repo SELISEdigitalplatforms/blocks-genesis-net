@@ -203,7 +203,7 @@ namespace Blocks.Genesis
                     await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
 
                     processingStopwatch.Stop();
-                    _logger.LogInformation($"Completed processing message {messageId} in {processingStopwatch.ElapsedMilliseconds}ms");
+                    _logger.LogInformation("Completed processing message {MessageId} in {ProcessingTime}ms", messageId, processingStopwatch.ElapsedMilliseconds);
 
                     activity?.SetTag("response", "Successfully Completed");
                     activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
