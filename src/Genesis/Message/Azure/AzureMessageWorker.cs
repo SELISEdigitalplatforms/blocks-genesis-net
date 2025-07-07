@@ -54,7 +54,7 @@ namespace Blocks.Genesis
             // Cancel all active message lock renewals
             foreach (var renewalPair in _activeMessageRenewals)
             {
-                renewalPair.Value.Cancel();
+               await renewalPair.Value.CancelAsync();
             }
             _activeMessageRenewals.Clear();
 
@@ -216,7 +216,7 @@ namespace Blocks.Genesis
                 }
                 finally
                 {
-                    cancellationTokenSource.Cancel();
+                    await cancellationTokenSource.CancelAsync();
                     linkedTokenSource.Dispose();
                     _activeMessageRenewals.TryRemove(messageId, out _);
                     await args.CompleteMessageAsync(args.Message);
@@ -227,7 +227,7 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error processing message {MessageId}: {ErrorMessage}", messageId, ex.Message);
-                cancellationTokenSource.Cancel();
+                await cancellationTokenSource.CancelAsync();
                 linkedTokenSource.Dispose();
                 _activeMessageRenewals.TryRemove(messageId, out _);
             }

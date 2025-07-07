@@ -94,7 +94,7 @@ namespace Blocks.Genesis
                 string newVersion = Guid.NewGuid().ToString("n");
 
                 // Set the new version in Redis
-                bool setSuccess = _cacheClient.AddStringValue(_tenantVersionKey, newVersion);
+                bool setSuccess = await _cacheClient.AddStringValueAsync(_tenantVersionKey, newVersion);
                 if (!setSuccess)
                 {
                     _logger.LogWarning("Failed to update tenant version in Redis.");

@@ -160,7 +160,7 @@ namespace Blocks.Genesis
                     requestActivity?.SetTag("error.message", e.Message);
                     requestActivity?.SetTag("error.type", e.GetType().Name);
 
-                    _logger.LogError("Exception during HTTP request: {error}", e);
+                    _logger.LogError(e, "Exception during HTTP request: {Error}", e);
                     return (null, e.Message);
                 }
                 finally
