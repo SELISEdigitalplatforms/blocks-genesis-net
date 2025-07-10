@@ -21,5 +21,8 @@ namespace Blocks.Genesis
         public bool IsRootTenant { get; set; }
         public bool IsCookieEnable { get; set; }
         public bool IsDomainVerified { get; set; }
+        public List<Asset> Assets { get; set; }
+        public List<ApplicationContext> applicationContexts { get; set; }
+        public string TenantGroupId { get; set; }
     }
 }
