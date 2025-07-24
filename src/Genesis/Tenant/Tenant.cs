@@ -23,5 +23,6 @@ namespace Blocks.Genesis
         public bool IsDomainVerified { get; set; }
         public string Environment { get; set; }
         public string TenantGroupId { get; set; }
+        public string CustomDomain { get; set; }
     }
 }

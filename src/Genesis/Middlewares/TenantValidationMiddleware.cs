@@ -86,8 +86,8 @@ namespace Blocks.Genesis
 
         private static bool IsValidOriginOrReferer(HttpContext context, Tenant tenant)
         {
-            var originHeader = context.Request.Headers["Origin"].FirstOrDefault();
-            var refererHeader = context.Request.Headers["Referer"].FirstOrDefault();
+            var originHeader = context.Request.Headers.Origin.FirstOrDefault();
+            var refererHeader = context.Request.Headers.Referer.FirstOrDefault();
 
             return IsDomainAllowed(originHeader, tenant) || IsDomainAllowed(refererHeader, tenant);
         }
@@ -102,7 +102,7 @@ namespace Blocks.Genesis
                 var host = uri.Host;
 
                 var normalizedApplicationDomain = NormalizeDomain(tenant.ApplicationDomain);
-                var allowedDomains = tenant.AllowedDomains?.Select(NormalizeDomain) ?? Enumerable.Empty<string>();
+                var allowedDomains = tenant.AllowedDomains?.Select(NormalizeDomain) ?? [];
 
                 return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
                        host.Equals(normalizedApplicationDomain, StringComparison.OrdinalIgnoreCase) ||
