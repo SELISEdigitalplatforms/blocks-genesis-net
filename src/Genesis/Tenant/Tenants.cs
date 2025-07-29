@@ -17,10 +17,9 @@ namespace Blocks.Genesis
         private string _tenantVersion;
         private bool _isSubscribed = false;
         private bool _disposed = false;
-        private static bool _isInitialized = false;
 
         // Using ConcurrentDictionary for thread-safe access and efficient lookups
-        private readonly ConcurrentDictionary<string, Tenant> _tenantCache = new();
+        private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
 
         public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
         {
@@ -32,13 +31,9 @@ namespace Blocks.Genesis
 
             try
             {
-                if(!_isInitialized)
-                {
-                    InitializeCache();
-                    // Subscribe to tenant updates
-                    SubscribeToTenantUpdates().ConfigureAwait(false);
-                    _isInitialized = true;
-                } 
+                InitializeCache();
+                // Subscribe to tenant updates
+                SubscribeToTenantUpdates().ConfigureAwait(true);
             }
             catch (Exception ex)
             {
@@ -53,6 +48,7 @@ namespace Blocks.Genesis
             // Try to get tenant from the in-memory cache
             if (_tenantCache.TryGetValue(tenantId, out var tenant))
                 return tenant;
+
 
             // If not found in cache, fetch from database and update cache
             tenant = GetTenantFromDb(tenantId);
@@ -168,16 +164,15 @@ namespace Blocks.Genesis
                     .Find(FilterDefinition<Tenant>.Empty)
                     .ToList();
 
-                // Clear the current cache and repopulate
                 _tenantCache.Clear();
 
                 foreach (var tenant in tenants)
                 {
+
                     _tenantCache[tenant.TenantId] = tenant;
 
-                    if(tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
+                    if (tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
                     {
-                        // Only create collections if they are missing
                         LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
                     }
                 }
@@ -189,6 +184,7 @@ namespace Blocks.Genesis
                 _logger.LogError(ex, "Failed to reload tenants into cache.");
             }
         }
+
 
         private Tenant? GetTenantFromDb(string tenantId)
         {
@@ -232,7 +228,7 @@ namespace Blocks.Genesis
         {
             if (string.IsNullOrWhiteSpace(appName)) return null;
 
-            appName = appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase)? appName : $"https://{appName}";
+            appName = appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? appName : $"https://{appName}";
 
             try
             {
