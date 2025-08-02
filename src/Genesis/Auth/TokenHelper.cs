@@ -18,7 +18,8 @@ namespace Blocks.Genesis
 
         public static string GetTokenFromCookie(HttpRequest request)
         {
-            if (!request.Cookies.TryGetValue("access_token", out string token))
+            var bc = BlocksContext.GetContext();
+            if (!request.Cookies.TryGetValue($"access_token_{bc.TenantId}", out string token))
             {
                 return string.Empty;
             }
