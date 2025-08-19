@@ -75,11 +75,24 @@ namespace Blocks.Genesis
                 }
             }
 
+            var requestSize = context.Request.ContentLength ?? 0;
+
+            var originalBodyStream = context.Response.Body;
+            using var responseBody = new MemoryStream();
+            context.Response.Body = responseBody;
+
             await _next(context);
+
+            responseBody.Seek(0, SeekOrigin.Begin);
+            var responseSize = responseBody.Length;
+
+            await responseBody.CopyToAsync(originalBodyStream);
 
             activity.SetTag("response.status.code", context.Response.StatusCode);
             activity.SetTag("response.headers", JsonSerializer.Serialize(context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
-            activity.SetTag("Response.IsCompleted", context.Response.HasStarted ? "Yes" : "No");
+            activity.SetTag("request.size.bytes", requestSize);
+            activity.SetTag("response.size.bytes", responseSize);
+            activity.SetTag("throughput.total.bytes", requestSize + responseSize);
 
             BlocksContext.ClearContext();
         }
