@@ -3,7 +3,6 @@ using MongoDB.Driver;
 using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -42,12 +41,20 @@ namespace Blocks.Genesis
                 { "ParentSpanId", data.ParentSpanId.ToString() },
                 { "ParentId", data.ParentId?.ToString() ?? string.Empty },
                 { "Kind", data.Kind.ToString() },
-                { "ActivitySourceName", data.Source.Name.ToString() },
+                { "ActivitySourceName", data.Source.Name },
                 { "OperationName", data.DisplayName },
                 { "StartTime", data.StartTimeUtc },
                 { "EndTime", endTime },
                 { "Duration", data.Duration.TotalMilliseconds },
-                { "Attributes", new BsonDocument(data.Tags?.ToDictionary(kvp => kvp.Key, kvp => (BsonValue)kvp.Value) ?? new Dictionary<string, BsonValue>()) },
+                {
+                    "Attributes",
+                    new BsonDocument(
+                        data.TagObjects?.ToDictionary(
+                            kvp => kvp.Key,
+                            kvp => BsonValue.Create(kvp.Value)
+                        ) ?? new Dictionary<string, BsonValue>()
+                    )
+                },
                 { "Status", data.Status.ToString() },
                 { "StatusDescription", data.StatusDescription ?? string.Empty },
                 { "Baggage", GetBaggageItems() },
@@ -55,10 +62,8 @@ namespace Blocks.Genesis
                 { "TenantId", tenantId }
             };
 
-            // Add the document to the batch
             _batch.Enqueue(document);
 
-            // If the batch size is reached, trigger batch insert
             if (_batch.Count >= _batchSize)
             {
                 Task.Run(() => FlushBatchAsync());
@@ -82,10 +87,8 @@ namespace Blocks.Genesis
             await _semaphore.WaitAsync();
             try
             {
-                // Dictionary to hold lists of documents per tenant
                 var tenantBatches = new Dictionary<string, List<BsonDocument>>();
 
-                // Group documents by TenantId
                 while (_batch.TryDequeue(out var document))
                 {
                     var tenantId = document["TenantId"].AsString;
@@ -96,14 +99,12 @@ namespace Blocks.Genesis
                     tenantBatches[tenantId].Add(document);
                 }
 
-                // Perform bulk insert for each tenant
                 foreach (var tenantBatch in tenantBatches)
                 {
                     var collection = _database.GetCollection<BsonDocument>(tenantBatch.Key);
 
                     try
                     {
-                        // Bulk insert
                         await collection.InsertManyAsync(tenantBatch.Value);
                     }
                     catch (Exception ex)
@@ -125,14 +126,10 @@ namespace Blocks.Genesis
 
             if (disposing)
             {
-                // Dispose managed resources
                 _timer.Dispose();
                 _semaphore.Dispose();
-                // Flush any remaining batch synchronously
                 FlushBatchAsync().GetAwaiter().GetResult();
             }
-
-            // No unmanaged resources to clean up
 
             _disposed = true;
             base.Dispose();

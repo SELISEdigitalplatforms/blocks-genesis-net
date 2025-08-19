@@ -31,7 +31,7 @@ namespace ApiOne
         }
 
         [HttpGet("process")]
-        public async Task<IActionResult> ProcessRequest([FromQuery] ProcessRequest request)
+        public async Task<object> ProcessRequest([FromQuery] ProcessRequest request)
         {
             var sc = BlocksContext.GetContext();
             Console.WriteLine(sc);
@@ -51,7 +51,7 @@ namespace ApiOne
 
             var grpc = await _grpcClient.ExecuteAsync();
 
-            return Ok(new {http = result, grpc });
+            return new {http = result, grpc };
         }
 
         private async Task CallApi()
