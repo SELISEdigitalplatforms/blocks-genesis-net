@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System.Reflection;
 
@@ -21,42 +22,21 @@ namespace Blocks.Genesis
                     Description = blocksSwaggerOptions.Description
                 };
 
-                if (!string.IsNullOrWhiteSpace(blocksSwaggerOptions.TermsOfServiceUrl))
-                {
-                    openApiInfo.TermsOfService = new Uri(blocksSwaggerOptions.TermsOfServiceUrl);
-                }
-
-                if (blocksSwaggerOptions.Contact != null)
-                {
-                    openApiInfo.Contact = new OpenApiContact
-                    {
-                        Name = blocksSwaggerOptions.Contact.Name,
-                        Email = blocksSwaggerOptions.Contact.Email,
-                        Url = string.IsNullOrWhiteSpace(blocksSwaggerOptions.Contact.Url) ? new Uri("/") : new Uri(blocksSwaggerOptions.Contact.Url)
-                    };
-                }
-
-                if (blocksSwaggerOptions.Contact != null)
-                {
-                    openApiInfo.License = new OpenApiLicense
-                    {
-                        Name = blocksSwaggerOptions.License.Name,
-                        Url = string.IsNullOrWhiteSpace(blocksSwaggerOptions.License.Url) ? new Uri("/") : new Uri(blocksSwaggerOptions.License.Url)
-                    };
-                }
-
                 options.SwaggerDoc(blocksSwaggerOptions.Version, openApiInfo);
 
-                // Enable XML comments for more detailed documentation
-                var xmlFilename = string.IsNullOrWhiteSpace(blocksSwaggerOptions.XmlCommentsFilePath) ? $"{Assembly.GetExecutingAssembly().GetName().Name}.xml" : blocksSwaggerOptions.XmlCommentsFilePath;
+                var xmlFilename = string.IsNullOrWhiteSpace(blocksSwaggerOptions.XmlCommentsFilePath)
+                    ? $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"
+                    : blocksSwaggerOptions.XmlCommentsFilePath;
+
                 options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFilename));
 
-                // Add support for JWT Bearer token authentication
                 EnableAuthorization(options, blocksSwaggerOptions.EnableBearerAuth);
-
-                // Add custom header support for API key
                 AddCustomHeader(options, BlocksConstants.BlocksKey, "API key needed to access the endpoints.");
+
+                if(!string.IsNullOrEmpty(blocksSwaggerOptions.ServiceName))
+                     options.DocumentFilter<AddServiceVersionToPathsFilter>(blocksSwaggerOptions);
             });
+
         }
 
         private static void EnableAuthorization(SwaggerGenOptions options, bool isEnable)
@@ -66,10 +46,10 @@ namespace Blocks.Genesis
             var securityScheme = new OpenApiSecurityScheme
             {
                 Name = "JWT Authentication",
-                Description = "Enter 'Bearer' [space] and then your valid token in the text input below.\n\nExample: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'",
+                Description = "Enter 'Bearer' [space] and then your valid token",
                 In = ParameterLocation.Header,
                 Type = SecuritySchemeType.Http,
-                Scheme = "bearer", // must be lower case
+                Scheme = "bearer",
                 BearerFormat = "JWT",
                 Reference = new OpenApiReference
                 {
@@ -80,17 +60,7 @@ namespace Blocks.Genesis
             options.AddSecurityDefinition(securityScheme.Reference.Id, securityScheme);
             options.AddSecurityRequirement(new OpenApiSecurityRequirement
             {
-                {
-                    new OpenApiSecurityScheme
-                    {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = JwtBearerDefaults.AuthenticationScheme
-                        }
-                    },
-                    Array.Empty<string>()
-                }
+                { securityScheme, Array.Empty<string>() }
             });
         }
 
@@ -111,20 +81,9 @@ namespace Blocks.Genesis
             };
 
             options.AddSecurityDefinition(headerName, securityScheme);
-
             options.AddSecurityRequirement(new OpenApiSecurityRequirement
             {
-                {
-                    new OpenApiSecurityScheme
-                    {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = headerName
-                        }
-                    },
-                    Array.Empty<string>()
-                }
+                { securityScheme, Array.Empty<string>() }
             });
         }
     }
