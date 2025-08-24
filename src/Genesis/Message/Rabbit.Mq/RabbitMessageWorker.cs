@@ -98,6 +98,7 @@ public sealed class RabbitMessageWorker : BackgroundService
         activity?.SetTag("SecurityContext", securityContext);
         activity?.SetTag("messaging.destination.name", ea.RoutingKey);
         activity?.SetTag("messaging.system", "rabbitmq");
+        activity?.SetTag("usage", true);
 
 
         var body = ea.Body.ToArray();

@@ -93,6 +93,7 @@ namespace Blocks.Genesis
             activity.SetTag("request.size.bytes", requestSize);
             activity.SetTag("response.size.bytes", responseSize);
             activity.SetTag("throughput.total.bytes", requestSize + responseSize);
+            activity.SetTag("usage", true);
 
             BlocksContext.ClearContext();
         }
