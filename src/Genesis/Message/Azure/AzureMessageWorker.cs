@@ -192,6 +192,7 @@ namespace Blocks.Genesis
 
                 activity?.SetTag("messaging.system", "azure.servicebus");
                 activity?.SetTag("message.body", body);
+                activity?.SetTag("usage", true);
 
                 try
                 {
