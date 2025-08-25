@@ -182,7 +182,7 @@ namespace Blocks.Genesis
 
                 using var activity = _activitySource.StartActivity("process.messaging.azure.service.bus", ActivityKind.Consumer, parentActivityContext);
                 
-                activity?.SetTag("message", args.Message);
+
                 activity?.SetTag("SecurityContext", securityContextString);
                 activity?.SetTag("messageId", messageId);
 
