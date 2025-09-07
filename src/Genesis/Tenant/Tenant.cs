@@ -8,7 +8,6 @@ namespace Blocks.Genesis
         public string TenantId { get; set; } = Guid.NewGuid().ToString("n").ToUpper();
         public bool IsAcceptBlocksTerms { get; set; }
         public bool IsUseBlocksExclusively { get; set; }
-        public bool IsProduction { get; set; }
         public string? Name { get; set; }
         public string DBName { get; set; } = Guid.NewGuid().ToString("n");
         public required string ApplicationDomain { get; set; }
@@ -19,7 +18,6 @@ namespace Blocks.Genesis
         public string TenantSalt { get; set; } = Guid.NewGuid().ToString("n");
         public required JwtTokenParameters JwtTokenParameters { get; set; }
         public bool IsRootTenant { get; set; }
-        public bool IsCookieEnable { get; set; }
         public bool IsDomainVerified { get; set; }
         public string Environment { get; set; }
         public string TenantGroupId { get; set; }

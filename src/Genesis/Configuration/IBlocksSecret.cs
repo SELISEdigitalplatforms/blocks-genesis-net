@@ -18,6 +18,7 @@
         public string SshUsername { get; set; }
         public string SshPassword { get; set; }
         public string SshNginxTemplate { get; set; }
+        public string ProdDatabaseConnectionString { get; set; }
 
     }
 }
