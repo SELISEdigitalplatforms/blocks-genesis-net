@@ -1,26 +1,33 @@
-﻿using OpenTelemetry;
+﻿using MongoDB.Bson;
+using MongoDB.Driver;
+using OpenTelemetry;
 
 namespace Blocks.Genesis
 {
     public class ChangeControllerContext
     {
         private readonly ITenants _tenants;
+        private readonly IDbContextProvider _dbContextProvider;
 
-        public ChangeControllerContext(ITenants tenants)
+        public ChangeControllerContext(ITenants tenants, IDbContextProvider dbContextProvider)
         {
             _tenants = tenants;
+            _dbContextProvider = dbContextProvider;
         }
 
-        public void ChangeContext(IProjectKey projectKey)
+        public async Task ChangeContext(IProjectKey projectKey)
         {
             var bc = BlocksContext.GetContext();
 
             Baggage.SetBaggage("ActualTenantId", bc.TenantId);
 
             if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
+
+            var tenant = _tenants.GetTenantByID(projectKey.ProjectKey);
+            var sharedProject = await ( await _dbContextProvider.GetCollection<BsonDocument>("ProjectPeoples").FindAsync(Builders<BsonDocument>.Filter.Eq("UserId", bc?.UserId) & Builders<BsonDocument>.Filter.Eq("TenantId", projectKey.ProjectKey))).FirstOrDefaultAsync();
             var isRoot = _tenants.GetTenantByID(bc?.TenantId)?.IsRootTenant ?? false;
 
-            if (isRoot)
+            if (isRoot && (tenant?.CreatedBy == bc.UserId || sharedProject != null))
             {
                 BlocksContext.SetContext(BlocksContext.Create
                  (

@@ -37,7 +37,7 @@ namespace ApiOne
             var sc = BlocksContext.GetContext();
             Console.WriteLine(sc);
 
-            _changeControllerContext.ChangeContext(request);
+            await _changeControllerContext.ChangeContext(request);
             _logger.LogInformation("Processing request in S1");
             // Send event to B1
             await Task.WhenAll(
