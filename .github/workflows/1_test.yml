@@ -4,6 +4,8 @@ jobs:
   build:
     name: Test Execution
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
         with:
@@ -29,7 +31,7 @@ jobs:
           dotnet-version: |
             9.0.x
             8.0.x
-            
+
       - name: Find test projects
         id: find-projects
         run: |
