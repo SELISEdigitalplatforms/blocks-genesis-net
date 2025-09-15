@@ -98,7 +98,7 @@ namespace Blocks.Genesis
 
             return new BlocksContext(
                 tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
-                roles: claimsIdentity.FindAll(ROLES_CLAIM).Select(c => c.Value).ToArray(),
+                roles: claimsIdentity?.FindAll(claimsIdentity.RoleClaimType).Select(r => r.Value).ToArray() ?? Enumerable.Empty<string>(),
                 userId: claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value,
                 isAuthenticated: true,
                 requestUri: claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value,
