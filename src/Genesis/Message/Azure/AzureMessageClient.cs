@@ -81,8 +81,14 @@ namespace Blocks.Genesis
                     ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary())
                 }
             };
-
-            await sender.SendMessageAsync(message);
+            if (consumerMessage.SccheduledEnqueueTimeUtc is not null)
+            {
+                await sender.ScheduleMessageAsync(message, consumerMessage.SccheduledEnqueueTimeUtc.Value);
+            }
+            else
+            {
+                await sender.SendMessageAsync(message);
+            }
         }
 
         private static Dictionary<string, string> GetBaggageDictionary()
