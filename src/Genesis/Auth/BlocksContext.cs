@@ -96,8 +96,9 @@ namespace Blocks.Genesis
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
             var xBlocksKey = httpContext.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
+
             return new BlocksContext(
-                tenantId: apiKey,//claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
+                tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? apiKey,
                 roles: claimsIdentity?.FindAll(claimsIdentity.RoleClaimType).Select(r => r.Value).ToArray() ?? Enumerable.Empty<string>(),
                 userId: claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value,
                 isAuthenticated: true,
