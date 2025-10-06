@@ -15,7 +15,7 @@ namespace Blocks.Genesis
             _dbContextProvider = dbContextProvider;
         }
 
-        public async Task ChangeContext(IProjectKey projectKey)
+        public void ChangeContext(IProjectKey projectKey)
         {
             var bc = BlocksContext.GetContext();
 
@@ -24,7 +24,7 @@ namespace Blocks.Genesis
             if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
 
             var tenant = _tenants.GetTenantByID(projectKey.ProjectKey);
-            var sharedProject = await ( await _dbContextProvider.GetCollection<BsonDocument>("ProjectPeoples").FindAsync(Builders<BsonDocument>.Filter.Eq("UserId", bc?.UserId) & Builders<BsonDocument>.Filter.Eq("TenantId", projectKey.ProjectKey))).FirstOrDefaultAsync();
+            var sharedProject = _dbContextProvider.GetCollection<BsonDocument>("ProjectPeoples").Find(Builders<BsonDocument>.Filter.Eq("UserId", bc?.UserId) & Builders<BsonDocument>.Filter.Eq("TenantId", projectKey.ProjectKey)).FirstOrDefault();
             var isRoot = _tenants.GetTenantByID(bc?.TenantId)?.IsRootTenant ?? false;
 
             if (isRoot && (tenant?.CreatedBy == bc.UserId || sharedProject != null))
