@@ -92,12 +92,12 @@ namespace Blocks.Genesis
         /// <summary>
         /// Creates BlocksContext from ClaimsIdentity
         /// </summary>
-        public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
+        public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity, HttpContext? httpContext)
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
-
+            var xBlocksKey = httpContext.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
             return new BlocksContext(
-                tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
+                tenantId: apiKey,//claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
                 roles: claimsIdentity?.FindAll(claimsIdentity.RoleClaimType).Select(r => r.Value).ToArray() ?? Enumerable.Empty<string>(),
                 userId: claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value,
                 isAuthenticated: true,
@@ -155,7 +155,7 @@ namespace Blocks.Genesis
                 var httpContext = GetHttpContext();
                 if (httpContext?.User?.Identity is ClaimsIdentity identity && identity.IsAuthenticated)
                 {
-                    return CreateFromClaimsIdentity(identity);
+                    return CreateFromClaimsIdentity(identity, httpContext);
                 }
 
                 return _asyncLocalContext.Value;

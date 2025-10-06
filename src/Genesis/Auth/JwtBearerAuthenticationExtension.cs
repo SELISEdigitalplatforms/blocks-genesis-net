@@ -53,7 +53,7 @@ namespace Blocks.Genesis
                             var token = TokenHelper.GetToken(context.Request);
                             var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
                             HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
-                            StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
+                            StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity, context.HttpContext));
                             return Task.CompletedTask;
                         },
                         OnAuthenticationFailed = context =>
@@ -161,10 +161,10 @@ namespace Blocks.Genesis
                 ClockSkew = TimeSpan.Zero,
                 IssuerSigningKey = new X509SecurityKey(certificate),
                 ValidateIssuerSigningKey = true,
-                ValidateIssuer = true,
+                ValidateIssuer = !string.IsNullOrWhiteSpace(validationParams?.Issuer),
                 ValidIssuer = validationParams?.Issuer,
                 ValidAudiences = validationParams?.Audiences,
-                ValidateAudience = true,
+                ValidateAudience = validationParams?.Audiences?.Count > 0,
                 SaveSigninToken = true
             };
         }
