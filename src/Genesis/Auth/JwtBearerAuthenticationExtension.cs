@@ -6,7 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry;
 using StackExchange.Redis;
 using System.Diagnostics;
-using System.Dynamic;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
@@ -29,8 +29,15 @@ namespace Blocks.Genesis
                     {
                         OnMessageReceived = async context =>
                         {
-                            context.Token = TokenHelper.GetToken(context.Request);
+                            var result = TokenHelper.GetToken(context.Request, tenants);
 
+                            if (result.IsThirdPartyToken)
+                            {
+                                await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options), tenants);
+                                return;
+                            }
+                                
+                            context.Token = result.Token;
                             var bc = BlocksContext.GetContext();
                             var certificate = await GetCertificateAsync(bc.TenantId, tenants, cacheDb);
                             if (certificate == null)
@@ -50,16 +57,27 @@ namespace Blocks.Genesis
                         },
                         OnTokenValidated = context =>
                         {
-                            var token = TokenHelper.GetToken(context.Request);
+                            var result = TokenHelper.GetToken(context.Request, tenants);
                             var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
-                            HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
-                            StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity, context.HttpContext));
+                            HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), result.Token);
+                            StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
                             return Task.CompletedTask;
                         },
-                        OnAuthenticationFailed = context =>
+                        OnAuthenticationFailed = async context =>
                         {
-                            Console.WriteLine("Authentication failed: " + context.Exception.Message);
-                            return Task.CompletedTask;
+                            var ex = context.Exception;
+
+                            // Skip fallback for token expiration
+                            if (ex is SecurityTokenExpiredException)
+                            {
+                                Console.WriteLine("Token expired. Fallback skipped.");
+                                return ;
+                            }
+
+                            // Attempt fallback validation
+                            var success = await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),tenants, ex);
+
+                            return ;
                         },
                         OnForbidden = context =>
                         {
@@ -77,6 +95,91 @@ namespace Blocks.Genesis
             services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
             services.AddScoped<IAuthorizationHandler, SecretAuthorizationHandler>();
         }
+
+        public static async Task<bool> TryFallbackAsync(TokenValidatedContext context, ITenants tenants, Exception? ex = null)
+        {
+            if(ex != null)
+                Console.WriteLine($"[Fallback] Triggered due to: {ex?.GetType().Name} - {ex?.Message}");
+
+            try
+            {
+                var bc = BlocksContext.GetContext();
+
+                // 🔁 1. Attempt to fetch the fallback certificate
+                var tenant = tenants.GetTenantByID(bc.TenantId);
+                var fallbackCert = await GetClientCertificateAsync(tenant, bc.TenantId);
+                if (fallbackCert == null)
+                {
+                    Console.WriteLine("[Fallback] No fallback certificate found.");
+                    return false;
+                }
+
+                // 🔐 2. Retrieve tenant-specific token validation parameters
+                var validationParams = tenant.ThirdPartyJwtTokenParameters;
+                if (validationParams == null)
+                {
+                    Console.WriteLine("[Fallback] No validation parameters found.");
+                    return false;
+                }
+
+                // 🧩 3. Create fallback validation parameters using the backup cert
+                var fallbackValidationParams = CreateTokenValidationParameters(fallbackCert, new JwtTokenParameters
+                {
+                    Issuer = validationParams.Issuer,
+                    Audiences = validationParams.Audiences,
+                    PrivateCertificatePassword = "",
+                    IssueDate = DateTime.UtcNow,
+                });
+
+                // 🔄 4. Extract token again (it’s the same one that failed earlier)
+                var result = TokenHelper.GetToken(context.Request, tenants);
+                if (string.IsNullOrWhiteSpace(result.Token))
+                {
+                    Console.WriteLine("[Fallback] No token present in request.");
+                    return false;
+                }
+
+                // 🧠 5. Validate the token manually
+                var handler = new JwtSecurityTokenHandler();
+                ClaimsPrincipal? validatedPrincipal = null;
+
+                try
+                {
+                    validatedPrincipal = handler.ValidateToken(result.Token, fallbackValidationParams, out var validatedToken);
+                    var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
+                    HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), result.Token);
+                    StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
+                }
+                catch (Exception fallbackEx)
+                {
+                    Console.WriteLine($"[Fallback] Validation failed: {fallbackEx.Message}");
+                    return false;
+                }
+
+                // ✅ 6. Set new principal and mark authentication as successful
+                context.Principal = validatedPrincipal;
+                context.Success();
+
+                Console.WriteLine("[Fallback] Token successfully validated using fallback certificate.");
+                return true;
+            }
+            catch (Exception finalEx)
+            {
+                Console.WriteLine($"[Fallback] Unhandled error: {finalEx}");
+                return false;
+            }
+        }
+
+        private static async Task<X509Certificate2?> GetClientCertificateAsync(Tenant tenant, string tenantId)
+        {
+
+            byte[]? certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath);
+            if (certificateData == null) return null;
+
+            return CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters.PublicCertificatePassword);
+        }
+
+
 
         private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
         {
@@ -177,6 +280,35 @@ namespace Blocks.Genesis
 
             var contextWithOutToken = GetContextWithOutToken(blocksContext);
             activity?.SetTag("SecurityContext", JsonSerializer.Serialize(contextWithOutToken));
+        }
+
+        private static void StoreThirdPartyBlocksContextActivity(ClaimsIdentity claimsIdentity, TokenValidatedContext context)
+        {
+            var projectKey = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
+
+            //TODO:
+            //Get Token Mapper from Db and adjust the context
+
+            BlocksContext.SetContext(BlocksContext.Create
+                (
+                   tenantId: apiKey,
+                   roles:  Enumerable.Empty<string>(),
+                   userId: string.Empty,
+                   isAuthenticated: claimsIdentity.IsAuthenticated,
+                   requestUri: context.Request.Host.ToString(),
+                   organizationId: string.Empty,
+                   expireOn: DateTime.TryParse(claimsIdentity.FindFirst("exp")?.Value, out var exp) ? exp : DateTime.MinValue,
+                   email: claimsIdentity.FindFirst("email")?.ToString() ?? "",
+                   permissions: Enumerable.Empty<string>(),
+                   userName: claimsIdentity.FindFirst("email")?.ToString() ?? "",
+                   phoneNumber: string.Empty,
+                   displayName: string.Empty,
+                   oauthToken: claimsIdentity.FindFirst("oauth")?.Value,
+                   actualTentId: apiKey
+               ));
+
+
+            var activity = Activity.Current;
         }
 
         private static BlocksContext GetContextWithOutToken(BlocksContext blocksContext)

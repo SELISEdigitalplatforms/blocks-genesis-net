@@ -6,25 +6,29 @@ namespace Blocks.Genesis
 {
     public static class TokenHelper
     {
-        public static string GetToken(HttpRequest request)
+        public static (string Token, bool IsThirdPartyToken) GetToken(HttpRequest request, ITenants tenants)
         {
             if (request.Headers.TryGetValue(BlocksConstants.AuthorizationHeaderName, out StringValues token) && !StringValues.IsNullOrEmpty(token) && token.ToString().StartsWith(BlocksConstants.Bearer, StringComparison.OrdinalIgnoreCase))
             {
-                return token.ToString().Substring(BlocksConstants.Bearer.Length).Trim();
+                return (token.ToString().Substring(BlocksConstants.Bearer.Length).Trim(), false);
             }
 
-            return GetTokenFromCookie(request);
+            return GetTokenFromCookie(request, tenants);
         }
 
-        public static string GetTokenFromCookie(HttpRequest request)
+        public static (string Token, bool IsThirdPartyToken) GetTokenFromCookie(HttpRequest request, ITenants tenants)
         {
             var bc = BlocksContext.GetContext();
-            if (!request.Cookies.TryGetValue($"access_token_{bc.TenantId}", out string token))
-            {
-                return string.Empty;
-            }
 
-            return token;
+            var blocksToken = request.Cookies.TryGetValue($"access_token_{bc.TenantId}", out string token);
+
+            if (blocksToken)
+                return (token, false);
+
+           var tenant = tenants.GetTenantByID(bc.TenantId);
+           request.Cookies.TryGetValue($"{tenant.ThirdPartyJwtTokenParameters.CookieKey}", out string clientToken);
+           
+           return (clientToken, true);
         }
 
         public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri)
