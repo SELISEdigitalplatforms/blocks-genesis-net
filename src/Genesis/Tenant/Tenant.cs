@@ -17,6 +17,7 @@ namespace Blocks.Genesis
         public required string DbConnectionString { get; set; }
         public string TenantSalt { get; set; } = Guid.NewGuid().ToString("n");
         public required JwtTokenParameters JwtTokenParameters { get; set; }
+        public ClientJwtTokenParameters ThirdPartyJwtTokenParameters { get; set; }
         public bool IsRootTenant { get; set; }
         public bool IsDomainVerified { get; set; }
         public string Environment { get; set; }
