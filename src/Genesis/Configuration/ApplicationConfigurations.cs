@@ -28,9 +28,18 @@ namespace Blocks.Genesis
             _blocksSecret = await BlocksSecret.ProcessBlocksSecret(vaultType);
             _blocksSecret.ServiceName = _serviceName;
 
-            LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
-            LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, _serviceName);
-            LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, _serviceName);
+            if(!string.IsNullOrWhiteSpace(_blocksSecret.TraceConnectionString))
+            {
+                LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
+            }
+            if (!string.IsNullOrWhiteSpace(_blocksSecret.LogConnectionString))
+            {
+                LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, BlocksConstants.Miscellaneous);
+            }
+            if (!string.IsNullOrWhiteSpace(_blocksSecret.MetricConnectionString))
+            {
+                LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, BlocksConstants.Miscellaneous);
+            }
 
             Log.Logger = new LoggerConfiguration()
                 .Enrich.FromLogContext()
@@ -108,7 +117,7 @@ namespace Blocks.Genesis
                 });
 
 
-            // For now we comment it, after July we will enable this
+            // For now we comment it
             //services.AddOpenTelemetry().WithMetrics(metricsBuilder =>
             //{
             //    metricsBuilder
