@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using MongoDB.Bson;
+using MongoDB.Driver;
 using OpenTelemetry;
 using StackExchange.Redis;
 using System.Diagnostics;
@@ -20,109 +22,127 @@ namespace Blocks.Genesis
             var serviceProvider = services.BuildServiceProvider();
             var tenants = serviceProvider.GetRequiredService<ITenants>();
             var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
+
             BlocksHttpContextAccessor.Init(serviceProvider);
 
+            ConfigureAuthentication(services, tenants, cacheDb);
+            ConfigureAuthorization(services);
+        }
+
+        private static void ConfigureAuthentication(IServiceCollection services, ITenants tenants, IDatabase cacheDb)
+        {
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
+                    string accessToken = "";
+
                     options.Events = new JwtBearerEvents
                     {
                         OnMessageReceived = async context =>
                         {
-                            var result = TokenHelper.GetToken(context.Request, tenants);
+                            var tokenResult = TokenHelper.GetToken(context.Request, tenants);
+                            accessToken = tokenResult.Token;
 
-                            if (result.IsThirdPartyToken)
+                            if (tokenResult.IsThirdPartyToken)
                             {
-                                await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options), tenants);
-                                return;
-                            }
-                                
-                            context.Token = result.Token;
-                            var bc = BlocksContext.GetContext();
-                            var certificate = await GetCertificateAsync(bc.TenantId, tenants, cacheDb);
-                            if (certificate == null)
-                            {
-                                context.Fail("Certificate not found");
+                                await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+                                                       tenants,
+                                                       accessToken);
                                 return;
                             }
 
-                            var validationParams = tenants.GetTenantTokenValidationParameter(bc.TenantId);
-                            if (validationParams == null)
-                            {
-                                context.Fail("Validation parameters not found");
-                                return;
-                            }
-
-                            context.Options.TokenValidationParameters = CreateTokenValidationParameters(certificate, validationParams);
+                            context.Token = tokenResult.Token;
+                            await ConfigureTokenValidationAsync(context, tenants, cacheDb);
                         },
+
                         OnTokenValidated = context =>
                         {
                             var result = TokenHelper.GetToken(context.Request, tenants);
-                            var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
-                            HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), result.Token);
-                            StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
+                            if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
+                            {
+                                HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), result.Token);
+                                StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
+                            }
                             return Task.CompletedTask;
                         },
+
                         OnAuthenticationFailed = async context =>
                         {
                             var ex = context.Exception;
 
-                            // Skip fallback for token expiration
                             if (ex is SecurityTokenExpiredException)
                             {
-                                Console.WriteLine("Token expired. Fallback skipped.");
-                                return ;
+                                Console.WriteLine("⚠ Token expired — fallback skipped.");
+                                return;
                             }
 
-                            // Attempt fallback validation
-                            var success = await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),tenants, ex);
-
-                            return ;
+                            await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),tenants, accessToken, ex);
                         },
+
                         OnForbidden = context =>
                         {
-                            Console.WriteLine("Authorization failed: Forbidden");
+                            Console.WriteLine("🚫 Authorization failed: Forbidden");
                             return Task.CompletedTask;
                         }
                     };
                 });
+        }
 
+        private static async Task ConfigureTokenValidationAsync(MessageReceivedContext context, ITenants tenants, IDatabase cacheDb)
+        {
+            var bc = BlocksContext.GetContext();
+
+            var certificate = await GetCertificateAsync(bc.TenantId, tenants, cacheDb);
+            if (certificate == null)
+            {
+                context.Fail("❌ Certificate not found");
+                return;
+            }
+
+            var validationParams = tenants.GetTenantTokenValidationParameter(bc.TenantId);
+            if (validationParams == null)
+            {
+                context.Fail("❌ Validation parameters not found");
+                return;
+            }
+
+            context.Options.TokenValidationParameters = CreateTokenValidationParameters(certificate, validationParams);
+        }
+
+        private static void ConfigureAuthorization(IServiceCollection services)
+        {
             services.AddAuthorizationBuilder()
-                    .AddPolicy("Protected", policy => policy.Requirements.Add(new ProtectedEndpointAccessRequirement()));
-            services.AddAuthorizationBuilder()
-                   .AddPolicy("Secret", policy => policy.Requirements.Add(new SecretEndPointRequirement()));
+                .AddPolicy("Protected", policy => policy.Requirements.Add(new ProtectedEndpointAccessRequirement()))
+                .AddPolicy("Secret", policy => policy.Requirements.Add(new SecretEndPointRequirement()));
 
             services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
             services.AddScoped<IAuthorizationHandler, SecretAuthorizationHandler>();
         }
 
-        public static async Task<bool> TryFallbackAsync(TokenValidatedContext context, ITenants tenants, Exception? ex = null)
+        public static async Task<bool> TryFallbackAsync(TokenValidatedContext context, ITenants tenants, string token, Exception? ex = null)
         {
-            if(ex != null)
-                Console.WriteLine($"[Fallback] Triggered due to: {ex?.GetType().Name} - {ex?.Message}");
+            if (ex != null)
+                Console.WriteLine($"[Fallback] Triggered due to: {ex.GetType().Name} - {ex.Message}");
 
             try
             {
                 var bc = BlocksContext.GetContext();
-
-                // 🔁 1. Attempt to fetch the fallback certificate
                 var tenant = tenants.GetTenantByID(bc.TenantId);
-                var fallbackCert = await GetClientCertificateAsync(tenant, bc.TenantId);
+
+                var fallbackCert = await GetThirdPartyCertificateAsync(tenant, bc.TenantId);
                 if (fallbackCert == null)
                 {
-                    Console.WriteLine("[Fallback] No fallback certificate found.");
+                    Console.WriteLine("[Fallback] ❌ No fallback certificate found.");
                     return false;
                 }
 
-                // 🔐 2. Retrieve tenant-specific token validation parameters
                 var validationParams = tenant.ThirdPartyJwtTokenParameters;
                 if (validationParams == null)
                 {
-                    Console.WriteLine("[Fallback] No validation parameters found.");
+                    Console.WriteLine("[Fallback] ❌ No validation parameters found.");
                     return false;
                 }
 
-                // 🧩 3. Create fallback validation parameters using the backup cert
                 var fallbackValidationParams = CreateTokenValidationParameters(fallbackCert, new JwtTokenParameters
                 {
                     Issuer = validationParams.Issuer,
@@ -131,91 +151,91 @@ namespace Blocks.Genesis
                     IssueDate = DateTime.UtcNow,
                 });
 
-                // 🔄 4. Extract token again (it’s the same one that failed earlier)
-                var result = TokenHelper.GetToken(context.Request, tenants);
-                if (string.IsNullOrWhiteSpace(result.Token))
+                if (string.IsNullOrWhiteSpace(token))
                 {
-                    Console.WriteLine("[Fallback] No token present in request.");
+                    Console.WriteLine("[Fallback] ❌ No token found in request.");
                     return false;
                 }
 
-                // 🧠 5. Validate the token manually
-                var handler = new JwtSecurityTokenHandler();
-                ClaimsPrincipal? validatedPrincipal = null;
-
-                try
-                {
-                    validatedPrincipal = handler.ValidateToken(result.Token, fallbackValidationParams, out var validatedToken);
-                    var claimsIdentity = context.Principal.Identity as ClaimsIdentity;
-                    HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), result.Token);
-                    StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
-                }
-                catch (Exception fallbackEx)
-                {
-                    Console.WriteLine($"[Fallback] Validation failed: {fallbackEx.Message}");
-                    return false;
-                }
-
-                // ✅ 6. Set new principal and mark authentication as successful
-                context.Principal = validatedPrincipal;
-                context.Success();
-
-                Console.WriteLine("[Fallback] Token successfully validated using fallback certificate.");
-                return true;
+                return await ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
             }
             catch (Exception finalEx)
             {
-                Console.WriteLine($"[Fallback] Unhandled error: {finalEx}");
+                Console.WriteLine($"[Fallback] 💥 Unhandled error: {finalEx}");
                 return false;
             }
         }
 
-        private static async Task<X509Certificate2?> GetClientCertificateAsync(Tenant tenant, string tenantId)
+        private static async Task<bool> ValidateTokenWithFallbackAsync(string token, TokenValidationParameters validationParams, TokenValidatedContext context)
         {
+            try
+            {
+                var handler = new JwtSecurityTokenHandler();
+                var validatedPrincipal = handler.ValidateToken(token, validationParams, out _);
 
-            byte[]? certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath);
-            if (certificateData == null) return null;
+                if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
+                {
+                    HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
+                    await StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
+                }
 
-            return CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters.PublicCertificatePassword);
+                context.Principal = validatedPrincipal;
+                context.Success();
+
+                Console.WriteLine("[Fallback] ✅ Token validated via fallback certificate.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Fallback] ❌ Validation failed: {ex.Message}");
+                return false;
+            }
         }
 
-
+        private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, string tenantId)
+        {
+            var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath);
+            return certificateData == null
+                ? null
+                : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters.PublicCertificatePassword);
+        }
 
         private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
         {
             string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
+
             var cachedCertificate = await cacheDb.StringGetAsync(cacheKey);
             var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
 
             if (cachedCertificate.HasValue)
-            {
                 return CreateCertificate(cachedCertificate, validationParams?.PublicCertificatePassword);
-            }
 
             if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
                 return null;
 
-            byte[]? certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath);
-            if (certificateData == null) return null;
+            var certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath);
+            if (certificateData == null)
+                return null;
 
             await CacheCertificateAsync(cacheDb, cacheKey, certificateData, validationParams);
             return CreateCertificate(certificateData, validationParams.PublicCertificatePassword);
         }
 
-        private static async Task<byte[]?> LoadCertificateDataAsync(string certificatePath)
+        private static async Task<byte[]?> LoadCertificateDataAsync(string path)
         {
             try
             {
-                if (Uri.IsWellFormedUriString(certificatePath, UriKind.Absolute))
+                if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
                 {
                     using var httpClient = new HttpClient();
-                    return await httpClient.GetByteArrayAsync(certificatePath);
+                    return await httpClient.GetByteArrayAsync(path);
                 }
-                return File.Exists(certificatePath) ? await File.ReadAllBytesAsync(certificatePath) : null;
+
+                return File.Exists(path) ? await File.ReadAllBytesAsync(path) : null;
             }
             catch (Exception e)
             {
-                Console.WriteLine($"Failed to load certificate: {e.Message}");
+                Console.WriteLine($"[Cert] ❌ Failed to load certificate: {e.Message}");
                 return null;
             }
         }
@@ -225,38 +245,28 @@ namespace Blocks.Genesis
             if (validationParams?.IssueDate == null || validationParams.CertificateValidForNumberOfDays <= 0)
                 return;
 
-            int daysRemaining = validationParams.CertificateValidForNumberOfDays - (DateTime.UtcNow - validationParams.IssueDate).Days - 1;
+            int daysRemaining = validationParams.CertificateValidForNumberOfDays -
+                                (DateTime.UtcNow - validationParams.IssueDate).Days - 1;
+
             if (daysRemaining > 0)
-            {
                 await cacheDb.StringSetAsync(cacheKey, certificateData, TimeSpan.FromDays(daysRemaining));
-            }
         }
 
-        private static X509Certificate2 CreateCertificate(byte[] certificateData, string? password)
+        private static X509Certificate2 CreateCertificate(byte[] data, string? password)
         {
             try
             {
-                // Try to load as PKCS12 (with password if provided)
-                return X509CertificateLoader.LoadPkcs12(certificateData, password);
+                return X509CertificateLoader.LoadPkcs12(data, password);
             }
-            catch (Exception pkcs12Ex)
+            catch
             {
-                Console.WriteLine($"PKCS12 certificate loading failed: {pkcs12Ex.Message}. Trying fallback loader...");
-                try
-                {
-                    // Fallback: try to load as a standard certificate
-                    return X509CertificateLoader.LoadCertificate(certificateData);
-                }
-                catch (Exception fallbackEx)
-                {
-                    Console.WriteLine($"Fallback certificate loading failed: {fallbackEx.Message}");
-                    throw new InvalidOperationException("Failed to load X509 certificate from provided data.", fallbackEx);
-                }
+                return X509CertificateLoader.LoadCertificate(data);
             }
         }
 
-
-        private static TokenValidationParameters CreateTokenValidationParameters(X509Certificate2 certificate, JwtTokenParameters? validationParams)
+        private static TokenValidationParameters CreateTokenValidationParameters(
+            X509Certificate2 certificate,
+            JwtTokenParameters? parameters)
         {
             return new TokenValidationParameters
             {
@@ -264,82 +274,104 @@ namespace Blocks.Genesis
                 ClockSkew = TimeSpan.Zero,
                 IssuerSigningKey = new X509SecurityKey(certificate),
                 ValidateIssuerSigningKey = true,
-                ValidateIssuer = !string.IsNullOrWhiteSpace(validationParams?.Issuer),
-                ValidIssuer = validationParams?.Issuer,
-                ValidAudiences = validationParams?.Audiences,
-                ValidateAudience = validationParams?.Audiences?.Count > 0,
+                ValidateIssuer = !string.IsNullOrWhiteSpace(parameters?.Issuer),
+                ValidIssuer = parameters?.Issuer,
+                ValidAudiences = parameters?.Audiences,
+                ValidateAudience = parameters?.Audiences?.Count > 0,
                 SaveSigninToken = true
             };
         }
 
-        private static void StoreBlocksContextInActivity(BlocksContext blocksContext)
+        private static void StoreBlocksContextInActivity(BlocksContext context)
         {
-            Baggage.SetBaggage("UserId", blocksContext.UserId);
+            Baggage.SetBaggage("UserId", context.UserId);
             Baggage.SetBaggage("IsAuthenticate", "true");
-            var activity = Activity.Current;
-
-            var contextWithOutToken = GetContextWithOutToken(blocksContext);
-            activity?.SetTag("SecurityContext", JsonSerializer.Serialize(contextWithOutToken));
-        }
-
-        private static void StoreThirdPartyBlocksContextActivity(ClaimsIdentity claimsIdentity, TokenValidatedContext context)
-        {
-            var projectKey = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
-
-            //TODO:
-            //Get Token Mapper from Db and adjust the context
-
-            BlocksContext.SetContext(BlocksContext.Create
-                (
-                   tenantId: apiKey,
-                   roles:  Enumerable.Empty<string>(),
-                   userId: string.Empty,
-                   isAuthenticated: claimsIdentity.IsAuthenticated,
-                   requestUri: context.Request.Host.ToString(),
-                   organizationId: string.Empty,
-                   expireOn: DateTime.TryParse(claimsIdentity.FindFirst("exp")?.Value, out var exp) ? exp : DateTime.MinValue,
-                   email: claimsIdentity.FindFirst("email")?.ToString() ?? "",
-                   permissions: Enumerable.Empty<string>(),
-                   userName: claimsIdentity.FindFirst("email")?.ToString() ?? "",
-                   phoneNumber: string.Empty,
-                   displayName: string.Empty,
-                   oauthToken: claimsIdentity.FindFirst("oauth")?.Value,
-                   actualTentId: apiKey
-               ));
-
 
             var activity = Activity.Current;
+            var sanitized = GetContextWithoutToken(context);
+
+            activity?.SetTag("SecurityContext", JsonSerializer.Serialize(sanitized));
         }
 
-        private static BlocksContext GetContextWithOutToken(BlocksContext blocksContext)
+        private static BlocksContext GetContextWithoutToken(BlocksContext context)
         {
-            return BlocksContext.Create(tenantId: blocksContext.TenantId,
-                                        roles: blocksContext?.Roles ?? [],
-                                        userId: blocksContext?.UserId ?? string.Empty,
-                                        isAuthenticated: blocksContext?.IsAuthenticated ?? false,
-                                        requestUri: blocksContext?.RequestUri ?? string.Empty,
-                                        organizationId: blocksContext?.OrganizationId ?? string.Empty,
-                                        expireOn: blocksContext?.ExpireOn ?? DateTime.UtcNow.AddHours(1),
-                                        email: blocksContext?.Email ?? string.Empty,
-                                        permissions: blocksContext?.Permissions ?? [],
-                                        userName: blocksContext?.UserName ?? string.Empty,
-                                        phoneNumber: blocksContext?.PhoneNumber ?? string.Empty,
-                                        displayName: blocksContext?.DisplayName ?? string.Empty,
-                                        oauthToken: string.Empty,
-                                        actualTentId: blocksContext?.TenantId);
+            return BlocksContext.Create(
+                tenantId: context.TenantId,
+                roles: context.Roles ?? [],
+                userId: context.UserId ?? string.Empty,
+                isAuthenticated: context.IsAuthenticated,
+                requestUri: context.RequestUri ?? string.Empty,
+                organizationId: context.OrganizationId ?? string.Empty,
+                expireOn: context.ExpireOn,
+                email: context.Email ?? string.Empty,
+                permissions: context.Permissions ?? [],
+                userName: context.UserName ?? string.Empty,
+                phoneNumber: context.PhoneNumber ?? string.Empty,
+                displayName: context.DisplayName ?? string.Empty,
+                oauthToken: string.Empty,
+                actualTentId: context.TenantId);
         }
 
-
-        private static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri, string jwtBearerToken)
+        private static void HandleTokenIssuer(ClaimsIdentity identity, string requestUri, string token)
         {
-            var requestClaims = new Claim[]
+            identity.AddClaims(new[]
             {
-                new (BlocksContext.REQUEST_URI_CLAIM, requestUri),
-                new (BlocksContext.TOKEN_CLAIM, jwtBearerToken)
-            };
-
-            claimsIdentity.AddClaims(requestClaims);
+                new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri),
+                new Claim(BlocksContext.TOKEN_CLAIM, token)
+            });
         }
 
+        private static async Task StoreThirdPartyBlocksContextActivity(
+            ClaimsIdentity identity,
+            TokenValidatedContext context)
+        {
+            _ = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
+
+            // TODO: Replace with actual token mapping logic
+            BlocksContext.SetContext(BlocksContext.Create(
+                tenantId: apiKey,
+                roles: [],
+                userId: string.Empty,
+                isAuthenticated: identity.IsAuthenticated,
+                requestUri: context.Request.Host.ToString(),
+                organizationId: string.Empty,
+                expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, out var exp)
+                    ? exp : DateTime.MinValue,
+                email: identity.FindFirst("email")?.Value ?? string.Empty,
+                permissions: [],
+                userName: identity.FindFirst("email")?.Value ?? string.Empty,
+                phoneNumber: string.Empty,
+                displayName: string.Empty,
+                oauthToken: identity.FindFirst("oauth")?.Value,
+                actualTentId: apiKey));
+
+            await EnsureThirdPartyUserExistsAsync(context);
+        }
+
+        private static async Task EnsureThirdPartyUserExistsAsync(TokenValidatedContext context)
+        {
+            var bc = BlocksContext.GetContext();
+            var dbProvider = context.HttpContext.RequestServices.GetRequiredService<IDbContextProvider>();
+            var userCollection = dbProvider.GetCollection<BsonDocument>("Users");
+            var user = await (await userCollection.FindAsync(Builders<BsonDocument>.Filter.Eq("UserName", bc.UserName))).FirstOrDefaultAsync();
+
+            if (user == null)
+            {
+                var messageClient = context.HttpContext.RequestServices.GetRequiredService<IMessageClient>();
+                await messageClient.SendToConsumerAsync(new ConsumerMessage<ThirdPartyTokenUserCreationRequest>
+                {
+                    ConsumerName = "blocks_iam_listener",
+                    Payload = new ThirdPartyTokenUserCreationRequest
+                    {
+                        UserId = bc.UserId ?? Guid.NewGuid().ToString(),
+                        ProjectKey = bc.TenantId,
+                        Email = bc.Email,
+                        Permissions = bc.Permissions.ToList(),
+                        Roles = bc.Roles.ToList(),
+                        PhoneNumber = bc.PhoneNumber
+                    }
+                });
+            }
+        }
     }
 }
