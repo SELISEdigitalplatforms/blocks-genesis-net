@@ -183,9 +183,15 @@ namespace Blocks.Genesis
                     {
                         Type = "traces",
                         Data = tenantBatches,
-                        Secret = _azureFunctionApiSecret
+                        ServiceName = _serviceName
                     });
                     var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                    if (!string.IsNullOrWhiteSpace(_azureFunctionApiSecret))
+                    {
+                        _httpClient.DefaultRequestHeaders.Clear();
+                        _httpClient.DefaultRequestHeaders.Add("x-functions-key", _azureFunctionApiSecret);
+                    }
 
                     var response = await _httpClient.PostAsync(_azureFunctionEndpoint, content);
 

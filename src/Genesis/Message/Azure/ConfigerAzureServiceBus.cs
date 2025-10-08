@@ -110,22 +110,22 @@ namespace Blocks.Genesis
             return await _adminClient.TopicExistsAsync(topicName);
         }
 
-        static async Task CreateTopicSubscriptionAsync(string topicName)
+        static async Task CreateTopicSubscriptionAsync(string topicName, string? subscriptionName)
         {
             try
             {
-
-                var isExist = await CheckSubscriptionExistsAsync(topicName, _messageConfiguration.GetSubscriptionName(topicName));
+                subscriptionName = string.IsNullOrWhiteSpace(subscriptionName) ? _messageConfiguration.GetSubscriptionName(topicName) : subscriptionName;
+                var isExist = await CheckSubscriptionExistsAsync(topicName, subscriptionName);
                 if (isExist) return;
 
-                var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, _messageConfiguration.GetSubscriptionName(topicName))
+                var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, subscriptionName)
                 {
                     MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 2,
                     DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
                     LockDuration = TimeSpan.FromMinutes(5)
                 };
 
-                await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions); // don't await it need synchronization
+                await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions);
 
             }
             catch (Exception ex)
