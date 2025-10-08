@@ -26,7 +26,7 @@ namespace Blocks.Genesis
                 return (token, false);
 
            var tenant = tenants.GetTenantByID(bc.TenantId);
-           request.Cookies.TryGetValue($"{tenant.ThirdPartyJwtTokenParameters?.CookieKey}", out string thirdPartyToken);
+           request.Cookies.TryGetValue(tenant?.ThirdPartyJwtTokenParameters?.CookieKey?? "", out string thirdPartyToken);
 
 
            return (thirdPartyToken, !string.IsNullOrWhiteSpace(thirdPartyToken)? true: false);
