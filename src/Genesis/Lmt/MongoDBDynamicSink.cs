@@ -143,10 +143,15 @@ namespace Blocks.Genesis
                     {
                         Type = "logs",
                         ServiceName = _serviceName,
-                        Data = logs,
-                        Secret = _azureFunctionApiSecret
+                        Data = logs
                     });
                     var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                    if (!string.IsNullOrWhiteSpace(_azureFunctionApiSecret))
+                    {
+                        _httpClient.DefaultRequestHeaders.Clear();
+                        _httpClient.DefaultRequestHeaders.Add("x-functions-key", _azureFunctionApiSecret);
+                    }
 
                     var response = await _httpClient.PostAsync(_azureFunctionEndpoint, content);
 
