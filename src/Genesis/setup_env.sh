@@ -49,7 +49,7 @@ set_env_variable "BlocksSecret__LogDatabaseName" "Logs"
 set_env_variable "BlocksSecret__MetricDatabaseName" "Metrics"
 set_env_variable "BlocksSecret__TraceDatabaseName" "Traces"
 set_env_variable "BlocksSecret__DatabaseConnectionString" "mongodb://localhost:27017/"
-set_env_variable "BlocksSecret__RootDatabaseName" "Blocks-Root"
+set_env_variable "BlocksSecret__RootDatabaseName" "ROOT_DB"
 set_env_variable "BlocksSecret__EnableHsts" "true"
 
 echo "Environment variables have been set for the current session."

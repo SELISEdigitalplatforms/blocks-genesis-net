@@ -104,7 +104,6 @@ namespace XUnitTest.Configuration
 
             // Assert
             Assert.Contains(services, s => s.ServiceType == typeof(AzureMessageWorker));
-            Assert.Contains(services, s => s.ServiceType == typeof(HealthServiceWorker));
         }
     }
 }

@@ -8,7 +8,6 @@ namespace Blocks.Genesis
         public static string LogDatabaseName { get; } = "Logs";
         public static string TraceDatabaseName { get; } = "Traces";
         public static string MetricDatabaseName { get; } = "Metrics";
-        public static string HealthDatabaseName { get; } = "Healths";
 
         private const string _timeField = "Timestamp";
 
@@ -22,33 +21,6 @@ namespace Blocks.Genesis
         public static IMongoCollection<TDocument> GetMongoCollection<TDocument>(string connection, string databaseName, string collectionName)
         {
             return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
-        }
-
-        public static void CreateCollectionForHealth(string connection)
-        {
-            var timeSeriesOptionsMultiMeta = new CreateCollectionOptions
-            {
-                TimeSeriesOptions = new TimeSeriesOptions(
-                    timeField: "Timestamp",
-                    metaField: null,                               // No single meta field
-                    granularity: TimeSeriesGranularity.Minutes
-                )
-            };
-            try
-            {
-                CreateCollectionIfNotExists(connection, HealthDatabaseName, HealthDatabaseName, timeSeriesOptionsMultiMeta);
-                var indexDefinition = Builders<BsonDocument>.IndexKeys
-                                    .Ascending("ServiceName")
-                                    .Ascending("Instance")
-                                    .Descending("Timestamp");
-
-                CreateIndex(connection, HealthDatabaseName, HealthDatabaseName, indexDefinition);
-
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-            }
         }
 
         public static void CreateCollectionForTrace(string connection, string collectionName)
