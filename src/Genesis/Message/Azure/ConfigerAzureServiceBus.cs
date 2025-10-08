@@ -110,7 +110,7 @@ namespace Blocks.Genesis
             return await _adminClient.TopicExistsAsync(topicName);
         }
 
-        static async Task CreateTopicSubscriptionAsync(string topicName, string subscriptionName = "", string subscriptionFilter = "")
+        static async Task CreateTopicSubscriptionAsync(string topicName, string subscriptionName = "", string subscriptionFilter = "", string ruleOptionName = "BlocksRule")
         {
             try
             {
@@ -127,7 +127,7 @@ namespace Blocks.Genesis
 
                 if(!string.IsNullOrWhiteSpace(subscriptionFilter))
                 {
-                    var correlationRule = new CreateRuleOptions("ServiceRegistration", new CorrelationRuleFilter
+                    var correlationRule = new CreateRuleOptions(ruleOptionName, new CorrelationRuleFilter
                     {
                         CorrelationId = subscriptionFilter
                     });
