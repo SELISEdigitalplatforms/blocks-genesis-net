@@ -23,12 +23,13 @@ namespace Blocks.Genesis
 
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName, VaultType vaultType)
         {
+            LoadDotEnvFile();
             _serviceName = serviceName;
 
             _blocksSecret = await BlocksSecret.ProcessBlocksSecret(vaultType);
             _blocksSecret.ServiceName = _serviceName;
 
-            if(!string.IsNullOrWhiteSpace(_blocksSecret.TraceConnectionString))
+            if (!string.IsNullOrWhiteSpace(_blocksSecret.TraceConnectionString))
             {
                 LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
             }
@@ -73,12 +74,15 @@ namespace Blocks.Genesis
 
         public static void ConfigureApiEnv(IHostApplicationBuilder builder, string[] args)
         {
+
             builder.Configuration
                 .AddCommandLine(args)
                 .AddEnvironmentVariables()
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
+
+            // Initialize LMT configuration provider
             LmtConfigurationProvider.Initialize(builder.Configuration);
         }
 
@@ -88,7 +92,10 @@ namespace Blocks.Genesis
                 .AddCommandLine(args)
                 .AddEnvironmentVariables()
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
-            LmtConfigurationProvider.Initialize(builder.Build());
+
+            // Initialize LMT configuration provider
+            var configuration = builder.Build();
+            LmtConfigurationProvider.Initialize(configuration);
         }
 
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
@@ -117,16 +124,6 @@ namespace Blocks.Genesis
                         .AddAspNetCoreInstrumentation()
                         .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
                 });
-
-
-            // For now we comment it
-            //services.AddOpenTelemetry().WithMetrics(metricsBuilder =>
-            //{
-            //    metricsBuilder
-            //        .AddAspNetCoreInstrumentation()
-            //        .AddRuntimeInstrumentation()
-            //        .AddReader(new PeriodicExportingMetricReader(new MongoDBMetricsExporter(_serviceName, _blocksSecret)));
-            //});
 
             services.AddSingleton<IHttpService, HttpService>();
 
@@ -235,6 +232,24 @@ namespace Blocks.Genesis
             {
                 services.AddSingleton<IRabbitMqService, RabbitMqService>();
                 services.AddSingleton<IMessageClient, RabbitMessageClient>();
+            }
+        }
+
+        private static void LoadDotEnvFile()
+        {
+            try
+            {
+                var envFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+
+                if (File.Exists(envFilePath))
+                {
+                    DotNetEnv.Env.Load(envFilePath);
+                    Console.WriteLine($"✓ Loaded environment variables from .env file");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Failed to load .env file: {ex.Message}");
             }
         }
 

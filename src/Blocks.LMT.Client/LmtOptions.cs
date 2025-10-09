@@ -16,7 +16,7 @@
 
     public class LmtConstants
     {
-        public const string LogTopic = "blocks-lmt-sevice-logs";
-        public const string TraceTopic = "blocks-lmt-sevice-traces";
+        public const string LogTopic = "blocks-lmt-service-logs";
+        public const string TraceTopic = "blocks-lmt-service-traces";
     }
 }
