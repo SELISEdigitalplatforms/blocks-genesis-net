@@ -19,7 +19,6 @@ namespace Blocks.Genesis
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", tenantId));
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TraceId", activity?.TraceId));
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("SpanId", activity?.SpanId));
-                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("ParentSpanId", activity?.ParentSpanId));
             }
         }
     }
