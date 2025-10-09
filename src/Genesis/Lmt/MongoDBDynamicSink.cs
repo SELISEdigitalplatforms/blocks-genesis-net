@@ -108,7 +108,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private async Task SaveToMongoDBAsync(List<LogData> logs)
+        public async Task SaveToMongoDBAsync(List<LogData> logs)
         {
             var collection = _database!.GetCollection<BsonDocument>(_serviceName);
 
