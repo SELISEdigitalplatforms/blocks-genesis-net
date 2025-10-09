@@ -1,10 +1,9 @@
-﻿using Microsoft.IdentityModel.Tokens;
+﻿using Azure.Messaging.ServiceBus;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Serilog.Core;
 using Serilog.Events;
 using System.Collections.Concurrent;
-using System.Text;
 using System.Text.Json;
 
 namespace Blocks.Genesis
@@ -25,7 +24,7 @@ namespace Blocks.Genesis
         public List<LogData> Logs { get; set; } = new();
         public int RetryCount { get; set; }
         public DateTime NextRetryTime { get; set; }
-    }  
+    }
 
     public class MongoDBDynamicSink : IBatchedLogEventSink
     {
@@ -36,24 +35,26 @@ namespace Blocks.Genesis
         private readonly IMongoDatabase? _database;
         private readonly int _maxRetries;
         private readonly int _maxFailedBatches;
-        private readonly string? _azureFunctionEndpoint;
-        private readonly string? _azureFunctionApiSecret;
-        private readonly HttpClient _httpClient;
+        private readonly string? _serviceBusConnectionString;
+        private readonly string _topicName;
+        private ServiceBusClient? _serviceBusClient;
+        private ServiceBusSender? _serviceBusSender;
         private bool _disposed;
 
         private readonly SemaphoreSlim _retrySemaphore = new SemaphoreSlim(1, 1);
 
         public MongoDBDynamicSink(
             string serviceName,
-            IBlocksSecret blocksSecret)
+            IBlocksSecret blocksSecret,
+            string topicName = "blocks-lmt-sevice-logs")
         {
             _serviceName = serviceName;
             _blocksSecret = blocksSecret;
             _maxRetries = 3;
             _maxFailedBatches = 100;
+            _topicName = topicName;
 
-            _azureFunctionEndpoint = Environment.GetEnvironmentVariable("LMT_LOG_ENDPOINT");
-            _azureFunctionApiSecret = Environment.GetEnvironmentVariable("LMT_API_SECRET");
+            _serviceBusConnectionString = Environment.GetEnvironmentVariable("LMT_SERVICE_BUS_CONNECTION_STRING");
 
             _failedBatches = new ConcurrentQueue<FailedLogBatch>();
 
@@ -63,10 +64,12 @@ namespace Blocks.Genesis
                 _database = LmtConfiguration.GetMongoDatabase(connectionString, LmtConfiguration.LogDatabaseName);
             }
 
-            _httpClient = new HttpClient
+            // Initialize Service Bus client and sender
+            if (!string.IsNullOrWhiteSpace(_serviceBusConnectionString))
             {
-                Timeout = TimeSpan.FromSeconds(60)
-            };
+                _serviceBusClient = new ServiceBusClient(_serviceBusConnectionString);
+                _serviceBusSender = _serviceBusClient.CreateSender(_topicName);
+            }
 
             _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
@@ -108,10 +111,10 @@ namespace Blocks.Genesis
                 logDataList.Add(logData);
             }
 
-            // If Azure Function endpoint exists, send data there
-            if (!string.IsNullOrWhiteSpace(_azureFunctionEndpoint))
+            // Send to Service Bus if sender exists
+            if (_serviceBusSender != null)
             {
-                await SendToAzureFunctionAsync(logDataList);
+                await SendToServiceBusAsync(logDataList);
             }
 
             // Save to MongoDB only if database exists
@@ -141,7 +144,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public async Task SendToAzureFunctionAsync(List<LogData> logs, int retryCount = 0)
+        public async Task SendToServiceBusAsync(List<LogData> logs, int retryCount = 0)
         {
             int currentRetry = 0;
 
@@ -149,32 +152,38 @@ namespace Blocks.Genesis
             {
                 try
                 {
-                    var json = JsonSerializer.Serialize(new
+                    var payload = new
                     {
                         Type = "logs",
                         ServiceName = _serviceName,
                         Data = logs
-                    });
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
+                    };
 
-                    if (!string.IsNullOrWhiteSpace(_azureFunctionApiSecret))
+                    var json = JsonSerializer.Serialize(payload);
+                    var timestamp = DateTime.UtcNow;
+                    var messageId = $"logs_{_serviceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
+
+                    var message = new ServiceBusMessage(json)
                     {
-                        _httpClient.DefaultRequestHeaders.Clear();
-                        _httpClient.DefaultRequestHeaders.Add("x-functions-key", _azureFunctionApiSecret);
-                    }
+                        ContentType = "application/json",
+                        MessageId = messageId,
+                        CorrelationId = _serviceName,
+                        ApplicationProperties =
+                        {
+                            { "serviceName", _serviceName },
+                            { "timestamp", timestamp.ToString("o") },
+                            { "source", "LogsSink" },
+                            { "type", "logs" }
+                        }
+                    };
 
-                    var response = await _httpClient.PostAsync(_azureFunctionEndpoint, content);
+                    await _serviceBusSender!.SendMessageAsync(message);
 
-                    if (response.IsSuccessStatusCode)
-                    {
-                        return;
-                    }
-
-                    Console.WriteLine($"Failed to send logs to Azure Function: {response.StatusCode}, Retry: {currentRetry}/{_maxRetries}");
+                    return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending logs to Azure Function: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Console.WriteLine($"Exception sending logs to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
                 }
 
                 currentRetry++;
@@ -249,7 +258,7 @@ namespace Blocks.Genesis
                     }
 
                     Console.WriteLine($"Retrying failed log batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
-                    await SendToAzureFunctionAsync(failedBatch.Logs, failedBatch.RetryCount);
+                    await SendToServiceBusAsync(failedBatch.Logs, failedBatch.RetryCount);
                 }
             }
             finally
@@ -326,8 +335,9 @@ namespace Blocks.Genesis
 
             _retryTimer.Dispose();
             _retrySemaphore.Dispose();
-            _httpClient.Dispose();
             RetryFailedBatchesAsync().GetAwaiter().GetResult();
+            _serviceBusSender?.DisposeAsync().GetAwaiter().GetResult();
+            _serviceBusClient?.DisposeAsync().GetAwaiter().GetResult();
 
             _disposed = true;
         }

@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <PackageId>Blocks.LMT.Client</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Selise Blocks</Authors>
+    <Company>Selise</Company>
+    <Product>Blocks LMT Client</Product>
+    <Description>High-performance logging and distributed tracing client with Azure Service Bus integration. Designed for microservices requiring centralized observability with automatic batching, retry logic, and multi-tenant support.</Description>
+    <PackageTags>logging;tracing;opentelemetry;azure;servicebus;observability;telemetry;distributed-tracing;microservices;lmt</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Copyright>Copyright (c) 2025 Selise</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.17.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="OpenTelemetry" Version="1.7.0" />
+    <PackageReference Include="OpenTelemetry.Api" Version="1.7.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
