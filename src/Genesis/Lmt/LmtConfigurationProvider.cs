@@ -13,16 +13,12 @@ namespace Blocks.Genesis
 
         public static string? GetLogsServiceBusConnectionString()
         {
-            var connString = _configuration?.GetSection("Lmt:LogsServiceBusConnectionString")?.Value;
-
-            return connString ?? Environment.GetEnvironmentVariable("LogsServiceBusConnectionString");
+            return Environment.GetEnvironmentVariable("LogsServiceBusConnectionString");
         }
 
         public static string? GetTracesServiceBusConnectionString()
         {
-            var connString = _configuration?.GetSection("Lmt:TracesServiceBusConnectionString")?.Value;
-
-            return connString ?? Environment.GetEnvironmentVariable("TracesServiceBusConnectionString");
+            return Environment.GetEnvironmentVariable("TracesServiceBusConnectionString");
         }
 
         public static int GetMaxRetries()

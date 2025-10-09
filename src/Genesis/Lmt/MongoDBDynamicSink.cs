@@ -19,7 +19,6 @@ namespace Blocks.Genesis
         {
             _serviceName = serviceName;
 
-            // Setup MongoDB
             var connectionString = blocksSecret?.LogConnectionString ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(connectionString))
             {
@@ -78,13 +77,11 @@ namespace Blocks.Genesis
                 logDataList.Add(logData);
             }
 
-            // Send to Service Bus using NuGet package
             if (_serviceBusSender != null)
             {
                 await _serviceBusSender.SendLogsAsync(logDataList);
             }
 
-            // Save to MongoDB
             if (_database != null)
             {
                 await SaveToMongoDBAsync(logDataList);

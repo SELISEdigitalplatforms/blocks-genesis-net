@@ -119,13 +119,11 @@ namespace Blocks.Genesis
                 if (tenantBatches.Count == 0)
                     return;
 
-                // Send to Service Bus using NuGet package
                 if (_serviceBusSender != null)
                 {
                     await _serviceBusSender.SendTracesAsync(tenantBatches);
                 }
 
-                // Save to MongoDB
                 if (_database != null)
                 {
                     await SaveToMongoDBAsync(tenantBatches);
