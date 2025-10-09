@@ -1,8 +1,6 @@
-﻿using Azure.Messaging.ServiceBus;
-using OpenTelemetry;
+﻿using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text.Json;
 
 namespace Blocks.LMT.Client
 {
@@ -10,13 +8,9 @@ namespace Blocks.LMT.Client
     {
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<TraceData> _traceBatch;
-        private readonly ConcurrentQueue<FailedTraceBatch> _failedBatches;
         private readonly Timer _flushTimer;
-        private readonly Timer _retryTimer;
-        private ServiceBusClient? _serviceBusClient;
-        private ServiceBusSender? _serviceBusSender;
+        private readonly LmtServiceBusSender _serviceBusSender;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
-        private readonly SemaphoreSlim _retrySemaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
 
         public LmtTraceProcessor(LmtOptions options)
@@ -24,15 +18,17 @@ namespace Blocks.LMT.Client
             _options = options ?? throw new ArgumentNullException(nameof(options));
 
             _traceBatch = new ConcurrentQueue<TraceData>();
-            _failedBatches = new ConcurrentQueue<FailedTraceBatch>();
 
-            // Initialize Service Bus
-            _serviceBusClient = new ServiceBusClient(_options.TracesServiceBusConnectionString);
-            _serviceBusSender = _serviceBusClient.CreateSender("blocks-lmt-sevice-traces");
+            // Use shared sender
+            _serviceBusSender = new LmtServiceBusSender(
+                _options.ServiceName,
+                _options.TracesServiceBusConnectionString,
+                LmtConstants.TraceTopic,
+                _options.MaxRetries,
+                _options.MaxFailedBatches);
 
             var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
             _flushTimer = new Timer(async _ => await FlushBatchAsync(), null, flushInterval, flushInterval);
-            _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
         public override void OnEnd(Activity activity)
@@ -102,114 +98,12 @@ namespace Blocks.LMT.Client
 
                 if (tenantBatches.Count > 0)
                 {
-                    await SendToServiceBusAsync(tenantBatches);
+                    await _serviceBusSender.SendTracesAsync(tenantBatches);
                 }
             }
             finally
             {
                 _semaphore.Release();
-            }
-        }
-
-        private async Task SendToServiceBusAsync(Dictionary<string, List<TraceData>> tenantBatches, int retryCount = 0)
-        {
-            int currentRetry = 0;
-
-            while (currentRetry <= _options.MaxRetries)
-            {
-                try
-                {
-                    var payload = new
-                    {
-                        Type = "traces",
-                        ServiceName = _options.ServiceName,
-                        Data = tenantBatches
-                    };
-
-                    var json = JsonSerializer.Serialize(payload);
-                    var timestamp = DateTime.UtcNow;
-                    var messageId = $"traces_{_options.ServiceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
-
-                    var message = new ServiceBusMessage(json)
-                    {
-                        ContentType = "application/json",
-                        MessageId = messageId,
-                        CorrelationId = _options.ServiceName,
-                        ApplicationProperties =
-                        {
-                            { "serviceName", _options.ServiceName },
-                            { "timestamp", timestamp.ToString("o") },
-                            { "source", "TracesClient" },
-                            { "type", "traces" }
-                        }
-                    };
-
-                    await _serviceBusSender!.SendMessageAsync(message);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Exception sending traces to Service Bus: {ex.Message}");
-                }
-
-                currentRetry++;
-
-                if (currentRetry <= _options.MaxRetries)
-                {
-                    var delay = TimeSpan.FromSeconds(Math.Pow(2, currentRetry - 1));
-                    await Task.Delay(delay);
-                }
-            }
-
-            // Queue for later retry
-            if (_failedBatches.Count < _options.MaxFailedBatches)
-            {
-                var failedBatch = new FailedTraceBatch
-                {
-                    TenantBatches = tenantBatches,
-                    RetryCount = retryCount + 1,
-                    NextRetryTime = DateTime.UtcNow.AddMinutes(Math.Pow(2, retryCount))
-                };
-
-                _failedBatches.Enqueue(failedBatch);
-            }
-        }
-
-        private async Task RetryFailedBatchesAsync()
-        {
-            if (!await _retrySemaphore.WaitAsync(0))
-                return;
-
-            try
-            {
-                var now = DateTime.UtcNow;
-                var batchesToRetry = new List<FailedTraceBatch>();
-                var batchesToRequeue = new List<FailedTraceBatch>();
-
-                while (_failedBatches.TryDequeue(out var failedBatch))
-                {
-                    if (failedBatch.NextRetryTime <= now)
-                        batchesToRetry.Add(failedBatch);
-                    else
-                        batchesToRequeue.Add(failedBatch);
-                }
-
-                foreach (var batch in batchesToRequeue)
-                {
-                    _failedBatches.Enqueue(batch);
-                }
-
-                foreach (var failedBatch in batchesToRetry)
-                {
-                    if (failedBatch.RetryCount >= _options.MaxRetries)
-                        continue;
-
-                    await SendToServiceBusAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
-                }
-            }
-            finally
-            {
-                _retrySemaphore.Release();
             }
         }
 
@@ -220,13 +114,9 @@ namespace Blocks.LMT.Client
             if (disposing)
             {
                 _flushTimer?.Dispose();
-                _retryTimer?.Dispose();
                 _semaphore?.Dispose();
-                _retrySemaphore?.Dispose();
                 FlushBatchAsync().GetAwaiter().GetResult();
-                RetryFailedBatchesAsync().GetAwaiter().GetResult();
-                _serviceBusSender?.DisposeAsync().GetAwaiter().GetResult();
-                _serviceBusClient?.DisposeAsync().GetAwaiter().GetResult();
+                _serviceBusSender?.Dispose();
             }
 
             _disposed = true;

@@ -79,6 +79,7 @@ namespace Blocks.Genesis
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
+            LmtConfigurationProvider.Initialize(builder.Configuration);
         }
 
         public static void ConfigureWorkerEnv(IConfigurationBuilder builder, string[] args)
@@ -87,6 +88,7 @@ namespace Blocks.Genesis
                 .AddCommandLine(args)
                 .AddEnvironmentVariables()
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
+            LmtConfigurationProvider.Initialize(builder.Build());
         }
 
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
