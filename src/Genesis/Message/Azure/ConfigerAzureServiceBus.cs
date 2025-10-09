@@ -132,8 +132,6 @@ namespace Blocks.Genesis
                         CorrelationId = subscriptionFilter
                     });
 
-                    // Remove default rule
-                    await _adminClient.DeleteRuleAsync(topicName, subscriptionName, "$Default");
                     await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions, correlationRule);     
                 }
                 else

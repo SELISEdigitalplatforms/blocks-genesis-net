@@ -19,6 +19,6 @@
         public string SshPassword { get; set; }
         public string SshNginxTemplate { get; set; }
         public string ProdDatabaseConnectionString { get; set; }
-
-    }
+        public string LmtMessageConnectionString { get; set; }
+}
 }
