@@ -1,9 +1,9 @@
-﻿using MongoDB.Bson;
+﻿using Azure.Messaging.ServiceBus;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 
 namespace Blocks.Genesis
@@ -47,9 +47,10 @@ namespace Blocks.Genesis
         private readonly int _batchSize;
         private readonly int _maxRetries;
         private readonly int _maxFailedBatches;
-        private readonly string? _azureFunctionEndpoint;
-        private readonly string? _azureFunctionApiSecret;
-        private readonly HttpClient _httpClient;
+        private readonly string? _serviceBusConnectionString;
+        private readonly string _topicName;
+        private ServiceBusClient? _serviceBusClient;
+        private ServiceBusSender? _serviceBusSender;
         private bool _disposed;
 
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
@@ -58,15 +59,16 @@ namespace Blocks.Genesis
         public MongoDBTraceExporter(
             string serviceName,
             int batchSize = 1000,
-            IBlocksSecret? blocksSecret = null)
+            IBlocksSecret? blocksSecret = null,
+            string topicName = "blocks-lmt-sevice-traces")
         {
             _serviceName = serviceName;
             _batchSize = batchSize;
             _maxRetries = 3;
             _maxFailedBatches = 100;
+            _topicName = topicName;
 
-            _azureFunctionEndpoint = Environment.GetEnvironmentVariable("LMT_TRACE_ENDPOINT");
-            _azureFunctionApiSecret = Environment.GetEnvironmentVariable("LMT_API_SECRET");
+            _serviceBusConnectionString = Environment.GetEnvironmentVariable("LMT_SERVICE_BUS_CONNECTION_STRING");
 
             var interval = TimeSpan.FromSeconds(3);
             _batch = new ConcurrentQueue<TraceData>();
@@ -78,10 +80,12 @@ namespace Blocks.Genesis
                 _database = LmtConfiguration.GetMongoDatabase(connectionString, LmtConfiguration.TraceDatabaseName);
             }
 
-            _httpClient = new HttpClient
+            // Initialize Service Bus client and sender
+            if (!string.IsNullOrWhiteSpace(_serviceBusConnectionString))
             {
-                Timeout = TimeSpan.FromSeconds(60)
-            };
+                _serviceBusClient = new ServiceBusClient(_serviceBusConnectionString);
+                _serviceBusSender = _serviceBusClient.CreateSender(_topicName);
+            }
 
             _timer = new Timer(async _ => await FlushBatchAsync(), null, interval, interval);
             _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
@@ -153,10 +157,13 @@ namespace Blocks.Genesis
                     tenantBatches[traceData.TenantId].Add(traceData);
                 }
 
-                // If Azure Function endpoint exists, send data there
-                if (!string.IsNullOrWhiteSpace(_azureFunctionEndpoint))
+                if (tenantBatches.Count == 0)
+                    return;
+
+                // Send to Service Bus if sender exists
+                if (_serviceBusSender != null)
                 {
-                    await SendToAzureFunctionAsync(tenantBatches);
+                    await SendToServiceBusAsync(tenantBatches);
                 }
 
                 // Save to MongoDB only if database exists
@@ -171,7 +178,7 @@ namespace Blocks.Genesis
             }
         }
 
-        public async Task SendToAzureFunctionAsync(Dictionary<string, List<TraceData>> tenantBatches, int retryCount = 0)
+        public async Task SendToServiceBusAsync(Dictionary<string, List<TraceData>> tenantBatches, int retryCount = 0)
         {
             int currentRetry = 0;
 
@@ -179,33 +186,39 @@ namespace Blocks.Genesis
             {
                 try
                 {
-                    var json = JsonSerializer.Serialize(new
+                    var payload = new
                     {
                         Type = "traces",
                         Data = tenantBatches,
                         ServiceName = _serviceName
-                    });
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
+                    };
 
-                    if (!string.IsNullOrWhiteSpace(_azureFunctionApiSecret))
+                    var json = JsonSerializer.Serialize(payload);
+                    var timestamp = DateTime.UtcNow;
+                    var messageId = $"traces_{_serviceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
+
+                    var message = new ServiceBusMessage(json)
                     {
-                        _httpClient.DefaultRequestHeaders.Clear();
-                        _httpClient.DefaultRequestHeaders.Add("x-functions-key", _azureFunctionApiSecret);
-                    }
+                        ContentType = "application/json",
+                        MessageId = messageId,
+                        CorrelationId = _serviceName,
+                        ApplicationProperties =
+                        {
+                            { "serviceName", _serviceName },
+                            { "timestamp", timestamp.ToString("o") },
+                            { "source", "TracesExporter" },
+                            { "type", "traces" }
+                        }
+                    };
 
-                    var response = await _httpClient.PostAsync(_azureFunctionEndpoint, content);
+                    await _serviceBusSender!.SendMessageAsync(message);
 
-                    if (response.IsSuccessStatusCode)
-                    {
-                        // Success - exit retry loop
-                        return;
-                    }
-
-                    Console.WriteLine($"Failed to send batch to Azure Function: {response.StatusCode}, Retry: {currentRetry}/{_maxRetries}");
+                    // Success - exit retry loop
+                    return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending batch to Azure Function: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Console.WriteLine($"Exception sending traces to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
                 }
 
                 currentRetry++;
@@ -280,7 +293,7 @@ namespace Blocks.Genesis
                     }
 
                     Console.WriteLine($"Retrying failed batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
-                    await SendToAzureFunctionAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
+                    await SendToServiceBusAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
                 }
             }
             finally
@@ -351,9 +364,10 @@ namespace Blocks.Genesis
                 _retryTimer.Dispose();
                 _semaphore.Dispose();
                 _retrySemaphore.Dispose();
-                _httpClient.Dispose();
                 FlushBatchAsync().GetAwaiter().GetResult();
                 RetryFailedBatchesAsync().GetAwaiter().GetResult();
+                _serviceBusSender?.DisposeAsync().GetAwaiter().GetResult();
+                _serviceBusClient?.DisposeAsync().GetAwaiter().GetResult();
             }
 
             _disposed = true;
