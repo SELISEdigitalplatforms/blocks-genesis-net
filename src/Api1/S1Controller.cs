@@ -30,7 +30,7 @@ namespace ApiOne
             _changeControllerContext = changeControllerContext;
         }
 
-      //  [Authorize]
+        [Authorize]
         [HttpGet("process")]
         public async Task<object> ProcessRequest([FromQuery] ProcessRequest request)
         {

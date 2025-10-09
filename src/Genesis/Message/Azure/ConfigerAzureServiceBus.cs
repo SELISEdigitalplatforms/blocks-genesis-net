@@ -110,7 +110,7 @@ namespace Blocks.Genesis
             return await _adminClient.TopicExistsAsync(topicName);
         }
 
-        static async Task CreateTopicSubscriptionAsync(string topicName, string? subscriptionName)
+        static async Task CreateTopicSubscriptionAsync(string topicName, string subscriptionName = "", string subscriptionFilter = "", string ruleOptionName = "BlocksRule")
         {
             try
             {
@@ -125,8 +125,21 @@ namespace Blocks.Genesis
                     LockDuration = TimeSpan.FromMinutes(5)
                 };
 
-                await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions);
+                if(!string.IsNullOrWhiteSpace(subscriptionFilter))
+                {
+                    var correlationRule = new CreateRuleOptions(ruleOptionName, new CorrelationRuleFilter
+                    {
+                        CorrelationId = subscriptionFilter
+                    });
 
+                    // Remove default rule
+                    await _adminClient.DeleteRuleAsync(topicName, subscriptionName, "$Default");
+                    await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions, correlationRule);     
+                }
+                else
+                {
+                    await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions);
+                }
             }
             catch (Exception ex)
             {
