@@ -171,7 +171,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private async Task SendToAzureFunctionAsync(Dictionary<string, List<TraceData>> tenantBatches, int retryCount = 0)
+        public async Task SendToAzureFunctionAsync(Dictionary<string, List<TraceData>> tenantBatches, int retryCount = 0)
         {
             int currentRetry = 0;
 
@@ -289,7 +289,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private async Task SaveToMongoDBAsync(Dictionary<string, List<TraceData>> tenantBatches)
+        public async Task SaveToMongoDBAsync(Dictionary<string, List<TraceData>> tenantBatches)
         {
             foreach (var tenantBatch in tenantBatches)
             {

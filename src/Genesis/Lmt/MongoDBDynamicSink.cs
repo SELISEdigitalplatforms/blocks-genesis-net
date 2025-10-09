@@ -1,4 +1,5 @@
-﻿using MongoDB.Bson;
+﻿using Microsoft.IdentityModel.Tokens;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Serilog.Core;
 using Serilog.Events;
@@ -24,7 +25,7 @@ namespace Blocks.Genesis
         public List<LogData> Logs { get; set; } = new();
         public int RetryCount { get; set; }
         public DateTime NextRetryTime { get; set; }
-    }
+    }  
 
     public class MongoDBDynamicSink : IBatchedLogEventSink
     {
@@ -70,6 +71,13 @@ namespace Blocks.Genesis
             _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
+        private static readonly HashSet<string> AllowedMongoProperties = new()
+        {
+            "TenantId",
+            "TraceId",
+            "SpanId",
+        };
+
         public async Task EmitBatchAsync(IReadOnlyCollection<LogEvent> batch)
         {
             var logDataList = new List<LogData>();
@@ -79,7 +87,6 @@ namespace Blocks.Genesis
                 var logData = new LogData
                 {
                     Timestamp = logEvent.Timestamp.UtcDateTime,
-                    MessageTemplate = logEvent.MessageTemplate.Text,
                     Level = logEvent.Level.ToString(),
                     Message = logEvent.RenderMessage(),
                     Exception = logEvent.Exception?.ToString() ?? string.Empty,
@@ -91,6 +98,9 @@ namespace Blocks.Genesis
                 {
                     foreach (var property in logEvent.Properties)
                     {
+                        if (!AllowedMongoProperties.Contains(property.Key))
+                            continue;
+
                         logData.Properties[property.Key] = ConvertLogEventPropertyValue(property.Value);
                     }
                 }
@@ -131,7 +141,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private async Task SendToAzureFunctionAsync(List<LogData> logs, int retryCount = 0)
+        public async Task SendToAzureFunctionAsync(List<LogData> logs, int retryCount = 0)
         {
             int currentRetry = 0;
 
@@ -248,7 +258,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private async Task SaveToMongoDBAsync(List<LogData> logs)
+        public async Task SaveToMongoDBAsync(List<LogData> logs)
         {
             var collection = _database!.GetCollection<BsonDocument>(_serviceName);
 

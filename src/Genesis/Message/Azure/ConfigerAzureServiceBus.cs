@@ -92,7 +92,7 @@ namespace Blocks.Genesis
 
                 await Task.WhenAll(tasks);
 
-                var subTasks = _messageConfiguration?.AzureServiceBusConfiguration?.Topics.Select(topicName => CreateTopicSubscriptionAsync(topicName));
+                var subTasks = _messageConfiguration?.AzureServiceBusConfiguration?.Topics.Select(topicName => CreateTopicSubscriptionAsync(topicName, null));
 
                 await Task.WhenAll(subTasks);
 
