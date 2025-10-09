@@ -13,4 +13,10 @@
         public bool EnableLogging { get; set; } = true;
         public bool EnableTracing { get; set; } = true;
     }
+
+    public class LmtConstants
+    {
+        public const string LogTopic = "blocks-lmt-sevice-logs";
+        public const string TraceTopic = "blocks-lmt-sevice-traces";
+    }
 }
