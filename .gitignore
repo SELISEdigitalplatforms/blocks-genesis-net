@@ -972,3 +972,6 @@ StyleCopReport.xml
 *.pidb
 *.svclog
 *.scc
+
+
+*/node_modules

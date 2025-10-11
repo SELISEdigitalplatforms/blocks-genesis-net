@@ -46,7 +46,8 @@ namespace Blocks.LMT.Client
                 Message = message,
                 Exception = exception?.ToString() ?? string.Empty,
                 ServiceName = _options.ServiceName,
-                Properties = properties ?? new Dictionary<string, object>()
+                Properties = properties ?? new Dictionary<string, object>(),
+                TenantId = _options.XBlocksKey
             };
 
             if (activity != null)

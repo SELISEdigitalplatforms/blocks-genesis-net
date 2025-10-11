@@ -68,6 +68,7 @@ Install-Package Blocks.LMT.Client
   "Lmt": {
     "ServiceName": "MyMicroservice",
     "ServiceBusConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key",
+    "XBlocksKey" "23g23g2g"
     "LogBatchSize": 100,
     "TraceBatchSize": 1000,
     "FlushIntervalSeconds": 5,
@@ -158,6 +159,7 @@ public class OrderService
 |----------|------|---------|-------------|
 | `ServiceName` | `string` | *required* | Unique identifier for your service |
 | `ServiceBusConnectionString` | `string` | *required* | Azure Service Bus connection string |
+| `XBlocksKey` | `string` | *required* | | Selise blocks cloud key |
 | `LogBatchSize` | `int` | `100` | Number of logs to batch before sending |
 | `TraceBatchSize` | `int` | `1000` | Number of traces to batch before sending |
 | `FlushIntervalSeconds` | `int` | `5` | Interval to flush batches automatically |
@@ -175,6 +177,7 @@ services.AddLmtClient(options =>
 {
     options.ServiceName = "MyMicroservice";
     options.ServiceBusConnectionString = "Endpoint=sb://...";
+    options.XBlocksKey = "23g23g2g";
     options.LogBatchSize = 100;
     options.TraceBatchSize = 1000;
     options.FlushIntervalSeconds = 5;
@@ -190,6 +193,7 @@ You can also use environment variables (useful for containerized environments):
 ```bash
 Lmt__ServiceName=MyMicroservice
 Lmt__ServiceBusConnectionString=Endpoint=sb://...
+Lmt__XBlocksKey=23g23g2g
 Lmt__LogBatchSize=100
 Lmt__EnableLogging=true
 ```

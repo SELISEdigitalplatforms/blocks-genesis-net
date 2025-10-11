@@ -1,0 +1,39 @@
+# Source files
+src/
+example/
+
+# Config files
+tsconfig.json
+.eslintrc.js
+.prettierrc
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Tests
+*.spec.ts
+*.test.ts
+coverage/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+
+# Documentation source
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Misc
+*.log
+node_modules/

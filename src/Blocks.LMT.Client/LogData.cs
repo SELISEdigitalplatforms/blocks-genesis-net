@@ -8,6 +8,7 @@
         public string Exception { get; set; } = string.Empty;
         public string ServiceName { get; set; } = string.Empty;
         public Dictionary<string, object> Properties { get; set; } = new();
+        public string TenantId { get; set; } = string.Empty;
     }
 
     public class FailedLogBatch
