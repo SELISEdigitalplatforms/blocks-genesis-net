@@ -30,14 +30,14 @@ namespace Blocks.Genesis
 
         private static LmtServiceBusSender? TryCreateLogsSender(string serviceName)
         {
-            var connectionString = LmtConfigurationProvider.GetLogsServiceBusConnectionString();
+            var connectionString = LmtConfigurationProvider.GetServiceBusConnectionString();
             if (string.IsNullOrWhiteSpace(connectionString))
                 return null;
 
             var maxRetries = LmtConfigurationProvider.GetMaxRetries();
             var maxFailedBatches = LmtConfigurationProvider.GetMaxFailedBatches();
 
-            return new LmtServiceBusSender(serviceName, connectionString, LmtConstants.LogTopic, maxRetries, maxFailedBatches);
+            return new LmtServiceBusSender(serviceName, connectionString, maxRetries, maxFailedBatches);
         }
 
         private static readonly HashSet<string> AllowedMongoProperties = new()

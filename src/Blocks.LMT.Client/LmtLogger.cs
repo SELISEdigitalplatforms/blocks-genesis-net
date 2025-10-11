@@ -19,16 +19,14 @@ namespace Blocks.LMT.Client
             if (string.IsNullOrWhiteSpace(_options.ServiceName))
                 throw new ArgumentException("ServiceName is required", nameof(options));
 
-            if (string.IsNullOrWhiteSpace(_options.LogsServiceBusConnectionString))
+            if (string.IsNullOrWhiteSpace(_options.ServiceBusConnectionString))
                 throw new ArgumentException("ServiceBusConnectionString is required", nameof(options));
 
             _logBatch = new ConcurrentQueue<LogData>();
 
-            // Use shared sender
             _serviceBusSender = new LmtServiceBusSender(
                 _options.ServiceName,
-                _options.LogsServiceBusConnectionString,
-                LmtConstants.LogTopic,
+                _options.ServiceBusConnectionString,
                 _options.MaxRetries,
                 _options.MaxFailedBatches);
 

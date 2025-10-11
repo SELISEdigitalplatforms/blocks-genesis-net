@@ -20,7 +20,6 @@ namespace Blocks.LMT.Client
         public LmtServiceBusSender(
             string serviceName,
             string serviceBusConnectionString,
-            string topicName,
             int maxRetries = 3,
             int maxFailedBatches = 100)
         {
@@ -34,7 +33,7 @@ namespace Blocks.LMT.Client
             if (!string.IsNullOrWhiteSpace(serviceBusConnectionString))
             {
                 _serviceBusClient = new ServiceBusClient(serviceBusConnectionString);
-                _serviceBusSender = _serviceBusClient.CreateSender(topicName);
+                _serviceBusSender = _serviceBusClient.CreateSender(LmtConstants.GetTopicName(serviceName));
             }
 
             _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null,
@@ -70,7 +69,7 @@ namespace Blocks.LMT.Client
                     {
                         ContentType = "application/json",
                         MessageId = messageId,
-                        CorrelationId = _serviceName,
+                        CorrelationId = LmtConstants.LogSubscription,
                         ApplicationProperties =
                         {
                             { "serviceName", _serviceName },
@@ -145,7 +144,7 @@ namespace Blocks.LMT.Client
                     {
                         ContentType = "application/json",
                         MessageId = messageId,
-                        CorrelationId = _serviceName,
+                        CorrelationId = LmtConstants.TraceSubscription,
                         ApplicationProperties =
                         {
                             { "serviceName", _serviceName },
