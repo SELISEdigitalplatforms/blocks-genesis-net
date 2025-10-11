@@ -35,7 +35,6 @@ namespace Blocks.LMT.Client
             if (!_options.EnableTracing) return;
 
             var endTime = activity.StartTimeUtc.Add(activity.Duration);
-            var tenantId = Baggage.GetBaggage("TenantId") ?? "Miscellaneous";
 
             var traceData = new TraceData
             {
@@ -58,7 +57,7 @@ namespace Blocks.LMT.Client
                 StatusDescription = activity.StatusDescription ?? string.Empty,
                 Baggage = GetBaggageItems(),
                 ServiceName = _options.ServiceName,
-                TenantId = tenantId
+                TenantId = _options.XBlocksKey
             };
 
             _traceBatch.Enqueue(traceData);

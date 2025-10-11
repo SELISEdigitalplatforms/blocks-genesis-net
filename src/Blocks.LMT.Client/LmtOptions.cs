@@ -11,6 +11,7 @@
         public int MaxFailedBatches { get; set; } = 100;
         public bool EnableLogging { get; set; } = true;
         public bool EnableTracing { get; set; } = true;
+        public string XBlocksKey { get; set; } = string.Empty;
     }
 
     public class LmtConstants
