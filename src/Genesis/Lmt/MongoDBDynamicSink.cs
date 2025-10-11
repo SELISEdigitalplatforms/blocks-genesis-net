@@ -128,7 +128,6 @@ namespace Blocks.Genesis
             var document = new BsonDocument
             {
                 { "Timestamp", logData.Timestamp },
-                { "MessageTemplate", logData.MessageTemplate },
                 { "Level", logData.Level },
                 { "Message", logData.Message },
                 { "Exception", logData.Exception },
