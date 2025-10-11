@@ -22,8 +22,7 @@ namespace Blocks.LMT.Client
             // Use shared sender
             _serviceBusSender = new LmtServiceBusSender(
                 _options.ServiceName,
-                _options.TracesServiceBusConnectionString,
-                LmtConstants.TraceTopic,
+                _options.ServiceBusConnectionString,
                 _options.MaxRetries,
                 _options.MaxFailedBatches);
 

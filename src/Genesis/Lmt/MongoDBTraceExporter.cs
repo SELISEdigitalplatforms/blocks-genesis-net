@@ -42,14 +42,14 @@ namespace Blocks.Genesis
 
         private static LmtServiceBusSender? TryCreateTracesSender(string serviceName)
         {
-            var connectionString = LmtConfigurationProvider.GetTracesServiceBusConnectionString();
+            var connectionString = LmtConfigurationProvider.GetServiceBusConnectionString();
             if (string.IsNullOrWhiteSpace(connectionString))
                 return null;
 
             var maxRetries = LmtConfigurationProvider.GetMaxRetries();
             var maxFailedBatches = LmtConfigurationProvider.GetMaxFailedBatches();
 
-            return new LmtServiceBusSender(serviceName, connectionString, LmtConstants.TraceTopic, maxRetries, maxFailedBatches);
+            return new LmtServiceBusSender(serviceName, connectionString, maxRetries, maxFailedBatches);
         }
 
         public override void OnEnd(Activity data)

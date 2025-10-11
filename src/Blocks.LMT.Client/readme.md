@@ -67,8 +67,7 @@ Install-Package Blocks.LMT.Client
 {
   "Lmt": {
     "ServiceName": "MyMicroservice",
-    "LogsServiceBusConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key",
-    "TracesServiceBusConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key",
+    "ServiceBusConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key",
     "LogBatchSize": 100,
     "TraceBatchSize": 1000,
     "FlushIntervalSeconds": 5,
@@ -158,8 +157,7 @@ public class OrderService
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `ServiceName` | `string` | *required* | Unique identifier for your service |
-| `LogsServiceBusConnectionString` | `string` | *required* | Azure Service Bus connection string |
-| `TracesServiceBusConnectionString` | `string` | *required* | Azure Service Bus connection string |
+| `ServiceBusConnectionString` | `string` | *required* | Azure Service Bus connection string |
 | `LogBatchSize` | `int` | `100` | Number of logs to batch before sending |
 | `TraceBatchSize` | `int` | `1000` | Number of traces to batch before sending |
 | `FlushIntervalSeconds` | `int` | `5` | Interval to flush batches automatically |
@@ -176,8 +174,7 @@ Instead of using `appsettings.json`, you can configure via code:
 services.AddLmtClient(options =>
 {
     options.ServiceName = "MyMicroservice";
-    options.LogsServiceBusConnectionString = "Endpoint=sb://...";
-    options.TracesServiceBusConnectionString = "Endpoint=sb://...";
+    options.ServiceBusConnectionString = "Endpoint=sb://...";
     options.LogBatchSize = 100;
     options.TraceBatchSize = 1000;
     options.FlushIntervalSeconds = 5;
@@ -192,8 +189,7 @@ You can also use environment variables (useful for containerized environments):
 
 ```bash
 Lmt__ServiceName=MyMicroservice
-Lmt__LogsServiceBusConnectionString=Endpoint=sb://...
-Lmt__TracesServiceBusConnectionString=Endpoint=sb://...
+Lmt__ServiceBusConnectionString=Endpoint=sb://...
 Lmt__LogBatchSize=100
 Lmt__EnableLogging=true
 ```

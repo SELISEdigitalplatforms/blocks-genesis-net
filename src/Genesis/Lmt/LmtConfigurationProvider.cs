@@ -11,14 +11,9 @@ namespace Blocks.Genesis
             _configuration = configuration;
         }
 
-        public static string? GetLogsServiceBusConnectionString()
+        public static string? GetServiceBusConnectionString()
         {
-            return Environment.GetEnvironmentVariable("LogsServiceBusConnectionString");
-        }
-
-        public static string? GetTracesServiceBusConnectionString()
-        {
-            return Environment.GetEnvironmentVariable("TracesServiceBusConnectionString");
+            return Environment.GetEnvironmentVariable("ServiceBusConnectionString");
         }
 
         public static int GetMaxRetries()
