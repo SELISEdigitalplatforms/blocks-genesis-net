@@ -23,6 +23,10 @@ namespace Blocks.Genesis
         public string SshNginxTemplate { get; set; }
         public string ProdDatabaseConnectionString { get;set; }
         public string LmtMessageConnectionString { get ; set ; }
+        public string ProdVaultUrl { get ; set ; }
+        public string ProdVaultTenantId { get ; set ; }
+        public string ProdVaultClientId { get ; set ; }
+        public string ProdVaultClientSecret { get ; set ; }
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
         {
