@@ -1,8 +1,8 @@
-﻿namespace Blocks.LMT.Client
+﻿namespace SeliseBlocks.LMT.Client
 {
     public class LmtOptions
     {
-        public string ServiceName { get; set; } = string.Empty;
+        public string ServiceId { get; set; } = string.Empty;
         public string ServiceBusConnectionString { get; set; } = string.Empty;
         public int LogBatchSize { get; set; } = 100;
         public int TraceBatchSize { get; set; } = 1000;

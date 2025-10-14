@@ -1,9 +1,9 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace Blocks.LMT.Client
+namespace SeliseBlocks.LMT.Client
 {
-    public class LmtLogger : ILmtLogger, IDisposable
+    public class BlocksLogger : IBlocksLogger, IDisposable
     {
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<LogData> _logBatch;
@@ -12,11 +12,11 @@ namespace Blocks.LMT.Client
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
 
-        public LmtLogger(LmtOptions options)
+        public BlocksLogger(LmtOptions options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
 
-            if (string.IsNullOrWhiteSpace(_options.ServiceName))
+            if (string.IsNullOrWhiteSpace(_options.ServiceId))
                 throw new ArgumentException("ServiceName is required", nameof(options));
 
             if (string.IsNullOrWhiteSpace(_options.ServiceBusConnectionString))
@@ -25,7 +25,7 @@ namespace Blocks.LMT.Client
             _logBatch = new ConcurrentQueue<LogData>();
 
             _serviceBusSender = new LmtServiceBusSender(
-                _options.ServiceName,
+                _options.ServiceId,
                 _options.ServiceBusConnectionString,
                 _options.MaxRetries,
                 _options.MaxFailedBatches);
@@ -45,7 +45,7 @@ namespace Blocks.LMT.Client
                 Level = level.ToString(),
                 Message = message,
                 Exception = exception?.ToString() ?? string.Empty,
-                ServiceName = _options.ServiceName,
+                ServiceName = _options.ServiceId,
                 Properties = properties ?? new Dictionary<string, object>(),
                 TenantId = _options.XBlocksKey
             };

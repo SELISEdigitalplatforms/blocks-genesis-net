@@ -2,7 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Trace;
 
-namespace Blocks.LMT.Client
+namespace SeliseBlocks.LMT.Client
 {
     public static class LmtServiceExtensions
     {
@@ -12,7 +12,7 @@ namespace Blocks.LMT.Client
             configureOptions(options);
 
             services.AddSingleton(options);
-            services.AddSingleton<ILmtLogger, LmtLogger>();
+            services.AddSingleton<IBlocksLogger, BlocksLogger>();
 
             return services;
         }
@@ -23,7 +23,7 @@ namespace Blocks.LMT.Client
             configuration.GetSection("Lmt").Bind(options);
 
             services.AddSingleton(options);
-            services.AddSingleton<ILmtLogger, LmtLogger>();
+            services.AddSingleton<IBlocksLogger, BlocksLogger>();
 
             return services;
         }

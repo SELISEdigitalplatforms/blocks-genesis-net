@@ -2,7 +2,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace Blocks.LMT.Client
+namespace SeliseBlocks.LMT.Client
 {
     public class LmtTraceProcessor : BaseProcessor<Activity>
     {
@@ -21,7 +21,7 @@ namespace Blocks.LMT.Client
 
             // Use shared sender
             _serviceBusSender = new LmtServiceBusSender(
-                _options.ServiceName,
+                _options.ServiceId,
                 _options.ServiceBusConnectionString,
                 _options.MaxRetries,
                 _options.MaxFailedBatches);
@@ -56,7 +56,7 @@ namespace Blocks.LMT.Client
                 Status = activity.Status.ToString(),
                 StatusDescription = activity.StatusDescription ?? string.Empty,
                 Baggage = GetBaggageItems(),
-                ServiceName = _options.ServiceName,
+                ServiceName = _options.ServiceId,
                 TenantId = _options.XBlocksKey
             };
 
