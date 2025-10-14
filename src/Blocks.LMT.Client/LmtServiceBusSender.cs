@@ -2,7 +2,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 
-namespace Blocks.LMT.Client
+namespace SeliseBlocks.LMT.Client
 {
     public class LmtServiceBusSender : IDisposable
     {

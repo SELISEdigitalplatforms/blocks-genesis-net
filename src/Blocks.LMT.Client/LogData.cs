@@ -1,4 +1,4 @@
-﻿namespace Blocks.LMT.Client
+﻿namespace SeliseBlocks.LMT.Client
 {
     public class LogData
     {

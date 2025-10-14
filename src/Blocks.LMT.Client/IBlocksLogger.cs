@@ -1,4 +1,4 @@
-﻿namespace Blocks.LMT.Client
+﻿namespace SeliseBlocks.LMT.Client
 {
     public enum LmtLogLevel
     {
@@ -10,7 +10,7 @@
         Critical = 5
     }
 
-    public interface ILmtLogger
+    public interface IBlocksLogger
     {
         void Log(LmtLogLevel level, string message, Exception exception = null, Dictionary<string, object> properties = null);
         void LogTrace(string message, Dictionary<string, object> properties = null);

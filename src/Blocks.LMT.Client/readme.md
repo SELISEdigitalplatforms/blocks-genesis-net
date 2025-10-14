@@ -1,4 +1,4 @@
-﻿# Blocks.LMT.Client
+﻿# SeliseBlocks.LMT.Client
 
 A robust and high-performance .NET client library for logging and distributed tracing with Azure Service Bus integration. Designed for enterprise applications requiring centralized log and trace management with built-in resilience, batching, and automatic retry mechanisms.
 
@@ -20,12 +20,12 @@ A robust and high-performance .NET client library for logging and distributed tr
 ┌────────────────────────────────────────────────────────────────┐
 │                      Your Application                          │
 │  ┌──────────────┐              ┌──────────────────────┐        │
-│  │  ILmtLogger  │              │  OpenTelemetry       │        │
+│  │ IBlocksLogger│              │  OpenTelemetry       │        │
 │  │   (Logs)     │              │  (Traces)            │        │
 │  └──────┬───────┘              └──────────┬───────────┘        │
-│         │                                  │                   │
-│         │  Batching & Retry                │  Batching & Retry │
-│         ▼                                  ▼                   │
+│         │                                 │                    │
+│         │  Batching & Retry               │  Batching & Retry  │
+│         ▼                                 ▼                    │
 │  ┌──────────────────────────────────────────────────────┐      │
 │  │              Azure Service Bus                       │      │
 │  └──────────────────┬───────────────────────────────────┘      │
@@ -50,25 +50,25 @@ A robust and high-performance .NET client library for logging and distributed tr
 Install via NuGet Package Manager:
 
 ```bash
-dotnet add package Blocks.LMT.Client
+dotnet add package SeliseBlocks.LMT.Client
 ```
 
 Or via Package Manager Console:
 
 ```powershell
-Install-Package Blocks.LMT.Client
+Install-Package SeliseBlocks.LMT.Client
 ```
 
 ## 🚀 Quick Start
 
-### 1. Add to your `appsettings.json`:
+### 1. Add to your `appsettings.{"enviroment"}.json`:
 
 ```json
 {
   "Lmt": {
-    "ServiceName": "MyMicroservice",
+    "ServiceId": "your-service-id",
     "ServiceBusConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key",
-    "XBlocksKey" "23g23g2g"
+    "XBlocksKey": "your-XBlocksKey",
     "LogBatchSize": 100,
     "TraceBatchSize": 1000,
     "FlushIntervalSeconds": 5,
@@ -83,7 +83,8 @@ Install-Package Blocks.LMT.Client
 ### 2. Register services in `Program.cs` or `Startup.cs`:
 
 ```csharp
-using Blocks.LMT.Client;
+using SeliseBlocks.LMT.Client;
+using OpenTelemetry.Trace;
 
 // Add LMT Client
 builder.Services.AddLmtClient(builder.Configuration);
@@ -93,7 +94,7 @@ builder.Services.AddOpenTelemetry()
     .WithTracing(tracerBuilder =>
     {
         tracerBuilder
-            .AddSource("MyMicroservice") // Match your ServiceName
+            .AddSource("your-serviceId") // Match your ServiceId
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
             .AddLmtTracing(builder.Services.BuildServiceProvider()
@@ -104,51 +105,27 @@ builder.Services.AddOpenTelemetry()
 ### 3. Use in your code:
 
 ```csharp
-public class OrderService
-{
-    private readonly ILmtLogger _logger;
-    private readonly ActivitySource _activitySource;
-
-    public OrderService(ILmtLogger logger)
+    [ApiController]
+    [Route("[controller]/[action]")]
+    public class TestController : ControllerBase
     {
-        _logger = logger;
-        _activitySource = new ActivitySource("MyMicroservice");
-    }
+        private readonly IBlocksLogger _logger;
+        private readonly ActivitySource _activitySource;
 
-    public async Task<Order> CreateOrder(CreateOrderRequest request)
-    {
-        using var activity = _activitySource.StartActivity("CreateOrder");
-        
-        _logger.LogInformation("Creating order", new Dictionary<string, object>
+        public TestController(IBlocksLogger logger, ActivitySource activitySource)
         {
-            { "CustomerId", request.CustomerId },
-            { "OrderTotal", request.Total }
-        });
-
-        try
-        {
-            // Your business logic
-            var order = await ProcessOrder(request);
-            
-            _logger.LogInformation("Order created successfully", new Dictionary<string, object>
-            {
-                { "OrderId", order.Id },
-                { "CustomerId", request.CustomerId }
-            });
-            
-            return order;
+            _logger = logger;
+            _activitySource = activitySource;
         }
-        catch (Exception ex)
+
+        [HttpGet]
+        public string TestEndPoint()
         {
-            _logger.LogError("Failed to create order", ex, new Dictionary<string, object>
-            {
-                { "CustomerId", request.CustomerId },
-                { "ErrorType", ex.GetType().Name }
-            });
-            throw;
+            using var activity = _activitySource.StartActivity("TestControllerActivity");
+            _logger.LogInformation("Test endpoint called");
+            return "Test successful";
         }
     }
-}
 ```
 
 ## ⚙️ Configuration
@@ -157,7 +134,7 @@ public class OrderService
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ServiceName` | `string` | *required* | Unique identifier for your service |
+| `ServiceId` | `string` | *required* | Unique identifier for your service |
 | `ServiceBusConnectionString` | `string` | *required* | Azure Service Bus connection string |
 | `XBlocksKey` | `string` | *required* | | Selise blocks cloud key |
 | `LogBatchSize` | `int` | `100` | Number of logs to batch before sending |
@@ -168,66 +145,6 @@ public class OrderService
 | `EnableLogging` | `bool` | `true` | Enable/disable logging |
 | `EnableTracing` | `bool` | `true` | Enable/disable tracing |
 
-### Configuration via Code
-
-Instead of using `appsettings.json`, you can configure via code:
-
-```csharp
-services.AddLmtClient(options =>
-{
-    options.ServiceName = "MyMicroservice";
-    options.ServiceBusConnectionString = "Endpoint=sb://...";
-    options.XBlocksKey = "23g23g2g";
-    options.LogBatchSize = 100;
-    options.TraceBatchSize = 1000;
-    options.FlushIntervalSeconds = 5;
-    options.EnableLogging = true;
-    options.EnableTracing = true;
-});
-```
-
-### Environment Variables
-
-You can also use environment variables (useful for containerized environments):
-
-```bash
-Lmt__ServiceName=MyMicroservice
-Lmt__ServiceBusConnectionString=Endpoint=sb://...
-Lmt__XBlocksKey=23g23g2g
-Lmt__LogBatchSize=100
-Lmt__EnableLogging=true
-```
-
-## 📚 Usage
-
-### Logging
-
-#### Basic Logging
-
-```csharp
-public class UserService
-{
-    private readonly ILmtLogger _logger;
-
-    public UserService(ILmtLogger logger)
-    {
-        _logger = logger;
-    }
-
-    public async Task RegisterUser(User user)
-    {
-        _logger.LogInformation($"Registering user: {user.Email}");
-        
-        // Your logic
-        
-        _logger.LogInformation("User registered successfully", new Dictionary<string, object>
-        {
-            { "UserId", user.Id },
-            { "Email", user.Email }
-        });
-    }
-}
-```
 
 #### Log Levels
 
@@ -254,13 +171,9 @@ _logger.LogCritical("Payment gateway is down", exception);
 #### Structured Logging
 
 ```csharp
-_logger.LogInformation("Order processed", new Dictionary<string, object>
+_logger.LogInformation("your-log-message", new Dictionary<string, object>
 {
-    { "OrderId", orderId },
-    { "CustomerId", customerId },
-    { "Total", totalAmount },
-    { "ItemCount", items.Count },
-    { "ProcessingTime", processingTime.TotalMilliseconds }
+    { "property", value }
 });
 ```
 
@@ -273,104 +186,18 @@ try
 }
 catch (PaymentException ex)
 {
-    _logger.LogError("Payment processing failed", ex, new Dictionary<string, object>
+    _logger.LogError("your-message", ex, new Dictionary<string, object>
     {
-        { "PaymentId", payment.Id },
-        { "Amount", payment.Amount },
-        { "Currency", payment.Currency },
-        { "Gateway", payment.Gateway }
+        { "property", value }
     });
     throw;
 }
 ```
 
-
-## 🎯 Advanced Scenarios
-
-### Custom Batch Sizes for High-Throughput Services
+### IBlocksLogger Interface
 
 ```csharp
-services.AddLmtClient(options =>
-{
-    options.ServiceName = "HighThroughputService";
-    options.ServiceBusConnectionString = "...";
-    options.LogBatchSize = 500;      // Larger batches
-    options.TraceBatchSize = 5000;    // Much larger for traces
-    options.FlushIntervalSeconds = 2; // More frequent flushes
-});
-```
-
-### Conditional Logging/Tracing
-
-```csharp
-services.AddLmtClient(options =>
-{
-    options.ServiceName = "MyService";
-    options.ServiceBusConnectionString = "...";
-    
-    // Disable in development, enable in production
-    var environment = builder.Environment;
-    options.EnableLogging = !environment.IsDevelopment();
-    options.EnableTracing = !environment.IsDevelopment();
-});
-```
-
-### Integration with Existing Logging Frameworks
-
-You can use LMT alongside Serilog, NLog, or Microsoft.Extensions.Logging:
-
-```csharp
-public class PaymentService
-{
-    private readonly ILogger<PaymentService> _msLogger;  // Microsoft logger
-    private readonly ILmtLogger _lmtLogger;              // LMT logger
-
-    public PaymentService(
-        ILogger<PaymentService> msLogger, 
-        ILmtLogger lmtLogger)
-    {
-        _msLogger = msLogger;
-        _lmtLogger = lmtLogger;
-    }
-
-    public async Task ProcessPayment(Payment payment)
-    {
-        // Log to console/file via MS Logger
-        _msLogger.LogInformation("Processing payment {PaymentId}", payment.Id);
-        
-        // Send to centralized LMT system
-        _lmtLogger.LogInformation("Processing payment", new Dictionary<string, object>
-        {
-            { "PaymentId", payment.Id },
-            { "Amount", payment.Amount }
-        });
-        
-        // Your logic
-    }
-}
-```
-
-### Sampling for High-Volume Traces
-
-```csharp
-builder.Services.AddOpenTelemetry()
-    .WithTracing(tracerBuilder =>
-    {
-        tracerBuilder
-            .AddSource("MyMicroservice")
-            // Sample only 10% of traces to reduce volume
-            .SetSampler(new TraceIdRatioBasedSampler(0.1))
-            .AddLmtTracing(builder.Services.BuildServiceProvider()
-                .GetRequiredService<LmtOptions>());
-    });
-```
-
-## 📖 API Reference
-
-### ILmtLogger Interface
-
-```csharp
-public interface ILmtLogger
+public interface IBlocksLogger
 {
     void Log(LmtLogLevel level, string message, Exception exception = null, 
              Dictionary<string, object> properties = null);
@@ -404,10 +231,6 @@ public enum LmtLogLevel
 ```csharp
 // Register LMT Client
 IServiceCollection.AddLmtClient(IConfiguration configuration)
-IServiceCollection.AddLmtClient(Action<LmtOptions> configureOptions)
-
-// Add LMT tracing to OpenTelemetry
-TracerProviderBuilder.AddLmtTracing(LmtOptions options)
 ```
 
 ## 📄 License
