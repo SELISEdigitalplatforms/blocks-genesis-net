@@ -86,10 +86,9 @@ Install-Package SeliseBlocks.LMT.Client
 using SeliseBlocks.LMT.Client;
 using OpenTelemetry.Trace;
 
-// Add LMT Client
-builder.Services.AddLmtClient(builder.Configuration);
 
 // Add OpenTelemetry for distributed tracing
+builder.Services.AddSingleton(new ActivitySource("your-serviceId"));
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracerBuilder =>
     {
