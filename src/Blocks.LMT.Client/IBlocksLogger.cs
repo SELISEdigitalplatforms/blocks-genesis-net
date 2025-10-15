@@ -12,12 +12,12 @@
 
     public interface IBlocksLogger
     {
-        void Log(LmtLogLevel level, string message, Exception exception = null, Dictionary<string, object> properties = null);
-        void LogTrace(string message, Dictionary<string, object> properties = null);
-        void LogDebug(string message, Dictionary<string, object> properties = null);
-        void LogInformation(string message, Dictionary<string, object> properties = null);
-        void LogWarning(string message, Dictionary<string, object> properties = null);
-        void LogError(string message, Exception exception = null, Dictionary<string, object> properties = null);
-        void LogCritical(string message, Exception exception = null, Dictionary<string, object> properties = null);
+        void Log(LmtLogLevel level, string message, Exception exception = null, params object?[] args);
+        void LogTrace(string message, params object?[] args );
+        void LogDebug(string message, params object?[] args);
+        void LogInformation(string message, params object?[] args);
+        void LogWarning(string message, params object?[] args);
+        void LogError(string messageTemplate, Exception? exception = null, params object?[] args);
+        void LogCritical(string message, Exception exception = null, params object?[] args);
     }
 }

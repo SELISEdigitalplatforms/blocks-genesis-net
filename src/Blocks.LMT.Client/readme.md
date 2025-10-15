@@ -155,7 +155,7 @@ _logger.LogTrace("Entering method ProcessPayment");
 _logger.LogDebug("Payment gateway response received");
 
 // Information - General flow
-_logger.LogInformation("Payment processed successfully");
+_logger.LogInformation("Payment processed successfully {dateTime}",  DateTimeOffset.UtcNow);
 
 // Warning - Unexpected but handled situations
 _logger.LogWarning("Payment took longer than expected");
@@ -167,48 +167,20 @@ _logger.LogError("Payment failed", exception);
 _logger.LogCritical("Payment gateway is down", exception);
 ```
 
-#### Structured Logging
-
-```csharp
-_logger.LogInformation("your-log-message", new Dictionary<string, object>
-{
-    { "property", value }
-});
-```
-
-#### Exception Logging
-
-```csharp
-try
-{
-    await ProcessPayment(payment);
-}
-catch (PaymentException ex)
-{
-    _logger.LogError("your-message", ex, new Dictionary<string, object>
-    {
-        { "property", value }
-    });
-    throw;
-}
-```
 
 ### IBlocksLogger Interface
 
 ```csharp
-public interface IBlocksLogger
-{
-    void Log(LmtLogLevel level, string message, Exception exception = null, 
-             Dictionary<string, object> properties = null);
-    void LogTrace(string message, Dictionary<string, object> properties = null);
-    void LogDebug(string message, Dictionary<string, object> properties = null);
-    void LogInformation(string message, Dictionary<string, object> properties = null);
-    void LogWarning(string message, Dictionary<string, object> properties = null);
-    void LogError(string message, Exception exception = null, 
-                  Dictionary<string, object> properties = null);
-    void LogCritical(string message, Exception exception = null, 
-                     Dictionary<string, object> properties = null);
-}
+ public interface IBlocksLogger
+    {
+        void Log(LmtLogLevel level, string message, Exception exception = null, params object?[] args);
+        void LogTrace(string message, params object?[] args );
+        void LogDebug(string message, params object?[] args);
+        void LogInformation(string message, params object?[] args);
+        void LogWarning(string message, params object?[] args);
+        void LogError(string messageTemplate, Exception? exception = null, params object?[] args);
+        void LogCritical(string message, Exception exception = null, params object?[] args);
+    }
 ```
 
 ### LmtLogLevel Enum
