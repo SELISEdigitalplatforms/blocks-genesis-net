@@ -61,7 +61,7 @@ Install-Package SeliseBlocks.LMT.Client
 
 ## 🚀 Quick Start
 
-### 1. Add to your `appsettings.{"enviroment"}.json`:
+### 1. Add to your `appsettings.Development.json`:
 
 ```json
 {
@@ -83,9 +83,9 @@ Install-Package SeliseBlocks.LMT.Client
 ### 2. Register services in `Program.cs` or `Startup.cs`:
 
 ```csharp
-using SeliseBlocks.LMT.Client;
-using OpenTelemetry.Trace;
 
+// Add LMT Client
+builder.Services.AddLmtClient(builder.Configuration);
 
 // Add OpenTelemetry for distributed tracing
 builder.Services.AddSingleton(new ActivitySource("your-serviceId"));
@@ -101,27 +101,25 @@ builder.Services.AddOpenTelemetry()
     });
 ```
 
-### 3. Use in your code:
+### 3. Demo code:
 
 ```csharp
-    [ApiController]
-    [Route("[controller]/[action]")]
-    public class TestController : ControllerBase
+
+    public class Test
     {
         private readonly IBlocksLogger _logger;
         private readonly ActivitySource _activitySource;
 
-        public TestController(IBlocksLogger logger, ActivitySource activitySource)
+        public Test(IBlocksLogger logger, ActivitySource activitySource)
         {
             _logger = logger;
             _activitySource = activitySource;
         }
 
-        [HttpGet]
-        public string TestEndPoint()
+        public string LogTest()
         {
-            using var activity = _activitySource.StartActivity("TestControllerActivity");
-            _logger.LogInformation("Test endpoint called");
+            using var activity = _activitySource.StartActivity("LogTest");
+            _logger.LogInformation("LogTest method call");
             return "Test successful";
         }
     }
@@ -197,12 +195,6 @@ public enum LmtLogLevel
 }
 ```
 
-### Extension Methods
-
-```csharp
-// Register LMT Client
-IServiceCollection.AddLmtClient(IConfiguration configuration)
-```
 
 ## 📄 License
 
