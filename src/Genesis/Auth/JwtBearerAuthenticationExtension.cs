@@ -9,6 +9,8 @@ using OpenTelemetry;
 using StackExchange.Redis;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
@@ -126,36 +128,17 @@ namespace Blocks.Genesis
 
             try
             {
-                var bc = BlocksContext.GetContext();
-                var tenant = tenants.GetTenantByID(bc.TenantId);
-
-                var fallbackCert = await GetThirdPartyCertificateAsync(tenant, bc.TenantId);
-                if (fallbackCert == null)
-                {
-                    Console.WriteLine("[Fallback] ❌ No fallback certificate found.");
-                    return false;
-                }
-
-                var validationParams = tenant.ThirdPartyJwtTokenParameters;
-                if (validationParams == null)
-                {
-                    Console.WriteLine("[Fallback] ❌ No validation parameters found.");
-                    return false;
-                }
-
-                var fallbackValidationParams = CreateTokenValidationParameters(fallbackCert, new JwtTokenParameters
-                {
-                    Issuer = validationParams.Issuer,
-                    Audiences = validationParams.Audiences,
-                    PrivateCertificatePassword = "",
-                    IssueDate = DateTime.UtcNow,
-                });
-
                 if (string.IsNullOrWhiteSpace(token))
                 {
                     Console.WriteLine("[Fallback] ❌ No token found in request.");
                     return false;
                 }
+
+                var bc = BlocksContext.GetContext();
+                var tenant = tenants.GetTenantByID(bc.TenantId);
+                var fallbackValidationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl)?
+                                               await GetFromJwksUrl(tenant, bc) :
+                                               await GetFromPublicCertificate(tenant, bc);
 
                 return await ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
             }
@@ -164,6 +147,51 @@ namespace Blocks.Genesis
                 Console.WriteLine($"[Fallback] 💥 Unhandled error: {finalEx}");
                 return false;
             }
+        }
+
+        private static async Task<TokenValidationParameters> GetFromJwksUrl(Tenant tenant, BlocksContext bc)
+        {
+            using var httpClient = new HttpClient();
+            var jwks = await httpClient.GetFromJsonAsync<JsonWebKeySet>(tenant.ThirdPartyJwtTokenParameters.JwksUrl);
+
+            var parameters = new TokenValidationParameters
+            {
+                ValidateIssuer = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.Issuer),
+                ValidIssuer = tenant.ThirdPartyJwtTokenParameters.Issuer,
+                ValidateAudience = tenant.ThirdPartyJwtTokenParameters.Audiences?.Count > 0,
+                ValidateLifetime = true,
+                IssuerSigningKeys = jwks!.Keys
+            };
+
+            return parameters;
+        }
+
+
+        private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, BlocksContext bc)
+        {
+            var cert = await GetThirdPartyCertificateAsync(tenant, bc.TenantId);
+            if (cert == null)
+            {
+                Console.WriteLine("[Fallback] ❌ No fallback certificate found.");
+                return new TokenValidationParameters();
+            }
+
+            var validationParams = tenant.ThirdPartyJwtTokenParameters;
+            if (validationParams == null)
+            {
+                Console.WriteLine("[Fallback] ❌ No validation parameters found.");
+                return new TokenValidationParameters();
+            }
+
+            var parameters = CreateTokenValidationParameters(cert, new JwtTokenParameters
+            {
+                Issuer = validationParams.Issuer,
+                Audiences = validationParams.Audiences,
+                PrivateCertificatePassword = "",
+                IssueDate = DateTime.UtcNow,
+            });
+
+            return parameters;
         }
 
         private static async Task<bool> ValidateTokenWithFallbackAsync(string token, TokenValidationParameters validationParams, TokenValidatedContext context)
@@ -331,7 +359,7 @@ namespace Blocks.Genesis
             BlocksContext.SetContext(BlocksContext.Create(
                 tenantId: apiKey,
                 roles: [],
-                userId: string.Empty,
+                userId: identity.FindFirst("user_id")?.Value + "_thirdParty",
                 isAuthenticated: identity.IsAuthenticated,
                 requestUri: context.Request.Host.ToString(),
                 organizationId: string.Empty,
@@ -345,7 +373,7 @@ namespace Blocks.Genesis
                 oauthToken: identity.FindFirst("oauth")?.Value,
                 actualTentId: apiKey));
 
-            await EnsureThirdPartyUserExistsAsync(context);
+           // await EnsureThirdPartyUserExistsAsync(context);
         }
 
         private static async Task EnsureThirdPartyUserExistsAsync(TokenValidatedContext context)
