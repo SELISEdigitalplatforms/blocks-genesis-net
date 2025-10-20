@@ -53,7 +53,7 @@ namespace Blocks.Genesis
         private async Task<bool> CheckHasAccess(ClaimsIdentity claimsIdentity, string actionName, string controllerName)
         {
             var resource = $"{_blocksSecret.ServiceName}::{controllerName}::{actionName}".ToLower();
-            var roles = claimsIdentity.FindAll(BlocksContext.ROLES_CLAIM).Select(c => c.Value);
+            var roles = claimsIdentity?.FindAll(claimsIdentity.RoleClaimType).Select(r => r.Value).ToArray() ?? Enumerable.Empty<string>();
             var permissions = claimsIdentity.FindAll(BlocksContext.PERMISSION_CLAIM).Select(c => c.Value);
 
             return await CheckPermission(resource, roles, permissions);
@@ -63,10 +63,9 @@ namespace Blocks.Genesis
         {
             var collection = _dbContextProvider.GetCollection<BsonDocument>("Permissions");
 
-            var filter = Builders<BsonDocument>.Filter.Eq("Type", 1)
-                         & Builders<BsonDocument>.Filter.Eq("Resource", resource)
-                         & (Builders<BsonDocument>.Filter.In("Roles", roles)
-                            | Builders<BsonDocument>.Filter.In("Name", permissions));
+            var filter =  Builders<BsonDocument>.Filter.In("Resource", resource) |
+                          ((Builders<BsonDocument>.Filter.In("Roles", roles) &
+                          Builders<BsonDocument>.Filter.Eq("Resource", resource)));
 
             return await collection.CountDocumentsAsync(filter) > 0;
         }
