@@ -140,7 +140,7 @@ namespace Blocks.Genesis
                                                await GetFromJwksUrl(tenant, bc) :
                                                await GetFromPublicCertificate(tenant, bc);
 
-                return await ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
+                return ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
             }
             catch (Exception finalEx)
             {
@@ -194,7 +194,7 @@ namespace Blocks.Genesis
             return parameters;
         }
 
-        private static async Task<bool> ValidateTokenWithFallbackAsync(string token, TokenValidationParameters validationParams, TokenValidatedContext context)
+        private static bool ValidateTokenWithFallbackAsync(string token, TokenValidationParameters validationParams, TokenValidatedContext context)
         {
             try
             {
@@ -204,7 +204,7 @@ namespace Blocks.Genesis
                 if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
                 {
                     HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
-                    await StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
+                    StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
                 }
 
                 context.Principal = validatedPrincipal;
@@ -349,7 +349,7 @@ namespace Blocks.Genesis
             });
         }
 
-        private static async Task StoreThirdPartyBlocksContextActivity(
+        private static void StoreThirdPartyBlocksContextActivity(
             ClaimsIdentity identity,
             TokenValidatedContext context)
         {
