@@ -3,13 +3,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using MongoDB.Bson;
-using MongoDB.Driver;
 using OpenTelemetry;
 using StackExchange.Redis;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
-using System.Net.Http;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
@@ -137,8 +134,8 @@ namespace Blocks.Genesis
                 var bc = BlocksContext.GetContext();
                 var tenant = tenants.GetTenantByID(bc.TenantId);
                 var fallbackValidationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl)?
-                                               await GetFromJwksUrl(tenant, bc) :
-                                               await GetFromPublicCertificate(tenant, bc);
+                                                await GetFromJwksUrl(tenant, bc) :
+                                                await GetFromPublicCertificate(tenant, bc);
 
                 return ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
             }
@@ -160,6 +157,7 @@ namespace Blocks.Genesis
                 ValidIssuer = tenant.ThirdPartyJwtTokenParameters.Issuer,
                 ValidateAudience = tenant.ThirdPartyJwtTokenParameters.Audiences?.Count > 0,
                 ValidateLifetime = true,
+                ValidAudiences = tenant.ThirdPartyJwtTokenParameters.Audiences,
                 IssuerSigningKeys = jwks!.Keys
             };
 
@@ -201,13 +199,14 @@ namespace Blocks.Genesis
                 var handler = new JwtSecurityTokenHandler();
                 var validatedPrincipal = handler.ValidateToken(token, validationParams, out _);
 
-                if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
+                if (validatedPrincipal.Identity is ClaimsIdentity claimsIdentity)
                 {
                     HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
                     StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
                 }
 
                 context.Principal = validatedPrincipal;
+                context.HttpContext.User = validatedPrincipal;
                 context.Success();
 
                 Console.WriteLine("[Fallback] ✅ Token validated via fallback certificate.");
@@ -359,7 +358,7 @@ namespace Blocks.Genesis
             BlocksContext.SetContext(BlocksContext.Create(
                 tenantId: apiKey,
                 roles: [],
-                userId: identity.FindFirst("user_id")?.Value + "_thirdParty",
+                userId: identity.FindFirst("sid")?.Value + "_thirdParty",
                 isAuthenticated: identity.IsAuthenticated,
                 requestUri: context.Request.Host.ToString(),
                 organizationId: string.Empty,
@@ -373,33 +372,9 @@ namespace Blocks.Genesis
                 oauthToken: identity.FindFirst("oauth")?.Value,
                 actualTentId: apiKey));
 
-           // await EnsureThirdPartyUserExistsAsync(context);
-        }
+            context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] = JsonSerializer.Serialize(BlocksContext.GetContext());
 
-        private static async Task EnsureThirdPartyUserExistsAsync(TokenValidatedContext context)
-        {
-            var bc = BlocksContext.GetContext();
-            var dbProvider = context.HttpContext.RequestServices.GetRequiredService<IDbContextProvider>();
-            var userCollection = dbProvider.GetCollection<BsonDocument>("Users");
-            var user = await (await userCollection.FindAsync(Builders<BsonDocument>.Filter.Eq("UserName", bc.UserName))).FirstOrDefaultAsync();
-
-            if (user == null)
-            {
-                var messageClient = context.HttpContext.RequestServices.GetRequiredService<IMessageClient>();
-                await messageClient.SendToConsumerAsync(new ConsumerMessage<ThirdPartyTokenUserCreationRequest>
-                {
-                    ConsumerName = "blocks_iam_listener",
-                    Payload = new ThirdPartyTokenUserCreationRequest
-                    {
-                        UserId = bc.UserId ?? Guid.NewGuid().ToString(),
-                        ProjectKey = bc.TenantId,
-                        Email = bc.Email,
-                        Permissions = bc.Permissions.ToList(),
-                        Roles = bc.Roles.ToList(),
-                        PhoneNumber = bc.PhoneNumber
-                    }
-                });
-            }
+            // await EnsureThirdPartyUserExistsAsync(context);
         }
     }
 }

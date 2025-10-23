@@ -34,6 +34,7 @@ namespace ApiOne
         [HttpGet("process")]
         public async Task<object> ProcessRequest([FromQuery] ProcessRequest request)
         {
+            _changeControllerContext.ChangeContext(request);
             var sc = BlocksContext.GetContext();
             Console.WriteLine(sc);
 
