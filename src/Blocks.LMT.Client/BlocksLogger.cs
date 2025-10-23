@@ -21,14 +21,14 @@ namespace SeliseBlocks.LMT.Client
             if (string.IsNullOrWhiteSpace(_options.ServiceId))
                 throw new ArgumentException("ServiceName is required", nameof(options));
 
-            if (string.IsNullOrWhiteSpace(_options.ServiceBusConnectionString))
+            if (string.IsNullOrWhiteSpace(_options.ConnectionString))
                 throw new ArgumentException("ServiceBusConnectionString is required", nameof(options));
 
             _logBatch = new ConcurrentQueue<LogData>();
 
             _serviceBusSender = new LmtServiceBusSender(
                 _options.ServiceId,
-                _options.ServiceBusConnectionString,
+                _options.ConnectionString,
                 _options.MaxRetries,
                 _options.MaxFailedBatches);
 

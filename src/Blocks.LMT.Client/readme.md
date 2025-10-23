@@ -67,7 +67,7 @@ Install-Package SeliseBlocks.LMT.Client
 {
   "Lmt": {
     "ServiceId": "your-service-id",
-    "ServiceBusConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key",
+    "ConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key",
     "XBlocksKey": "your-XBlocksKey",
     "LogBatchSize": 100,
     "TraceBatchSize": 1000,

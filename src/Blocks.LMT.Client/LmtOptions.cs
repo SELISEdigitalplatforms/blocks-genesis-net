@@ -3,7 +3,7 @@
     public class LmtOptions
     {
         public string ServiceId { get; set; } = string.Empty;
-        public string ServiceBusConnectionString { get; set; } = string.Empty;
+        public string ConnectionString { get; set; } = string.Empty;
         public int LogBatchSize { get; set; } = 100;
         public int TraceBatchSize { get; set; } = 1000;
         public int FlushIntervalSeconds { get; set; } = 5;
