@@ -4,6 +4,7 @@
     {
         internal const string TenantCollectionName = "Tenants";
         internal const string TenantTokenPublicCertificateCachePrefix = "tetocertpublic::";
+        internal const string ThirdPartyContextHeader = "ThirdPartyContext";
         public const string BlocksKey = "x-blocks-key";
         public const string BlocksGrpcKey = "x-blocks-service-key";
         public const string AuthorizationHeaderName = "Authorization";

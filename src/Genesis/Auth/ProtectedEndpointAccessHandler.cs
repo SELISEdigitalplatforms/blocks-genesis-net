@@ -63,7 +63,7 @@ namespace Blocks.Genesis
         {
             var collection = _dbContextProvider.GetCollection<BsonDocument>("Permissions");
 
-            var filter =  Builders<BsonDocument>.Filter.In("Resource", resource) |
+            var filter =  Builders<BsonDocument>.Filter.In("Resource", permissions) |
                           ((Builders<BsonDocument>.Filter.In("Roles", roles) &
                           Builders<BsonDocument>.Filter.Eq("Resource", resource)));
 

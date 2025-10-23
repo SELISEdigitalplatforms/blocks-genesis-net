@@ -1,6 +1,8 @@
-﻿using MongoDB.Bson;
+﻿using Microsoft.AspNetCore.Http;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using OpenTelemetry;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -8,16 +10,31 @@ namespace Blocks.Genesis
     {
         private readonly ITenants _tenants;
         private readonly IDbContextProvider _dbContextProvider;
+        private readonly IHttpContextAccessor  _httpContextAccessor;
 
-        public ChangeControllerContext(ITenants tenants, IDbContextProvider dbContextProvider)
+        public ChangeControllerContext(ITenants tenants, IDbContextProvider dbContextProvider,
+                                       IHttpContextAccessor httpContextAccessor)
         {
             _tenants = tenants;
             _dbContextProvider = dbContextProvider;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public void ChangeContext(IProjectKey projectKey)
         {
-            var bc = BlocksContext.GetContext();
+            string thirdPartyContextHeader = _httpContextAccessor.HttpContext.Request.Headers[BlocksConstants.ThirdPartyContextHeader];
+
+            if (!string.IsNullOrWhiteSpace(thirdPartyContextHeader))
+            {
+                var thirdPartyContext = JsonSerializer.Deserialize<BlocksContext>(thirdPartyContextHeader);
+
+                if (thirdPartyContext != null)
+                {
+                    SetThirdPartyContext(thirdPartyContext);
+                }
+            }
+
+            var bc =  BlocksContext.GetContext();
 
             Baggage.SetBaggage("ActualTenantId", bc.TenantId);
 
@@ -49,6 +66,27 @@ namespace Blocks.Genesis
 
                 Baggage.SetBaggage("TenantId", projectKey.ProjectKey);
             }
+        }
+
+        private void SetThirdPartyContext(BlocksContext bc)
+        {
+             BlocksContext.SetContext(BlocksContext.Create
+                 (
+                    tenantId: bc.TenantId,
+                    roles: bc?.Roles ?? Enumerable.Empty<string>(),
+                    userId: bc?.UserId ?? string.Empty,
+                    isAuthenticated: bc?.IsAuthenticated ?? false,
+                    requestUri: bc?.RequestUri ?? string.Empty,
+                    organizationId: bc?.OrganizationId ?? string.Empty,
+                    expireOn: bc?.ExpireOn ?? DateTime.UtcNow.AddHours(1),
+                    email: bc?.Email ?? string.Empty,
+                    permissions: bc?.Permissions ?? Enumerable.Empty<string>(),
+                    userName: bc?.UserName ?? string.Empty,
+                    phoneNumber: bc?.PhoneNumber ?? string.Empty,
+                    displayName: bc?.DisplayName ?? string.Empty,
+                    oauthToken: bc?.OAuthToken ?? string.Empty,
+                    actualTentId: bc?.TenantId ?? string.Empty
+                ));
         }
     }
 }
