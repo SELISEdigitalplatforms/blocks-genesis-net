@@ -22,7 +22,7 @@ namespace SeliseBlocks.LMT.Client
             // Use shared sender
             _serviceBusSender = new LmtServiceBusSender(
                 _options.ServiceId,
-                _options.ServiceBusConnectionString,
+                _options.ConnectionString,
                 _options.MaxRetries,
                 _options.MaxFailedBatches);
 
