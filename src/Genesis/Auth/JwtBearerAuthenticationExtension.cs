@@ -75,7 +75,7 @@ namespace Blocks.Genesis
                                 return;
                             }
 
-                            await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),tenants, accessToken, ex);
+                            await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options), tenants, accessToken, ex);
                         },
 
                         OnForbidden = context =>
@@ -133,7 +133,7 @@ namespace Blocks.Genesis
 
                 var bc = BlocksContext.GetContext();
                 var tenant = tenants.GetTenantByID(bc.TenantId);
-                var fallbackValidationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl)?
+                var fallbackValidationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl) ?
                                                 await GetFromJwksUrl(tenant, bc) :
                                                 await GetFromPublicCertificate(tenant, bc);
 
@@ -358,7 +358,7 @@ namespace Blocks.Genesis
             BlocksContext.SetContext(BlocksContext.Create(
                 tenantId: apiKey,
                 roles: [],
-                userId: identity.FindFirst("sid")?.Value + "_thirdParty",
+                userId: identity.FindFirst("sub")?.Value + "_external",
                 isAuthenticated: identity.IsAuthenticated,
                 requestUri: context.Request.Host.ToString(),
                 organizationId: string.Empty,
