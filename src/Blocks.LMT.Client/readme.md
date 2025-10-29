@@ -132,7 +132,7 @@ builder.Services.AddOpenTelemetry()
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `ServiceId` | `string` | *required* | Unique identifier for your service |
-| `ServiceBusConnectionString` | `string` | *required* | Azure Service Bus connection string |
+| `ConnectionString` | `string` | *required* | Azure Service Bus connection string |
 | `XBlocksKey` | `string` | *required* | | Selise blocks cloud key |
 | `LogBatchSize` | `int` | `100` | Number of logs to batch before sending |
 | `TraceBatchSize` | `int` | `1000` | Number of traces to batch before sending |
