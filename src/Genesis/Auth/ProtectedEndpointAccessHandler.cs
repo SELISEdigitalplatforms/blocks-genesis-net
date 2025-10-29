@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text;
 
 namespace Blocks.Genesis
 {
@@ -11,11 +13,15 @@ namespace Blocks.Genesis
     {
         private readonly IDbContextProvider _dbContextProvider;
         private readonly IBlocksSecret _blocksSecret;
+        private readonly ITenants _tenants;
 
-        public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider, IBlocksSecret blocksSecret)
+        public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider, 
+                                              IBlocksSecret blocksSecret,
+                                              ITenants tenants)
         {
             _dbContextProvider = dbContextProvider;
             _blocksSecret = blocksSecret;
+            _tenants = tenants;
         }
 
         protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ProtectedEndpointAccessRequirement requirement)
@@ -37,16 +43,44 @@ namespace Blocks.Genesis
                 return;
             }
 
-            // Check access
-            var hasAccess = await CheckHasAccess(identity, actionName, controllerName);
+            if (context.Resource is HttpContext httpContext)
+            {
+                var blocksKey = httpContext.Request.Headers[BlocksConstants.BlocksKey].ToString();
+                var isRoot = _tenants.GetTenantByID(blocksKey)?.IsRootTenant ?? false;
+                var projectKey = await ExtractProjectKeyAsync(httpContext);
 
-            if (hasAccess)
-            {
-                context.Succeed(requirement);
-            }
-            else
-            {
-                context.Fail();
+                if (isRoot && !string.IsNullOrEmpty(projectKey))
+                {
+                    var userId = identity.FindFirst(BlocksContext.USER_ID_CLAIM)?.Value;
+                    var tenant = _tenants.GetTenantByID(projectKey);
+
+                    if (tenant != null && (tenant.CreatedBy == userId))
+                    {
+                        // Allow access
+                        context.Succeed(requirement);
+                        return;
+                    }
+
+                    var sharedProject = await (await _dbContextProvider.GetCollection<BsonDocument>("ProjectPeoples").FindAsync(Builders<BsonDocument>.Filter.Eq("UserId", userId) & Builders<BsonDocument>.Filter.Eq("TenantId", projectKey))).FirstOrDefaultAsync();
+
+                    if (sharedProject != null)
+                    {
+                        context.Succeed(requirement);
+                        return;
+                    }
+
+                    // Check access
+                    var hasAccess = await CheckHasAccess(identity, actionName, controllerName);
+
+                    if (hasAccess)
+                    {
+                        context.Succeed(requirement);
+                    }
+                    else
+                    {
+                        context.Fail();
+                    }
+                }
             }
         }
 
@@ -93,6 +127,49 @@ namespace Blocks.Genesis
 
             return string.Empty;
         }
+
+        private static async Task<string?> ExtractProjectKeyAsync(HttpContext httpContext)
+        {
+            var request = httpContext.Request;
+
+            if (request.Query.TryGetValue("ProjectKey", out var queryValue))
+            {
+                var projectKeyFromQuery = queryValue.ToString();
+                if (!string.IsNullOrWhiteSpace(projectKeyFromQuery))
+                    return projectKeyFromQuery;
+            }
+
+            if (request.ContentLength > 0 && request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                // Allow multiple reads of the body (required!)
+                request.EnableBuffering();
+
+                using var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true);
+                var body = await reader.ReadToEndAsync();
+                request.Body.Position = 0; // rewind so the next middleware can read again
+
+                if (!string.IsNullOrWhiteSpace(body))
+                {
+                    try
+                    {
+                        using var jsonDoc = JsonDocument.Parse(body);
+                        if (jsonDoc.RootElement.TryGetProperty("projectKey", out var projectKeyElement))
+                        {
+                            var projectKeyFromBody = projectKeyElement.GetString();
+                            if (!string.IsNullOrWhiteSpace(projectKeyFromBody))
+                                return projectKeyFromBody;
+                        }
+                    }
+                    catch (JsonException)
+                    {
+                        // Body is not valid JSON; ignore
+                    }
+                }
+            }
+
+            return null;
+        }
+
 
     }
 }

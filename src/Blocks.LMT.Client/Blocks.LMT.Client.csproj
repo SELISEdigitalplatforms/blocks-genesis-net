@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>SeliseBlocks.LMT.Client</PackageId>
-    <Version>9.0.2</Version>
+    <Version>9.0.3</Version>
     <Authors>Selise Blocks</Authors>
     <Company>Selise</Company>
     <Product>Blocks LMT Client</Product>
