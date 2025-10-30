@@ -15,7 +15,7 @@ namespace Blocks.Genesis
         private readonly IBlocksSecret _blocksSecret;
         private readonly ITenants _tenants;
 
-        public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider, 
+        public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider,
                                               IBlocksSecret blocksSecret,
                                               ITenants tenants)
         {
@@ -26,16 +26,14 @@ namespace Blocks.Genesis
 
         protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ProtectedEndpointAccessRequirement requirement)
         {
-            // Check if the user is authenticated
-            if (context.User.Identity is not ClaimsIdentity identity || !identity.IsAuthenticated)
+            if (!IsAuthenticated(context))
             {
                 context.Fail();
                 return;
             }
 
-            // Get action and controller names
-            var actionName = GetActionName(context);
-            var controllerName = GetControllerName(context);
+            var identity = (ClaimsIdentity)context.User.Identity!;
+            var (actionName, controllerName) = GetActionAndController(context);
 
             if (string.IsNullOrEmpty(actionName) || string.IsNullOrEmpty(controllerName))
             {
@@ -45,44 +43,85 @@ namespace Blocks.Genesis
 
             if (context.Resource is HttpContext httpContext)
             {
-                var blocksKey = httpContext.Request.Headers[BlocksConstants.BlocksKey].ToString();
-                var isRoot = _tenants.GetTenantByID(blocksKey)?.IsRootTenant ?? false;
-                var projectKey = await ExtractProjectKeyAsync(httpContext);
-
-                if (isRoot && !string.IsNullOrEmpty(projectKey))
-                {
-                    var userId = identity.FindFirst(BlocksContext.USER_ID_CLAIM)?.Value;
-                    var tenant = _tenants.GetTenantByID(projectKey);
-
-                    if (tenant != null && (tenant.CreatedBy == userId))
-                    {
-                        // Allow access
-                        context.Succeed(requirement);
-                        return;
-                    }
-
-                    var sharedProject = await (await _dbContextProvider.GetCollection<BsonDocument>("ProjectPeoples").FindAsync(Builders<BsonDocument>.Filter.Eq("UserId", userId) & Builders<BsonDocument>.Filter.Eq("TenantId", projectKey))).FirstOrDefaultAsync();
-
-                    if (sharedProject != null)
-                    {
-                        context.Succeed(requirement);
-                        return;
-                    }
-
-                    // Check access
-                    var hasAccess = await CheckHasAccess(identity, actionName, controllerName);
-
-                    if (hasAccess)
-                    {
-                        context.Succeed(requirement);
-                    }
-                    else
-                    {
-                        context.Fail();
-                    }
-                }
+                if (await HandleRootTenantAccessAsync(context, identity, httpContext, requirement))
+                    return;
             }
+
+            await HandleStandardAccessAsync(context, identity, actionName, controllerName, requirement);
         }
+
+        private static bool IsAuthenticated(AuthorizationHandlerContext context)
+        {
+            return context.User.Identity is ClaimsIdentity identity && identity.IsAuthenticated;
+        }
+
+        private static (string Action, string Controller) GetActionAndController(AuthorizationHandlerContext context)
+        {
+            var action = GetActionName(context);
+            var controller = GetControllerName(context);
+            return (action, controller);
+        }
+
+        private async Task<bool> HandleRootTenantAccessAsync(AuthorizationHandlerContext context,
+                                                             ClaimsIdentity identity,
+                                                             HttpContext httpContext,
+                                                             ProtectedEndpointAccessRequirement requirement)
+        {
+            var blocksKey = httpContext.Request.Headers[BlocksConstants.BlocksKey].ToString();
+            var tenant = _tenants.GetTenantByID(blocksKey);
+
+            if (tenant is null || !tenant.IsRootTenant)
+                return false;
+
+            var projectKey = await ExtractProjectKeyAsync(httpContext);
+            if (string.IsNullOrEmpty(projectKey))
+                return false;
+
+            var userId = identity.FindFirst(BlocksContext.USER_ID_CLAIM)?.Value;
+            if (string.IsNullOrEmpty(userId))
+                return false;
+
+            if (await IsProjectOwnerOrSharedAsync(userId, projectKey))
+            {
+                context.Succeed(requirement);
+                return true;
+            }
+
+            return false;
+        }
+
+        private async Task<bool> IsProjectOwnerOrSharedAsync(string userId, string projectKey)
+        {
+            var tenant = _tenants.GetTenantByID(projectKey);
+            if (tenant != null && tenant.CreatedBy == userId)
+                return true;
+
+            var filter = Builders<BsonDocument>.Filter.Eq("UserId", userId) &
+                         Builders<BsonDocument>.Filter.Eq("TenantId", projectKey);
+
+            var sharedProject = await (await _dbContextProvider
+                .GetCollection<BsonDocument>("ProjectPeoples")
+                .FindAsync(filter))
+                .FirstOrDefaultAsync();
+
+            return sharedProject != null;
+        }
+
+        private async Task HandleStandardAccessAsync(AuthorizationHandlerContext context,
+                                                     ClaimsIdentity identity,
+                                                     string actionName,
+                                                     string controllerName,
+                                                     ProtectedEndpointAccessRequirement requirement)
+        {
+            var hasAccess = await CheckHasAccess(identity, actionName, controllerName);
+
+            if (hasAccess)
+                context.Succeed(requirement);
+            else
+                context.Fail();
+        }
+
+
 
         private async Task<bool> CheckHasAccess(ClaimsIdentity claimsIdentity, string actionName, string controllerName)
         {
@@ -97,7 +136,7 @@ namespace Blocks.Genesis
         {
             var collection = _dbContextProvider.GetCollection<BsonDocument>("Permissions");
 
-            var filter =  Builders<BsonDocument>.Filter.In("Resource", permissions) |
+            var filter = Builders<BsonDocument>.Filter.In("Resource", permissions) |
                           ((Builders<BsonDocument>.Filter.In("Roles", roles) &
                           Builders<BsonDocument>.Filter.Eq("Resource", resource)));
 
