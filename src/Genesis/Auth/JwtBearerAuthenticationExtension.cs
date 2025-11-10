@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using MongoDB.Bson;
+using MongoDB.Driver;
 using OpenTelemetry;
 using StackExchange.Redis;
 using System.Diagnostics;
@@ -137,7 +139,7 @@ namespace Blocks.Genesis
                                                 await GetFromJwksUrl(tenant, bc) :
                                                 await GetFromPublicCertificate(tenant, bc);
 
-                return ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
+                return await ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
             }
             catch (Exception finalEx)
             {
@@ -192,7 +194,7 @@ namespace Blocks.Genesis
             return parameters;
         }
 
-        private static bool ValidateTokenWithFallbackAsync(string token, TokenValidationParameters validationParams, TokenValidatedContext context)
+        private static async Task<bool> ValidateTokenWithFallbackAsync(string token, TokenValidationParameters validationParams, TokenValidatedContext context)
         {
             try
             {
@@ -202,7 +204,7 @@ namespace Blocks.Genesis
                 if (validatedPrincipal.Identity is ClaimsIdentity claimsIdentity)
                 {
                     HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
-                    StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
+                    await StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
                 }
 
                 context.Principal = validatedPrincipal;
@@ -341,40 +343,56 @@ namespace Blocks.Genesis
 
         private static void HandleTokenIssuer(ClaimsIdentity identity, string requestUri, string token)
         {
-            identity.AddClaims(new[]
-            {
+            identity.AddClaims(
+            [
                 new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri),
                 new Claim(BlocksContext.TOKEN_CLAIM, token)
-            });
+            ]);
         }
 
-        private static void StoreThirdPartyBlocksContextActivity(
-            ClaimsIdentity identity,
-            TokenValidatedContext context)
+        private static async Task StoreThirdPartyBlocksContextActivity(ClaimsIdentity identity, TokenValidatedContext context)
         {
             _ = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
+            var dbContext = context.HttpContext.RequestServices.GetRequiredService<IDbContextProvider>();
+            var claimsMapper = await (await dbContext.GetCollection<BsonDocument>("ThirdPartyJWTClaims").FindAsync(Builders<BsonDocument>.Filter.Empty)).FirstOrDefaultAsync();
 
-            // TODO: Replace with actual token mapping logic
+            var roleClaim = identity?.FindAll(identity.RoleClaimType).Select(r => r.Value).ToArray() ?? [];
+
+            if (roleClaim.Length == 0)
+            {
+                if (claimsMapper["IsRoleClaimNested"] == true)
+                {
+                    var claim = identity?.Claims.FirstOrDefault(c => c.Type == claimsMapper["RoleClaimObjcetName"]);
+                    var roleAccessJson = claim?.Value;
+                    using var doc = JsonDocument.Parse(roleAccessJson ?? "");
+                    roleClaim = doc.RootElement.GetProperty(claimsMapper["Roles"].ToString()).EnumerateArray().Select(x => x.GetString()).ToArray();
+                }
+                else
+                {
+                    var roleClaimName = claimsMapper["Roles"]?.ToString() ?? "";
+                    roleClaim = identity?.FindAll(roleClaimName).Select(r => r.Value).ToArray() ?? [];
+                }
+
+            }
+
             BlocksContext.SetContext(BlocksContext.Create(
                 tenantId: apiKey,
-                roles: [],
-                userId: identity.FindFirst("sub")?.Value + "_external",
+                roles: roleClaim,
+                userId: identity?.FindFirst(claimsMapper["UserId"].ToString() ?? "")?.Value + "_external",
                 isAuthenticated: identity.IsAuthenticated,
                 requestUri: context.Request.Host.ToString(),
                 organizationId: string.Empty,
                 expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, out var exp)
-                    ? exp : DateTime.MinValue,
-                email: identity.FindFirst("email")?.Value ?? string.Empty,
+                          ? exp : DateTime.MinValue,
+                email: identity.FindFirst(claimsMapper["Email"]?.ToString() ?? "")?.Value ?? string.Empty,
                 permissions: [],
-                userName: identity.FindFirst("email")?.Value ?? string.Empty,
+                userName: identity.FindFirst(claimsMapper["Email"]?.ToString() ?? "")?.Value ?? string.Empty,
                 phoneNumber: string.Empty,
-                displayName: string.Empty,
+                displayName: identity.FindFirst(claimsMapper["Name"]?.ToString() ?? "")?.Value ?? string.Empty,
                 oauthToken: identity.FindFirst("oauth")?.Value,
                 actualTentId: apiKey));
 
             context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] = JsonSerializer.Serialize(BlocksContext.GetContext());
-
-            // await EnsureThirdPartyUserExistsAsync(context);
         }
     }
 }
