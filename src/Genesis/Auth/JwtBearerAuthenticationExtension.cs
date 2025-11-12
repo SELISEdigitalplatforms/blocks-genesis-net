@@ -360,39 +360,42 @@ namespace Blocks.Genesis
 
             if (roleClaim.Length == 0)
             {
-                if (claimsMapper["IsRoleClaimNested"] == true)
-                {
-                    var claim = identity?.Claims.FirstOrDefault(c => c.Type == claimsMapper["RoleClaimObjcetName"]);
-                    var roleAccessJson = claim?.Value;
-                    using var doc = JsonDocument.Parse(roleAccessJson ?? "");
-                    roleClaim = doc.RootElement.GetProperty(claimsMapper["Roles"].ToString()).EnumerateArray().Select(x => x.GetString()).ToArray();
-                }
-                else
-                {
-                    var roleClaimName = claimsMapper["Roles"]?.ToString() ?? "";
-                    roleClaim = identity?.FindAll(roleClaimName).Select(r => r.Value).ToArray() ?? [];
-                }
-
+                 var roleClaimName = ExtactClaimProperty(claimsMapper["Roles"]?.ToString()?? "");
+                 roleClaim = identity?.FindAll(roleClaimName).Select(r => r.Value).ToArray() ?? [];               
             }
+
+            var subClaim = identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+            var emailClaim = identity?.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
 
             BlocksContext.SetContext(BlocksContext.Create(
                 tenantId: apiKey,
                 roles: roleClaim,
-                userId: identity?.FindFirst(claimsMapper["UserId"].ToString() ?? "")?.Value + "_external",
+
+                userId: ExtactClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim:
+                        identity?.FindFirst(ExtactClaimProperty(claimsMapper["UserId"].ToString() ?? ""))?.Value + "_external",
+
                 isAuthenticated: identity.IsAuthenticated,
                 requestUri: context.Request.Host.ToString(),
                 organizationId: string.Empty,
                 expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, out var exp)
                           ? exp : DateTime.MinValue,
-                email: identity.FindFirst(claimsMapper["Email"]?.ToString() ?? "")?.Value ?? string.Empty,
+
+                email: !string.IsNullOrWhiteSpace(emailClaim)? emailClaim: 
+                       identity.FindFirst(ExtactClaimProperty(claimsMapper["Email"]?.ToString() ?? ""))?.Value ?? string.Empty,
+
                 permissions: [],
-                userName: identity.FindFirst(claimsMapper["Email"]?.ToString() ?? "")?.Value ?? string.Empty,
+                userName: identity.FindFirst(ExtactClaimProperty(claimsMapper["Email"]?.ToString() ?? ""))?.Value ?? string.Empty,
                 phoneNumber: string.Empty,
-                displayName: identity.FindFirst(claimsMapper["Name"]?.ToString() ?? "")?.Value ?? string.Empty,
+                displayName: identity.FindFirst(ExtactClaimProperty(claimsMapper["Name"]?.ToString() ?? ""))?.Value ?? string.Empty,
                 oauthToken: identity.FindFirst("oauth")?.Value,
                 actualTentId: apiKey));
 
             context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] = JsonSerializer.Serialize(BlocksContext.GetContext());
+        }
+
+        private static string ExtactClaimProperty(string claimObject)
+        {
+            return claimObject.Split('.').Last();
         }
     }
 }
