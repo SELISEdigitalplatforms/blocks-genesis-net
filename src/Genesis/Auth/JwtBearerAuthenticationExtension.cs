@@ -360,8 +360,10 @@ namespace Blocks.Genesis
 
             if (roleClaim.Length == 0)
             {
-                 var roleClaimName = ExtactClaimProperty(claimsMapper["Roles"]?.ToString()?? "");
-                 roleClaim = identity?.FindAll(roleClaimName).Select(r => r.Value).ToArray() ?? [];               
+                var claim = identity?.Claims.FirstOrDefault(c => c.Type == GetClaimObjectName(claimsMapper["Roles"]?.ToString() ?? ""));
+                var roleAccessJson = claim?.Value;
+                using var doc = JsonDocument.Parse(roleAccessJson ?? "");
+                roleClaim = doc.RootElement.GetProperty(ExtactClaimProperty(claimsMapper["Roles"]?.ToString() ?? "").ToString()).EnumerateArray().Select(x => x.GetString()).ToArray() ?? [];
             }
 
             var subClaim = identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
@@ -372,7 +374,7 @@ namespace Blocks.Genesis
                 roles: roleClaim,
 
                 userId: ExtactClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim:
-                        identity?.FindFirst(ExtactClaimProperty(claimsMapper["UserId"].ToString() ?? ""))?.Value + "_external",
+                        ExtactClaimValue(identity, claimsMapper["UserId"].ToString() ?? "") + "_external",
 
                 isAuthenticated: identity.IsAuthenticated,
                 requestUri: context.Request.Host.ToString(),
@@ -381,12 +383,14 @@ namespace Blocks.Genesis
                           ? exp : DateTime.MinValue,
 
                 email: !string.IsNullOrWhiteSpace(emailClaim)? emailClaim: 
-                       identity.FindFirst(ExtactClaimProperty(claimsMapper["Email"]?.ToString() ?? ""))?.Value ?? string.Empty,
+                       ExtactClaimValue(identity, claimsMapper["Email"]?.ToString() ?? ""),
 
                 permissions: [],
-                userName: identity.FindFirst(ExtactClaimProperty(claimsMapper["Email"]?.ToString() ?? ""))?.Value ?? string.Empty,
+                userName: claimsMapper["UserName"]?.ToString().ToLower() == "email"? emailClaim:
+                          ExtactClaimValue(identity, claimsMapper["UserName"]?.ToString() ?? ""),
+
                 phoneNumber: string.Empty,
-                displayName: identity.FindFirst(ExtactClaimProperty(claimsMapper["Name"]?.ToString() ?? ""))?.Value ?? string.Empty,
+                displayName: ExtactClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
                 oauthToken: identity.FindFirst("oauth")?.Value,
                 actualTentId: apiKey));
 
@@ -396,6 +400,26 @@ namespace Blocks.Genesis
         private static string ExtactClaimProperty(string claimObject)
         {
             return claimObject.Split('.').Last();
+        }
+
+        private static string GetClaimObjectName(string claimObject)
+        {
+            return claimObject.Split('.').First();
+        }
+
+       private static string ExtactClaimValue(ClaimsIdentity identity, string claimObject)
+        {
+            var nestedClaims = claimObject.Split(".");
+
+            if (nestedClaims.Length > 1)
+            {
+                var claim = identity?.Claims.FirstOrDefault(c => c.Type == nestedClaims[0]?.ToString());
+                var claimAccessJson = claim?.Value;
+                using var doc = JsonDocument.Parse(claimAccessJson ?? "");
+                return doc.RootElement.GetProperty(nestedClaims[1]).ToString();
+            }
+
+            return identity.FindFirst(nestedClaims[0])?.Value ?? string.Empty;
         }
     }
 }
