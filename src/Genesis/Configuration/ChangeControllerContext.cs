@@ -85,7 +85,7 @@ namespace Blocks.Genesis
                     phoneNumber: bc?.PhoneNumber ?? string.Empty,
                     displayName: bc?.DisplayName ?? string.Empty,
                     oauthToken: bc?.OAuthToken ?? string.Empty,
-                    actualTentId: bc?.TenantId ?? string.Empty
+                    actualTentId: bc?.ActualTenantId ?? string.Empty
                 ));
         }
     }
