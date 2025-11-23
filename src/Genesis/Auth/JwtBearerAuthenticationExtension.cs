@@ -360,10 +360,7 @@ namespace Blocks.Genesis
 
             if (roleClaim.Length == 0)
             {
-                var claim = identity?.Claims.FirstOrDefault(c => c.Type == GetClaimObjectName(claimsMapper["Roles"]?.ToString() ?? ""));
-                var roleAccessJson = claim?.Value;
-                using var doc = JsonDocument.Parse(roleAccessJson ?? "");
-                roleClaim = doc.RootElement.GetProperty(ExtactClaimProperty(claimsMapper["Roles"]?.ToString() ?? "").ToString()).EnumerateArray().Select(x => x.GetString()).ToArray() ?? [];
+                roleClaim = ExtractRolesFromClaim(identity, claimsMapper);
             }
 
             var subClaim = identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
@@ -373,7 +370,7 @@ namespace Blocks.Genesis
                 tenantId: apiKey,
                 roles: roleClaim,
 
-                userId: ExtactClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim:
+                userId: ExtactClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim + "_external" :
                         ExtactClaimValue(identity, claimsMapper["UserId"].ToString() ?? "") + "_external",
 
                 isAuthenticated: identity.IsAuthenticated,
@@ -420,6 +417,41 @@ namespace Blocks.Genesis
             }
 
             return identity.FindFirst(nestedClaims[0])?.Value ?? string.Empty;
+        }
+
+        public static string[] ExtractRolesFromClaim(ClaimsIdentity identity, BsonDocument claimsMapper)
+        {
+            if (identity == null)
+                return [];
+
+            var claimName = GetClaimObjectName(claimsMapper["Roles"]?.ToString() ?? "");
+            var claimValue = identity.Claims.FirstOrDefault(c => c.Type == claimName)?.Value;
+
+            if (string.IsNullOrWhiteSpace(claimValue))
+                return [];
+
+            try
+            {
+                using var doc = JsonDocument.Parse(claimValue);
+
+                var propertyName = ExtactClaimProperty(claimsMapper["Roles"]?.ToString() ?? "").ToString();
+
+                if (!doc.RootElement.TryGetProperty(propertyName, out var rolesElement))
+                    return [];
+
+                if (rolesElement.ValueKind != JsonValueKind.Array)
+                    return [];
+
+                return rolesElement
+                        .EnumerateArray()
+                        .Where(e => e.ValueKind == JsonValueKind.String)
+                        .Select(e => e.GetString()!)
+                        .ToArray();
+            }
+            catch
+            {
+                return [];
+            }
         }
     }
 }
