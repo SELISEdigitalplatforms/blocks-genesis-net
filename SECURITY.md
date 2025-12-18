@@ -31,3 +31,4 @@ This security policy applies to the **Selise <Blocks/>** project. Please note th
 We may update this security policy from time to time. Check the file's Git history for the most recent changes.
 
 Thank you for helping to keep **Selise <Blocks/>** secure!
+
