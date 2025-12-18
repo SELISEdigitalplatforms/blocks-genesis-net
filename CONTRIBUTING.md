@@ -1,6 +1,6 @@
-# Contributing to l3-react-blocks-construct
+# Contributing to l0-net-blocks-genesis
 
-Thank you for your interest in contributing to **l3-react-blocks-construct**! Your contributions help improve this project for everyone. Whether you're reporting a bug, suggesting an enhancement, or submitting code changes, we welcome your input.
+Thank you for your interest in contributing to **l0-net-blocks-genesis**! Your contributions help improve this project for everyone. Whether you're reporting a bug, suggesting an enhancement, or submitting code changes, we welcome your input.
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ Please read and follow our [Code of Conduct](./CODE_OF_CONDUCT.md). By participa
 
 ### Reporting Issues
 
-If you encounter a bug or any issue, please report it by [opening an issue](https://github.com/SELISEdigitalplatforms/l3-react-blocks-construct/issues/new) and include the following details:
+If you encounter a bug or any issue, please report it by [opening an issue](https://github.com/SELISEdigitalplatforms/l0-net-blocks-genesis/issues/new) and include the following details:
 
 - **Description**: A clear and concise description of the bug.
 - **Steps to Reproduce**: Steps to replicate the issue.
@@ -39,8 +39,8 @@ If you encounter a bug or any issue, please report it by [opening an issue](http
 1. **Fork the Repository**: Click the "Fork" button at the top right of the repository page.
 2. **Clone Your Fork**: Clone your forked repository to your local machine.
    ```bash
-   git clone https://github.com/your-username/l3-react-blocks-construct.git
-   cd l3-react-blocks-construct
+   git clone https://github.com/your-username/l0-net-blocks-genesis.git
+   cd l0-net-blocks-genesis
    ```
 3. **Create a Branch**: Create a new branch for your feature or bugfix.
    ```bash
