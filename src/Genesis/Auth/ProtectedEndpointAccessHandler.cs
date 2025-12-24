@@ -48,6 +48,31 @@ namespace Blocks.Genesis
             }
 
             await HandleStandardAccessAsync(context, identity, actionName, controllerName, requirement);
+            await HandleResouceLimitPolicy(context, identity, actionName, controllerName, requirement);
+        }
+
+        private async Task HandleResouceLimitPolicy(AuthorizationHandlerContext context,
+                                                     ClaimsIdentity identity,
+                                                     string actionName,
+                                                     string controllerName,
+                                                     ProtectedEndpointAccessRequirement requirement)
+        {
+            var resource = $"{_blocksSecret.ServiceName}::{controllerName}::{actionName}".ToLower();
+            var resourceLimitCollection = _dbContextProvider.GetCollection<BsonDocument>("ResourceLimits");
+
+            var filter = Builders<BsonDocument>.Filter.Eq("Resource", resource) &
+                         Builders<BsonDocument>.Filter.Eq("TenantId", BlocksContext.GetContext()?.TenantId);
+
+            var resourceLimit = await ( await resourceLimitCollection.FindAsync(filter)).FirstOrDefaultAsync();
+
+            if ((resourceLimit["Limit"].AsInt64 - resourceLimit["Usage"].AsInt64) >=0 )
+            {
+                context.Succeed(requirement);
+            }
+            else
+            {
+                context.Fail(new AuthorizationFailureReason(this, "RATE_LIMIT_EXCEEDED"));
+            }
         }
 
         private static bool IsAuthenticated(AuthorizationHandlerContext context)
