@@ -41,6 +41,12 @@ namespace Blocks.Genesis
                 return;
             }
 
+            if(!(await HasResouceLimitExit(context, identity, actionName, controllerName, requirement)))
+            {
+                context.Fail(new AuthorizationFailureReason(this, "RATE_LIMIT_EXCEEDED"));
+                return;
+            }
+
             if (context.Resource is HttpContext httpContext)
             {
                 if (await HandleRootTenantAccessAsync(context, identity, httpContext, requirement))
@@ -48,10 +54,9 @@ namespace Blocks.Genesis
             }
 
             await HandleStandardAccessAsync(context, identity, actionName, controllerName, requirement);
-            await HandleResouceLimitPolicy(context, identity, actionName, controllerName, requirement);
         }
 
-        private async Task HandleResouceLimitPolicy(AuthorizationHandlerContext context,
+        private async Task<bool> HasResouceLimitExit(AuthorizationHandlerContext context,
                                                      ClaimsIdentity identity,
                                                      string actionName,
                                                      string controllerName,
@@ -63,16 +68,15 @@ namespace Blocks.Genesis
             var filter = Builders<BsonDocument>.Filter.Eq("Resource", resource) &
                          Builders<BsonDocument>.Filter.Eq("TenantId", BlocksContext.GetContext()?.TenantId);
 
-            var resourceLimit = await ( await resourceLimitCollection.FindAsync(filter)).FirstOrDefaultAsync();
+            var resourceLimit = await (await resourceLimitCollection.FindAsync(filter)).FirstOrDefaultAsync();
 
-            if ((resourceLimit["Limit"].AsInt64 - resourceLimit["Usage"].AsInt64) >=0 )
+            if (resourceLimit is not null && (resourceLimit["Limit"].ToInt64() - resourceLimit["Usage"].ToInt64()) <= 0)
             {
-                context.Succeed(requirement);
+                return false;
             }
-            else
-            {
-                context.Fail(new AuthorizationFailureReason(this, "RATE_LIMIT_EXCEEDED"));
-            }
+
+            return true;
+
         }
 
         private static bool IsAuthenticated(AuthorizationHandlerContext context)
