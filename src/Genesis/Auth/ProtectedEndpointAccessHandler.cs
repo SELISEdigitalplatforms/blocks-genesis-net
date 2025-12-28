@@ -41,8 +41,11 @@ namespace Blocks.Genesis
                 return;
             }
 
-            if(!(await HasResouceLimitExit(context, identity, actionName, controllerName, requirement)))
+            if (!(await IsWithinQuotaAsync(context, identity, actionName, controllerName, requirement)) && context.Resource is HttpContext httpRequest)
             {
+                httpRequest.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                await httpRequest.Response.WriteAsJsonAsync(new { error = "Too many requests" });
+
                 context.Fail(new AuthorizationFailureReason(this, "RATE_LIMIT_EXCEEDED"));
                 return;
             }
@@ -56,17 +59,19 @@ namespace Blocks.Genesis
             await HandleStandardAccessAsync(context, identity, actionName, controllerName, requirement);
         }
 
-        private async Task<bool> HasResouceLimitExit(AuthorizationHandlerContext context,
+        private async Task<bool> IsWithinQuotaAsync(AuthorizationHandlerContext context,
                                                      ClaimsIdentity identity,
                                                      string actionName,
                                                      string controllerName,
                                                      ProtectedEndpointAccessRequirement requirement)
         {
+            var projectKey =  await ExtractProjectKeyAsync((HttpContext)context.Resource);
+            var tenantId = !string.IsNullOrWhiteSpace(projectKey) ? projectKey : BlocksContext.GetContext()?.TenantId;
             var resource = $"{_blocksSecret.ServiceName}::{controllerName}::{actionName}".ToLower();
-            var resourceLimitCollection = _dbContextProvider.GetCollection<BsonDocument>("ResourceLimits");
+            var database = _dbContextProvider.GetDatabase(tenantId!);
+            var resourceLimitCollection = database.GetCollection<BsonDocument>("ResourceLimits");
 
-            var filter = Builders<BsonDocument>.Filter.Eq("Resource", resource) &
-                         Builders<BsonDocument>.Filter.Eq("TenantId", BlocksContext.GetContext()?.TenantId);
+            var filter = Builders<BsonDocument>.Filter.Eq("Resource", resource);
 
             var resourceLimit = await (await resourceLimitCollection.FindAsync(filter)).FirstOrDefaultAsync();
 
@@ -96,12 +101,6 @@ namespace Blocks.Genesis
                                                              HttpContext httpContext,
                                                              ProtectedEndpointAccessRequirement requirement)
         {
-            var blocksKey = httpContext.Request.Headers[BlocksConstants.BlocksKey].ToString();
-            var tenant = _tenants.GetTenantByID(blocksKey);
-
-            if (tenant is null || !tenant.IsRootTenant)
-                return false;
-
             var projectKey = await ExtractProjectKeyAsync(httpContext);
             if (string.IsNullOrEmpty(projectKey))
                 return false;
@@ -196,9 +195,15 @@ namespace Blocks.Genesis
             return string.Empty;
         }
 
-        private static async Task<string?> ExtractProjectKeyAsync(HttpContext httpContext)
+        private async Task<string?> ExtractProjectKeyAsync(HttpContext httpContext)
         {
             var request = httpContext.Request;
+
+            var blocksKey = httpContext.Request.Headers[BlocksConstants.BlocksKey].ToString();
+            var tenant = _tenants.GetTenantByID(blocksKey);
+
+            if (tenant is null || !tenant.IsRootTenant)
+                return null;
 
             if (request.Query.TryGetValue("ProjectKey", out var queryValue))
             {
