@@ -44,7 +44,7 @@ namespace Blocks.Genesis
             if (!(await IsWithinQuotaAsync(context, identity, actionName, controllerName, requirement)) && context.Resource is HttpContext httpRequest)
             {
                 httpRequest.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                await httpRequest.Response.WriteAsJsonAsync(new { error = "Too many requests" });
+                await httpRequest.Response.WriteAsJsonAsync(new BaseResponse{IsSuccess = false, Errors = new Dictionary<string, string> { { "exceed_limit", "Request limit exceeded." }}});
 
                 context.Fail(new AuthorizationFailureReason(this, "RATE_LIMIT_EXCEEDED"));
                 return;
@@ -72,7 +72,6 @@ namespace Blocks.Genesis
             var resourceLimitCollection = database.GetCollection<BsonDocument>("ResourceLimits");
 
             var filter = Builders<BsonDocument>.Filter.Eq("Resource", resource);
-
             var resourceLimit = await (await resourceLimitCollection.FindAsync(filter)).FirstOrDefaultAsync();
 
             if (resourceLimit is not null && (resourceLimit["Limit"].ToInt64() - resourceLimit["Usage"].ToInt64()) <= 0)
