@@ -204,11 +204,11 @@ namespace Blocks.Genesis
             if (tenant is null || !tenant.IsRootTenant)
                 return null;
 
-            if (request.Query.TryGetValue("ProjectKey", out var queryValue))
+            var projectKeyFromQuery = request.Query.FirstOrDefault(q =>string.Equals(q.Key, "ProjectKey", StringComparison.OrdinalIgnoreCase)).Value.ToString();
+
+            if (!string.IsNullOrWhiteSpace(projectKeyFromQuery))
             {
-                var projectKeyFromQuery = queryValue.ToString();
-                if (!string.IsNullOrWhiteSpace(projectKeyFromQuery))
-                    return projectKeyFromQuery;
+                return projectKeyFromQuery;
             }
 
             if (request.ContentLength > 0 && request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true)
