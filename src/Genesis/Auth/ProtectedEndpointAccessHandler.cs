@@ -201,7 +201,7 @@ namespace Blocks.Genesis
             var blocksKey = httpContext.Request.Headers[BlocksConstants.BlocksKey].ToString();
             var tenant = _tenants.GetTenantByID(blocksKey);
 
-            if (tenant is null || !tenant.IsRootTenant)
+            if (tenant is null)
                 return null;
 
             var projectKeyFromQuery = request.Query.FirstOrDefault(q =>string.Equals(q.Key, "ProjectKey", StringComparison.OrdinalIgnoreCase)).Value.ToString();
@@ -213,21 +213,22 @@ namespace Blocks.Genesis
 
             if (request.ContentLength > 0 && request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true)
             {
-                // Allow multiple reads of the body (required!)
+   
                 request.EnableBuffering();
-
                 using var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true);
                 var body = await reader.ReadToEndAsync();
-                request.Body.Position = 0; // rewind so the next middleware can read again
+                request.Body.Position = 0;
 
                 if (!string.IsNullOrWhiteSpace(body))
                 {
                     try
                     {
                         using var jsonDoc = JsonDocument.Parse(body);
-                        if (jsonDoc.RootElement.TryGetProperty("projectKey", out var projectKeyElement))
+                        var projectKeyProperty = jsonDoc.RootElement.EnumerateObject().FirstOrDefault(p =>string.Equals(p.Name, "projectKey", StringComparison.OrdinalIgnoreCase));
+
+                        if (projectKeyProperty.Value.ValueKind != JsonValueKind.Undefined)
                         {
-                            var projectKeyFromBody = projectKeyElement.GetString();
+                            var projectKeyFromBody = projectKeyProperty.Value.GetString();
                             if (!string.IsNullOrWhiteSpace(projectKeyFromBody))
                                 return projectKeyFromBody;
                         }

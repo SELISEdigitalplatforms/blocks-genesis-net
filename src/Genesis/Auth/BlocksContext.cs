@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Blocks.Genesis
@@ -95,6 +96,12 @@ namespace Blocks.Genesis
         public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
+            var thirdPartyContextHeader = GetHttpContext().Request.Headers[BlocksConstants.ThirdPartyContextHeader];
+
+            if (!string.IsNullOrWhiteSpace(thirdPartyContextHeader))
+            {
+                return GetThitdPartyClainIdentity(thirdPartyContextHeader);
+            }
 
             return new BlocksContext(
                 tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
@@ -112,6 +119,27 @@ namespace Blocks.Genesis
                 oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
                 actualTenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty
             );
+        }
+
+        private static BlocksContext GetThitdPartyClainIdentity(string thirdPartyContextHeader)
+        {
+            var thirdPartyContext = JsonSerializer.Deserialize<BlocksContext>(thirdPartyContextHeader);
+
+            return new BlocksContext(
+                   tenantId: thirdPartyContext?.TenantId ?? "",
+                   roles: thirdPartyContext?.Roles ?? [],
+                   userId: thirdPartyContext?.UserId ?? string.Empty,
+                   isAuthenticated: thirdPartyContext?.IsAuthenticated ?? false,
+                   requestUri: thirdPartyContext?.RequestUri ?? string.Empty,
+                   organizationId: thirdPartyContext?.OrganizationId ?? string.Empty,
+                   expireOn: thirdPartyContext?.ExpireOn ?? DateTime.UtcNow.AddHours(1),
+                   email: thirdPartyContext?.Email ?? string.Empty,
+                   permissions: thirdPartyContext?.Permissions ?? [],
+                   userName: thirdPartyContext?.UserName ?? string.Empty,
+                   phoneNumber: thirdPartyContext?.PhoneNumber ?? string.Empty,
+                   displayName: thirdPartyContext?.DisplayName ?? string.Empty,
+                   oauthToken: thirdPartyContext?.OAuthToken ?? string.Empty,
+                   actualTenantId: thirdPartyContext?.ActualTenantId ?? string.Empty);
         }
 
         /// <summary>
