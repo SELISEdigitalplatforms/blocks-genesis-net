@@ -153,10 +153,9 @@ namespace Blocks.Genesis
         private async Task<bool> CheckHasAccess(ClaimsIdentity claimsIdentity, string actionName, string controllerName)
         {
             var resource = $"{_blocksSecret.ServiceName}::{controllerName}::{actionName}".ToLower();
-            var roles = claimsIdentity?.FindAll(claimsIdentity.RoleClaimType).Select(r => r.Value).ToArray() ?? Enumerable.Empty<string>();
             var permissions = claimsIdentity.FindAll(BlocksContext.PERMISSION_CLAIM).Select(c => c.Value);
 
-            return await CheckPermission(resource, roles, permissions);
+            return await CheckPermission(resource, BlocksContext.GetContext()?.Roles ?? [], permissions);
         }
 
         private async Task<bool> CheckPermission(string resource, IEnumerable<string> roles, IEnumerable<string> permissions)
