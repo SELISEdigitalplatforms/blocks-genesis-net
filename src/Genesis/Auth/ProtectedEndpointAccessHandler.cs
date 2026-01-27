@@ -200,7 +200,7 @@ namespace Blocks.Genesis
             var blocksKey = httpContext.Request.Headers[BlocksConstants.BlocksKey].ToString();
             var tenant = _tenants.GetTenantByID(blocksKey);
 
-            if (tenant is null)
+            if (tenant is null || !tenant.IsRootTenant)
                 return null;
 
             var projectKeyFromQuery = request.Query.FirstOrDefault(q =>string.Equals(q.Key, "ProjectKey", StringComparison.OrdinalIgnoreCase)).Value.ToString();
