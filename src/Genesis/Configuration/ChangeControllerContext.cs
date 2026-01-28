@@ -22,7 +22,7 @@ namespace Blocks.Genesis
 
 
             var bc =  BlocksContext.GetContext();
-            Baggage.SetBaggage("ActualTenantId", bc.TenantId);
+            Baggage.SetBaggage("ActualTenantId", bc?.TenantId?? "");
 
             if (string.IsNullOrWhiteSpace(projectKey.ProjectKey) || projectKey.ProjectKey == bc?.TenantId) return;
 
