@@ -46,6 +46,12 @@ namespace Blocks.Genesis
                 .Enrich.FromLogContext()
                 .Enrich.With<TraceContextEnricher>()
                 .Enrich.WithEnvironmentName()
+
+                // Suppress HTTP client logging for health pings
+                .MinimumLevel.Override("System.Net.Http.HttpClient.NoLogging", Serilog.Events.LogEventLevel.Fatal)
+                .MinimumLevel.Override("System.Net.Http.HttpClient.NoLogging.LogicalHandler", Serilog.Events.LogEventLevel.Fatal)
+                .MinimumLevel.Override("System.Net.Http.HttpClient.NoLogging.ClientHandler", Serilog.Events.LogEventLevel.Fatal)
+
                 .WriteTo.Console()
                 .WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret)
                 .CreateLogger();
@@ -144,6 +150,12 @@ namespace Blocks.Genesis
             services.JwtBearerAuthentication();
             services.AddControllers();
             services.AddHttpClient();
+
+            services.AddHttpClient("NoLogging", client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(30);
+                client.DefaultRequestHeaders.Add("User-Agent", "NoLogging/1.0");
+            });
 
             services.AddGrpc(options =>
             {
