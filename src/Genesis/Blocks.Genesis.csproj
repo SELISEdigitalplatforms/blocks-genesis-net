@@ -2,14 +2,14 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <Version>9.0.29</Version>
+    <Version>9.0.30</Version>
     <PackageId>SeliseBlocks.Genesis</PackageId>
     <Authors>Selise Blocks</Authors>
     <Company>Selise</Company>
     <Description>Blocks Genesis</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>Genesis, BlocksGenesis, SeliseBlocksGenesis</PackageTags>
-    <RepositoryUrl>https://github.com/SELISEdigitalplatforms/l0-net-blocks-genesis</RepositoryUrl>
+    <RepositoryUrl>https://github.com/SELISEdigitalplatforms/blocks-genesis-net</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
