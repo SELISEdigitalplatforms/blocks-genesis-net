@@ -161,6 +161,14 @@ namespace Blocks.Genesis
                 app.UseHsts();
             }
 
+            app.UseCors(corsPolicyBuilder =>
+                corsPolicyBuilder
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .SetIsOriginAllowed(_ => true)
+                    .AllowCredentials()
+                    .SetPreflightMaxAge(TimeSpan.FromDays(365)));
+
             app.UseHealthChecks("/ping", new HealthCheckOptions
             {
                 Predicate = _ => true,
@@ -171,14 +179,6 @@ namespace Blocks.Genesis
                 }
             });
 
-            app.UseCors(corsPolicyBuilder =>
-                corsPolicyBuilder
-                    .AllowAnyHeader()
-                    .AllowAnyMethod()
-                    .SetIsOriginAllowed(_ => true)
-                    .AllowCredentials()
-                    .SetPreflightMaxAge(TimeSpan.FromDays(365)));
-
             if (_blocksSwaggerOptions != null)
             {
                 app.UseSwagger();
@@ -187,12 +187,9 @@ namespace Blocks.Genesis
 
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-
             app.UseRouting();
-
             app.UseAuthentication();
             app.UseAuthorization();
-
             app.MapControllers();
         }
 
