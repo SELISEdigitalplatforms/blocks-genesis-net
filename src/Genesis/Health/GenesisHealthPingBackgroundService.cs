@@ -4,280 +4,356 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using StackExchange.Redis;
 
-namespace Blocks.Genesis.Health
+namespace Blocks.Genesis.Health;
+
+/// <summary>
+/// Background service that periodically pings a configured health endpoint.
+/// Configuration is loaded from MongoDB and cached in Redis.
+/// Supports dynamic config refresh and exponential backoff on failure.
+/// </summary>
+public sealed class GenesisHealthPingBackgroundService : BackgroundService
 {
-    public class GenesisHealthPingBackgroundService: BackgroundService
+    // -------------------------------------------------------------------------
+    // Dependencies
+    // -------------------------------------------------------------------------
+    private readonly ILogger<GenesisHealthPingBackgroundService> _logger;
+    private readonly IDbContextProvider _dbContextProvider;
+    private readonly IDatabase _cacheDb;
+    private readonly HttpClient _httpClient;
+    private readonly IBlocksSecret _blocksSecret;
+
+    // -------------------------------------------------------------------------
+    // Config / identity
+    // -------------------------------------------------------------------------
+    private readonly string _serviceName;
+    private readonly string _connectionString;
+    private readonly string _databaseName;
+    private readonly string _configKey;
+
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
+    private const string CollectionName = "BlocksServicesHealthConfigurations";
+    private const int CacheExpirationMinutes = 15;
+    private const int DefaultPingIntervalSecs = 60;
+    private const int MaxBackoffSeconds = 300;
+
+    private static readonly TimeSpan ConfigRefreshInterval = TimeSpan.FromHours(1);
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DisabledPollInterval = TimeSpan.FromMinutes(60);
+
+    // -------------------------------------------------------------------------
+    // Mutable state  (volatile = safe cross-thread reads without a full lock)
+    // -------------------------------------------------------------------------
+    private volatile BlocksServicesHealthConfiguration? _currentConfig;
+
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+    public GenesisHealthPingBackgroundService(
+        ILogger<GenesisHealthPingBackgroundService> logger,
+        IDbContextProvider dbContextProvider,
+        ICacheClient cacheClient,
+        IBlocksSecret blocksSecret)
     {
-        private readonly ILogger<GenesisHealthPingBackgroundService> _logger;
-        private readonly IDbContextProvider _dbContextProvider;
-        private readonly IBlocksSecret _blocksSecret;
-        private readonly IDatabase _cacheDb;
-        private readonly string _serviceName;
-        private readonly string _connectionString;
-        private readonly string _databaseName;
-        private readonly string _configKey;
-        private readonly string _blocksHealthCollectionName;
-        private readonly int _cacheExpirationInMinutes;
-        private readonly HttpClient _httpClient;
+        _logger = logger;
+        _dbContextProvider = dbContextProvider;
+        _blocksSecret = blocksSecret;
+        _cacheDb = cacheClient.CacheDatabase();
 
+        _serviceName = _blocksSecret.ServiceName;
+        _connectionString = _blocksSecret.DatabaseConnectionString;
+        _databaseName = _blocksSecret.RootDatabaseName;
+        _configKey = $"GenesisHealthConfig:{_serviceName}";
 
-        private PeriodicTimer? _timer;
-        private BlocksServicesHealthConfiguration? _currentConfig;
-
-        public GenesisHealthPingBackgroundService(
-            ILogger<GenesisHealthPingBackgroundService> logger,
-            IDbContextProvider dbContextProvider,
-            ICacheClient cacheClient,
-            IBlocksSecret blocksSecret)
+        // SocketsHttpHandler with PooledConnectionLifetime forces periodic DNS
+        // re-resolution, preventing stale IP issues when endpoints change.
+        var handler = new SocketsHttpHandler
         {
-            _logger = logger;
-            _dbContextProvider = dbContextProvider;
-            _blocksSecret = blocksSecret;
-            _cacheDb = cacheClient.CacheDatabase();
-            _serviceName = _blocksSecret.ServiceName;
-            _connectionString = _blocksSecret.DatabaseConnectionString;
-            _databaseName = _blocksSecret.RootDatabaseName;
-            _configKey = $"GenesisHealthConfig:{_serviceName}";
-            _cacheExpirationInMinutes = 15;
-            _blocksHealthCollectionName = "BlocksServicesHealthConfigurations";
-            _httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(30)
-            };
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "Genesis.HealthPing/1.0");
-        }
+            PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+        };
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken) 
+        _httpClient = new HttpClient(handler)
         {
-            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            Timeout = TimeSpan.FromSeconds(30)
+        };
 
-            // Load initial configuration from database
-            await LoadConfigurationFromCacheAsync();
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", "Genesis.HealthPing/1.0");
+    }
 
-            if (_currentConfig is null)
-            {
-                _logger.LogInformation("[{ServiceName}] Health check ping is not found.", _serviceName);
-                return;
-            }
+    public override void Dispose()
+    {
+        _httpClient.Dispose();
+        base.Dispose();
+    }
 
-            if (!_currentConfig.HealthCheckEnabled)
-            {
-                _logger.LogInformation("[{ServiceName}] Health check ping is disabled.", _serviceName);
-                return;
-            }
+    // =========================================================================
+    // Entry point
+    // =========================================================================
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("[{Service}] Health ping worker starting", _serviceName);
 
-            if (string.IsNullOrWhiteSpace(_currentConfig.Endpoint))
-            {
-                _logger.LogInformation("[{ServiceName}] Health check url is empty.", _serviceName);
-                return;
-            }
+        // Small startup delay so the host finishes wiring before we hit the DB.
+        await Task.Delay(StartupDelay, stoppingToken);
 
-            ResetTimer();
+        var nextConfigRefresh = DateTimeOffset.UtcNow;
+        var failureCount = 0;
 
-            // Immediate first ping
-            await PingAsync(stoppingToken);
-
-            // Start both loops
-            var pingTask = PingLoopAsync(stoppingToken);
-            var refreshTask = ConfigRefreshLoopAsync(stoppingToken);
-
-            await Task.WhenAll(pingTask, refreshTask);
-        }
-
-
-        private async Task ConfigRefreshLoopAsync(CancellationToken stoppingToken)
-        {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                try
-                {
-                    await Task.Delay(TimeSpan.FromHours(6), stoppingToken);
-
-                    _logger.LogDebug("[{ServiceName}] Refreshing config from database", _serviceName);
-                    await LoadConfigurationFromDatabaseAsync();
-                    ResetTimer();
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[{ServiceName}] Failed to refresh config", _serviceName);
-                }
-            }
-        }
-
-
-        private async Task LoadConfigurationFromCacheAsync()
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var cachedCert = _cacheDb.StringGet(_configKey);
-
-                if (!cachedCert.HasValue)
+                // -----------------------------------------------------------------
+                // 1. Refresh config on schedule
+                // -----------------------------------------------------------------
+                if (DateTimeOffset.UtcNow >= nextConfigRefresh)
                 {
-                    await LoadConfigurationFromDatabaseAsync();
-                    
-                    return;
-                }
-                _currentConfig = JsonSerializer.Deserialize<BlocksServicesHealthConfiguration>(cachedCert);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[{ServiceName}] Error loading health check configuration from database", _serviceName);
-            }
-        }
-
-        private async Task LoadConfigurationFromDatabaseAsync()
-        {
-            try
-            {
-                var database = _dbContextProvider.GetDatabase(_connectionString,_databaseName);
-                var genesisHealthConfigurationCollection = database.GetCollection<BlocksServicesHealthConfiguration>($"{_blocksHealthCollectionName}");
-
-                var filter = Builders<BlocksServicesHealthConfiguration>.Filter.Eq(x =>x.ServiceName, _serviceName);
-                BlocksServicesHealthConfiguration config = await genesisHealthConfigurationCollection.Find(filter).FirstOrDefaultAsync();
-                if (config is not null)
-                {
-                    // Detect changes
-                    var hasChanged = _currentConfig == null ||
-                                   _currentConfig.HealthCheckEnabled != config.HealthCheckEnabled ||
-                                   _currentConfig.Endpoint != config.Endpoint ||
-                                   _currentConfig.PingIntervalSeconds != config.PingIntervalSeconds;
-
-                    if (hasChanged)
-                    {
-                        _logger.LogInformation(
-                            "[{ServiceName}] Config updated: Enabled={Enabled}, Interval={Interval}s",
-                            _serviceName,
-                            config.HealthCheckEnabled,
-                            config.PingIntervalSeconds);
-                    }
-                    _currentConfig = config;
-                    if (_currentConfig != null)
-                    {
-                        try
-                        {
-                            _cacheDb.StringSet(_configKey, JsonSerializer.Serialize(_currentConfig), TimeSpan.FromMinutes(_cacheExpirationInMinutes));
-                        }
-                        catch (Exception cacheEx)
-                        {
-                            _logger.LogWarning(cacheEx, "[{ServiceName}] Failed to write to cache, continuing with in-memory config", _serviceName);
-                        }
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("[{ServiceName}] No health check configuration found in database", _serviceName);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,"[{ServiceName}] Error loading health check configuration from database", _serviceName);
-            }
-        }
-
-        private async Task PingAsync(CancellationToken ct)
-        {
-            if (_currentConfig == null || string.IsNullOrWhiteSpace(_currentConfig.Endpoint))
-            {
-                _logger.LogWarning("[{ServiceName}] Cannot ping: config or endpoint is null", _serviceName);
-                return;
-            }
-            try
-            {
-                using var response = await _httpClient.GetAsync(_currentConfig?.Endpoint, ct);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    Console.WriteLine($"Ping success ({response.StatusCode}) for service {_serviceName} for url {MaskUrl(_currentConfig.Endpoint)}");
-                    return;
+                    await RefreshConfigurationAsync(stoppingToken);
+                    nextConfigRefresh = DateTimeOffset.UtcNow.Add(ConfigRefreshInterval);
                 }
 
-                if ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500)
+                var config = _currentConfig;
+
+                // -----------------------------------------------------------------
+                // 2. If disabled / not found, wait and retry — never exit the loop.
+                //    This allows the service to self-activate when config is added.
+                // -----------------------------------------------------------------
+                if (config is null)
                 {
-                    Console.WriteLine($"Ping failed with client error {response.StatusCode} for service {_serviceName}. Check PingUrl  {MaskUrl(_currentConfig.Endpoint)}");
-                    return;
-                }
-
-                Console.WriteLine($"Ping failed with server error {response.StatusCode} for service {_serviceName}. Will retry later.");
-            }
-            catch (TaskCanceledException) when (!ct.IsCancellationRequested)
-            {
-                Console.WriteLine("Ping timed out");
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogError(ex, $"Ping request failed for service {_serviceName}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Ping request failed for service {_serviceName}");
-            }
-        }
-
-        private async Task PingLoopAsync(CancellationToken stoppingToken)
-        {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                await LoadConfigurationFromCacheAsync();
-
-                if (_currentConfig == null || !_currentConfig.HealthCheckEnabled || _timer == null)
-                {
-                    await Task.Delay(1000, stoppingToken);
+                    Console.WriteLine($"[{_serviceName}] No configuration found, retrying in {DisabledPollInterval}");
+                    await Task.Delay(DisabledPollInterval, stoppingToken);
                     continue;
                 }
 
-                try
+                if (!config.HealthCheckEnabled)
                 {
-                    await _timer.WaitForNextTickAsync(stoppingToken);
-                    await PingAsync(stoppingToken);
+                    Console.WriteLine($"[{_serviceName}] Health check disabled, retrying in {DisabledPollInterval}");
+                    await Task.Delay(DisabledPollInterval, stoppingToken);
+                    continue;
                 }
-                catch (OperationCanceledException)
+
+                if (string.IsNullOrWhiteSpace(config.Endpoint))
                 {
-                    break;
+                    Console.WriteLine($"[{_serviceName}] Endpoint is empty — skipping ping");
+                    await Task.Delay(DisabledPollInterval, stoppingToken);
+                    continue;
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Periodic ping failed for service {_currentConfig.ServiceName}");
-                }
+
+                // -----------------------------------------------------------------
+                // 3. Ping
+                // -----------------------------------------------------------------
+                var success = await PingAsync(config, stoppingToken);
+
+                failureCount = success ? 0 : failureCount + 1;
+
+                // -----------------------------------------------------------------
+                // 4. Wait before next ping (exponential backoff on failure)
+                // -----------------------------------------------------------------
+                var delay = CalculateDelay(config.PingIntervalSeconds, failureCount);
+                await Task.Delay(delay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[{Service}] Unexpected error in health ping loop", _serviceName);
+                await Task.Delay(DisabledPollInterval, stoppingToken);
             }
         }
 
-        private void ResetTimer()
-        {
-            _timer?.Dispose();
+        _logger.LogInformation("[{Service}] Health ping worker stopped", _serviceName);
+    }
 
-            if (_currentConfig == null || !_currentConfig.HealthCheckEnabled || _currentConfig.PingIntervalSeconds <= 0)
+    // =========================================================================
+    // Configuration
+    // =========================================================================
+
+    /// <summary>
+    /// Tries Redis first, falls back to MongoDB, and writes back to Redis on a miss.
+    /// </summary>
+    private async Task RefreshConfigurationAsync(CancellationToken ct)
+    {
+        try
+        {
+            // --- Try cache ---
+            var cached = await _cacheDb.StringGetAsync(_configKey);
+
+            if (cached.HasValue)
             {
-                _timer = null;
-                return;
+                var cachedConfig = JsonSerializer.Deserialize<BlocksServicesHealthConfiguration>((string)cached!);
+
+                if (cachedConfig is not null)
+                {
+                    ApplyConfig(cachedConfig);
+                    return;
+                }
             }
 
-            _timer = new PeriodicTimer(TimeSpan.FromSeconds(_currentConfig.PingIntervalSeconds));
-            _logger.LogInformation("[{ServiceName}] Timer set to {Interval}s", _serviceName, _currentConfig.PingIntervalSeconds);
+            // --- Fall back to DB ---
+            await LoadConfigurationFromDatabaseAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[{Service}] Config refresh failed — continuing with last known config", _serviceName);
+        }
+    }
+
+    private async Task LoadConfigurationFromDatabaseAsync(CancellationToken ct)
+    {
+        var database = _dbContextProvider.GetDatabase(_connectionString, _databaseName);
+        var collection = database.GetCollection<BlocksServicesHealthConfiguration>(CollectionName);
+        var filter = Builders<BlocksServicesHealthConfiguration>.Filter.Eq(x => x.ServiceName, _serviceName);
+
+        var config = await collection.Find(filter).FirstOrDefaultAsync(ct);
+
+        if (config is null)
+        {
+            _logger.LogWarning("[{Service}] No health configuration found in database", _serviceName);
+            return;
         }
 
-        private string MaskUrl(string url)
-        {
-            if (string.IsNullOrEmpty(url))
-                return "[empty]";
+        LogConfigChanges(config);
+        ApplyConfig(config);
 
-            try
+        // Write-through to Redis
+        try
+        {
+            await _cacheDb.StringSetAsync(
+                _configKey,
+                JsonSerializer.Serialize(config),
+                TimeSpan.FromMinutes(CacheExpirationMinutes));
+        }
+        catch (Exception cacheEx)
+        {
+            _logger.LogWarning(cacheEx, "[{Service}] Failed to write config to cache — using in-memory config", _serviceName);
+        }
+    }
+
+    /// <summary>
+    /// Logs only when meaningful fields have actually changed.
+    /// </summary>
+    private void LogConfigChanges(BlocksServicesHealthConfiguration incoming)
+    {
+        var current = _currentConfig;
+
+        if (current is null ||
+            current.HealthCheckEnabled != incoming.HealthCheckEnabled ||
+            current.Endpoint != incoming.Endpoint ||
+            current.PingIntervalSeconds != incoming.PingIntervalSeconds)
+        {
+            _logger.LogInformation(
+                "[{Service}] Configuration updated — Enabled={Enabled}, Interval={Interval}s, Endpoint={Endpoint}",
+                _serviceName,
+                incoming.HealthCheckEnabled,
+                incoming.PingIntervalSeconds,
+                MaskUrl(incoming.Endpoint));
+        }
+    }
+
+    private void ApplyConfig(BlocksServicesHealthConfiguration config)
+    {
+        _currentConfig = config;
+    }
+
+    // =========================================================================
+    // Pinging
+    // =========================================================================
+    private async Task<bool> PingAsync(BlocksServicesHealthConfiguration config, CancellationToken ct)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync(config.Endpoint, ct);
+
+            if (response.IsSuccessStatusCode)
             {
-                var uri = new Uri(url);
-                var path = uri.AbsolutePath;
-                if (path.Length > 20)
-                {
-                    return $"{uri.Scheme}://{uri.Host}/***{path.Substring(path.Length - 8)}";
-                }
-                return $"{uri.Scheme}://{uri.Host}/***";
+                Console.WriteLine($"[{_serviceName}] Ping succeeded — Status={response.StatusCode}, Endpoint={MaskUrl(config.Endpoint)}");
+                return true;
             }
-            catch
+
+            var statusCode = (int)response.StatusCode;
+
+            // 4xx → configuration/auth problem; log as warning (no point in loud retries)
+            // 5xx → transient server error; log as error (backoff will kick in)
+            if (statusCode is >= 400 and < 500)
             {
-                return "[masked]";
+                _logger.LogWarning(
+                    "[{Service}] Ping returned client error {Status} — check endpoint config: {Endpoint}",
+                    _serviceName,
+                    statusCode,
+                    MaskUrl(config.Endpoint));
             }
+            else
+            {
+                _logger.LogError(
+                    "[{Service}] Ping returned server error {Status} for {Endpoint}",
+                    _serviceName,
+                    statusCode,
+                    MaskUrl(config.Endpoint));
+            }
+
+            return false;
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("[{Service}] Ping timed out for {Endpoint}", _serviceName, MaskUrl(config.Endpoint));
+            return false;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "[{Service}] Ping network error for {Endpoint}", _serviceName, MaskUrl(config.Endpoint));
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[{Service}] Ping unexpected error for {Endpoint}", _serviceName, MaskUrl(config.Endpoint));
+            return false;
+        }
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    /// <summary>
+    /// Returns the normal interval on success.
+    /// On failure, applies exponential backoff (base = configured interval) capped at MaxBackoffSeconds.
+    /// </summary>
+    private static TimeSpan CalculateDelay(int intervalSeconds, int failureCount)
+    {
+        if (intervalSeconds <= 0)
+            intervalSeconds = DefaultPingIntervalSecs;
+
+        if (failureCount == 0)
+            return TimeSpan.FromSeconds(intervalSeconds);
+
+        // Scale backoff from the configured interval, not from 1s
+        var backoffSeconds = Math.Min(intervalSeconds * Math.Pow(2, failureCount), MaxBackoffSeconds);
+        return TimeSpan.FromSeconds(backoffSeconds);
+    }
+
+    /// <summary>
+    /// Returns a URL with the path replaced by *** to avoid leaking tokens/keys in logs.
+    /// </summary>
+    private static string MaskUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return "[empty]";
+
+        try
+        {
+            var uri = new Uri(url);
+            var path = uri.AbsolutePath;
+
+            // Keep the last 8 chars of the path as a breadcrumb, hide the rest.
+            var suffix = path.Length > 8 ? path[^8..] : path;
+            return $"{uri.Scheme}://{uri.Host}/***{suffix}";
+        }
+        catch
+        {
+            return "[masked]";
         }
     }
 }
