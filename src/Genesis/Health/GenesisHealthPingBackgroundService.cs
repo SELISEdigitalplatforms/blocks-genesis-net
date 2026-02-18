@@ -40,7 +40,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
 
     private static readonly TimeSpan ConfigRefreshInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan DisabledPollInterval = TimeSpan.FromMinutes(60);
+    private static readonly TimeSpan DisabledPollInterval = TimeSpan.FromHours(1);
 
     // -------------------------------------------------------------------------
     // Mutable state  (volatile = safe cross-thread reads without a full lock)
