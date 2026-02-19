@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿using Blocks.Genesis.Health;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -137,6 +138,7 @@ namespace Blocks.Genesis
 
             services.AddSingleton<ICryptoService, CryptoService>();
             services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();
+            services.AddHostedService<GenesisHealthPingBackgroundService>();
         }
 
         public static void ConfigureApi(IServiceCollection services)
