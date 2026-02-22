@@ -14,6 +14,7 @@
         /// Gets or sets the unique name of the service using this configuration.
         /// </summary>
         public string? ServiceName { get; set; }
+        public string EventMedia { get; set; } = BlocksConstants.Azure_Bus; /// "azure_bus", "rabbit"
 
         /// <summary>
         /// Gets or sets the Azure Service Bus specific configuration.

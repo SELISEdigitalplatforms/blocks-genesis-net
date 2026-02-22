@@ -24,5 +24,6 @@
         public string ProdVaultTenantId { get; set; }
         public string ProdVaultClientId { get; set; }
         public string ProdVaultClientSecret { get; set; }
+        public string EventMedia {  get; set; }
 }
 }

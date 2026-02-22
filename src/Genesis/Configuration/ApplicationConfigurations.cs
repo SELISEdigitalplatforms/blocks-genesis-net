@@ -199,12 +199,14 @@ namespace Blocks.Genesis
         {
             ConfigureServices(services, messageConfiguration);
 
-            if (messageConfiguration.AzureServiceBusConfiguration != null)
+            messageConfiguration.Connection ??= _blocksSecret.MessageConnectionString;
+
+            if (messageConfiguration.AzureServiceBusConfiguration != null && messageConfiguration.EventMedia == BlocksConstants.Azure_Bus)
             {
                 services.AddHostedService<AzureMessageWorker>();
             }
 
-            if (messageConfiguration.RabbitMqConfiguration != null)
+            if (messageConfiguration.RabbitMqConfiguration != null && messageConfiguration.EventMedia == BlocksConstants.Rabbit)
             {
                 services.AddHostedService<RabbitMessageWorker>();
             }
@@ -218,16 +220,17 @@ namespace Blocks.Genesis
         {
             messageConfiguration.Connection ??= _blocksSecret.MessageConnectionString;
             messageConfiguration.ServiceName ??= _serviceName;
+            messageConfiguration.EventMedia = _blocksSecret.EventMedia ?? messageConfiguration.EventMedia;
 
             services.AddSingleton(messageConfiguration);
 
-            if (messageConfiguration.AzureServiceBusConfiguration != null)
+            if (messageConfiguration.AzureServiceBusConfiguration != null && messageConfiguration.EventMedia == BlocksConstants.Azure_Bus)
             {
                 services.AddSingleton<IMessageClient, AzureMessageClient>();
                 await ConfigerAzureServiceBus.ConfigerQueueAndTopicAsync(messageConfiguration);
             }
 
-            if (messageConfiguration.RabbitMqConfiguration != null)
+            if (messageConfiguration.RabbitMqConfiguration != null && messageConfiguration.EventMedia == BlocksConstants.Rabbit)
             {
                 services.AddSingleton<IRabbitMqService, RabbitMqService>();
                 services.AddSingleton<IMessageClient, RabbitMessageClient>();

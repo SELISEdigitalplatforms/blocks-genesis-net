@@ -27,6 +27,7 @@ namespace Blocks.Genesis
         public string ProdVaultTenantId { get ; set ; }
         public string ProdVaultClientId { get ; set ; }
         public string ProdVaultClientSecret { get ; set ; }
+        public string EventMedia { get; set; } = BlocksConstants.Azure_Bus;
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
         {
