@@ -1,87 +1,88 @@
-﻿using System;
-using System.Collections.Generic;
-using Xunit;
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
+
+namespace XUnitTest.Message;
 
 public class MessageConfigurationTests
 {
-
     [Fact]
-    public void Queues_ShouldNormalizeAndFilterEmptyStrings()
+    public void GetSubscriptionName_ShouldReturnServiceScopedSubscription()
     {
-        // Arrange
-        var config = new MessageConfiguration
-        {
-            Connection = "TestConnection",
-            ServiceName = "TestService",
-            Queues = new List<string> { "Queue1", "QUEUE2 ", "  ", null }
-        };
+        var config = new MessageConfiguration { ServiceName = "test-service" };
 
-        // Act
-        var queues = config.Queues;
+        var subscriptionName = config.GetSubscriptionName("orders");
 
-        // Assert
-        Assert.Equal(2, queues.Count);
-        Assert.Contains("queue1", queues);
+        Assert.Equal("orders_sub_test-service", subscriptionName);
     }
 
     [Fact]
-    public void Topics_ShouldNormalizeAndFilterEmptyStrings()
+    public void AzureServiceBusConfiguration_Queues_ShouldNormalizeAndFilter()
     {
-        // Arrange
-        var config = new MessageConfiguration
-        {
-            Connection = "TestConnection",
-            ServiceName = "TestService",
-            Topics = new List<string> { "Topic1", "TOPIC2 ", "  ", null }
-        };
+        var config = new AzureServiceBusConfiguration();
 
-        // Act
-        var topics = config.Topics;
+        config.Queues = ["QueueOne", "QUEUETWO", "", "   "];
 
-        // Assert
-        Assert.Equal(2, topics.Count);
-        Assert.Contains("topic1", topics);
+        Assert.Equal(["queueone", "queuetwo"], config.Queues);
     }
 
     [Fact]
-    public void DefaultValues_ShouldBeCorrectlySet()
+    public void AzureServiceBusConfiguration_Queues_ShouldKeepPreviousValue_WhenSetToNull()
     {
-        // Arrange
-        var config = new MessageConfiguration
+        var config = new AzureServiceBusConfiguration
         {
-            Connection = "TestConnection",
-            ServiceName = "TestService"
+            Queues = ["queueone"]
         };
 
-        // Assert
+        config.Queues = null!;
+
+        Assert.Equal(["queueone"], config.Queues);
+    }
+
+    [Fact]
+    public void AzureServiceBusConfiguration_Topics_ShouldNormalizeAndFilter()
+    {
+        var config = new AzureServiceBusConfiguration();
+
+        config.Topics = ["Users", "AUDIT", "", "\t"];
+
+        Assert.Equal(["users", "audit"], config.Topics);
+    }
+
+    [Fact]
+    public void AzureServiceBusConfiguration_Defaults_ShouldMatchConfiguredValues()
+    {
+        var config = new AzureServiceBusConfiguration();
+
         Assert.Equal(1024, config.QueueMaxSizeInMegabytes);
-        Assert.Equal(5, config.QueueMaxDeliveryCount);
-        Assert.Equal(5, config.QueuePrefetchCount);
-        Assert.Equal(TimeSpan.FromMinutes(60 * 24 * 7), config.QueueDefaultMessageTimeToLive);
-
+        Assert.Equal(2, config.QueueMaxDeliveryCount);
+        Assert.Equal(10, config.QueuePrefetchCount);
+        Assert.Equal(TimeSpan.FromDays(7), config.QueueDefaultMessageTimeToLive);
         Assert.Equal(1024, config.TopicMaxSizeInMegabytes);
-        Assert.Equal(5, config.TopicPrefetchCount);
-        Assert.Equal(TimeSpan.FromMinutes(60 * 24 * 30), config.TopicDefaultMessageTimeToLive);
-
-        Assert.Equal(5, config.TopicSubscriptionMaxDeliveryCount);
-        Assert.Equal(TimeSpan.FromMinutes(60 * 24 * 7), config.TopicSubscriptionDefaultMessageTimeToLive);
+        Assert.Equal(10, config.TopicPrefetchCount);
+        Assert.Equal(TimeSpan.FromDays(30), config.TopicDefaultMessageTimeToLive);
+        Assert.Equal(2, config.TopicSubscriptionMaxDeliveryCount);
+        Assert.Equal(TimeSpan.FromDays(7), config.TopicSubscriptionDefaultMessageTimeToLive);
+        Assert.Equal(5, config.MaxConcurrentCalls);
+        Assert.Equal(60, config.MaxMessageProcessingTimeInMinutes);
+        Assert.Equal(270, config.MessageLockRenewalIntervalSeconds);
     }
 
     [Fact]
-    public void GetSubscriptionName_ShouldReturnCorrectSubscriptionName()
+    public void ConsumerSubscription_FactoryMethods_ShouldPopulateExpectedProperties()
     {
-        // Arrange
-        var config = new MessageConfiguration
-        {
-            Connection = "TestConnection",
-            ServiceName = "TestService"
-        };
+        var queueBinding = ConsumerSubscription.BindToQueue("inbox", 7);
+        var exchangeBinding = ConsumerSubscription.BindToQueueViaExchange("inbox", "events", 9, "topic", "order.created", true, true, false);
 
-        // Act
-        var subscriptionName = config.GetSubscriptionName("topic1");
+        Assert.Equal("inbox", queueBinding.QueueName);
+        Assert.Equal(string.Empty, queueBinding.ExchangeName);
+        Assert.Equal((ushort)7, queueBinding.PrefetchCount);
+        Assert.Equal("fanout", queueBinding.ExchangeType);
 
-        // Assert
-        Assert.Equal("topic1_sub_TestService", subscriptionName);
+        Assert.Equal("inbox", exchangeBinding.QueueName);
+        Assert.Equal("events", exchangeBinding.ExchangeName);
+        Assert.Equal((ushort)9, exchangeBinding.PrefetchCount);
+        Assert.Equal("topic", exchangeBinding.ExchangeType);
+        Assert.Equal("order.created", exchangeBinding.RoutingKey);
+        Assert.True(exchangeBinding.ShouldBypassAuthorization);
+        Assert.False(exchangeBinding.Durable);
     }
 }
