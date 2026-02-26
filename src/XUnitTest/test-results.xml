@@ -1,0 +1,59 @@
+<testsuites>
+  <testsuite name="XUnitTest.dll" tests="46" skipped="0" failures="0" errors="0" time="0.4303655000000001" timestamp="2026-02-26T04:43:37" hostname="srabbijans-MacBook-Pro" id="0" package="XUnitTest.dll">
+    <properties />
+    <testcase classname="XUnitTest.Auth.TokenHelperTests" name="HandleTokenIssuer_ShouldAppendRequestUriClaim" time="0.0065730" />
+    <testcase classname="XUnitTest.Vault.VaultTests" name="GetCloudVault_ShouldThrow_ForUnknownType" time="0.0053142" />
+    <testcase classname="XUnitTest.Utilities.CryptoServiceTests" name="Hash_WithNullSalt_ShouldBehaveLikeEmptySalt" time="0.0052137" />
+    <testcase classname="XUnitTest.Tenant.TenantsTests" name="Tenant_ShouldInitializeExpectedDefaults" time="0.0063916" />
+    <testcase classname="XUnitTest.Message.RoutingTableTests" name="Constructor_ShouldIgnoreFactoryRegistrations_WithoutImplementationType" time="0.0065568" />
+    <testcase classname="XUnitTest.Vault.VaultTests" name="GetCloudVault_ShouldReturnOnPremVault_ForOnPremType" time="0.0001912" />
+    <testcase classname="XUnitTest.Vault.VaultTests" name="GetCloudVault_ShouldReturnAzureKeyVault_ForAzureType" time="0.0001084" />
+    <testcase classname="XUnitTest.Utilities.CryptoServiceTests" name="Hash_WithStringAndSalt_ShouldReturnExpectedHexHash" time="0.0003329" />
+    <testcase classname="XUnitTest.Utilities.CryptoServiceTests" name="Hash_WithByteArrayAndBase64_ShouldReturnExpectedBase64" time="0.0001507" />
+    <testcase classname="XUnitTest.Message.RoutingTableTests" name="Constructor_ShouldThrow_WhenMultipleConsumersHandleSameMessageType" time="0.0016292" />
+    <testcase classname="UnknownNamespace.UnknownType" name="RoutingInfoTests.RoutingInfo_ShouldInitializeWithCorrectValues" time="0.0005398" />
+    <testcase classname="UnknownNamespace.UnknownType" name="RoutingInfoTests.RoutingInfo_ShouldSetCorrectContextName" time="0.0000478" />
+    <testcase classname="UnknownNamespace.UnknownType" name="RoutingInfoTests.RoutingInfo_ShouldSetCorrectConsumerType" time="0.0000611" />
+    <testcase classname="UnknownNamespace.UnknownType" name="RoutingInfoTests.RoutingInfo_ShouldSetCorrectContextType" time="0.0000412" />
+    <testcase classname="UnknownNamespace.UnknownType" name="RoutingInfoTests.RoutingInfo_ShouldSetCorrectConsumerMethod" time="0.0000358" />
+    <testcase classname="XUnitTest.Message.MessageConfigurationTests" name="AzureServiceBusConfiguration_Topics_ShouldNormalizeAndFilter" time="0.0087324" />
+    <testcase classname="XUnitTest.Message.MessageConfigurationTests" name="GetSubscriptionName_ShouldReturnServiceScopedSubscription" time="0.0001191" />
+    <testcase classname="XUnitTest.Message.MessageConfigurationTests" name="AzureServiceBusConfiguration_Queues_ShouldKeepPreviousValue_WhenSetToNull" time="0.0002751" />
+    <testcase classname="XUnitTest.Message.MessageConfigurationTests" name="AzureServiceBusConfiguration_Queues_ShouldNormalizeAndFilter" time="0.0001308" />
+    <testcase classname="XUnitTest.Message.RoutingTableTests" name="Constructor_ShouldBuildRoute_ForRegisteredConsumer" time="0.0018268" />
+    <testcase classname="XUnitTest.Entities.BaseModelsTests" name="BaseResponseTypes_ShouldStoreAssignedValues" time="0.0023083" />
+    <testcase classname="XUnitTest.Entities.BaseModelsTests" name="BaseGetsRequest_ShouldExposeDefaults" time="0.0001856" />
+    <testcase classname="XUnitTest.Message.MessageConfigurationTests" name="AzureServiceBusConfiguration_Defaults_ShouldMatchConfiguredValues" time="0.0017766" />
+    <testcase classname="XUnitTest.Auth.BlocksContextTests" name="ExecuteInContext_Func_ShouldReturnValueAndRestorePreviousContext" time="0.0123657" />
+    <testcase classname="XUnitTest.Message.MessageConfigurationTests" name="ConsumerSubscription_FactoryMethods_ShouldPopulateExpectedProperties" time="0.0010408" />
+    <testcase classname="XUnitTest.Auth.BlocksContextTests" name="CreateFromClaimsIdentity_ShouldReadClaims" time="0.0011185" />
+    <testcase classname="XUnitTest.Auth.BlocksContextTests" name="CreateFromClaimsIdentity_ShouldUseThirdPartyHeader_WhenAvailable" time="0.0168691" />
+    <testcase classname="XUnitTest.Auth.BlocksContextTests" name="Create_ShouldConvertNullInputsToSafeDefaults" time="0.0000721" />
+    <testcase classname="XUnitTest.Auth.BlocksContextTests" name="ExecuteInContext_Action_ShouldRestorePreviousContext" time="0.0001197" />
+    <testcase classname="XUnitTest.Auth.BlocksContextTests" name="SetContext_ThenGetContext_ShouldReturnSameContextInTestMode" time="0.0000454" />
+    <testcase classname="XUnitTest.Middlewares.GlobalExceptionHandlerMiddlewareTests" name="Invoke_ShouldPassThrough_WhenNoExceptionThrown" time="0.0329187" />
+    <testcase classname="XUnitTest.Auth.TokenHelperTests" name="GetTokenFromCookie_ShouldReturnThirdPartyCookie_WhenConfigured" time="0.0266110" />
+    <testcase classname="XUnitTest.Auth.TokenHelperTests" name="GetToken_ShouldReadBearerTokenFromAuthorizationHeader" time="0.0002384" />
+    <testcase classname="XUnitTest.Auth.TokenHelperTests" name="GetTokenFromCookie_ShouldReturnBlocksCookie_WhenAccessCookieExists" time="0.0001187" />
+    <testcase classname="XUnitTest.Message.ConsumerTests" name="ProcessMessageAsync_ShouldDoNothing_WhenPayloadCannotDeserialize" time="0.0383101" />
+    <testcase classname="XUnitTest.Message.ConsumerTests" name="ProcessMessageAsync_ShouldDoNothing_WhenRouteDoesNotExist" time="0.0003021" />
+    <testcase classname="XUnitTest.Message.ConsumerTests" name="ProcessMessageAsync_ShouldInvokeRegisteredConsumer_WhenRouteAndPayloadAreValid" time="0.0055617" />
+    <testcase classname="XUnitTest.Message.ConsumerTests" name="ProcessMessageAsync_ShouldNotInvoke_WhenServiceProviderCannotResolveConsumer" time="0.0007119" />
+    <testcase classname="XUnitTest.Middlewares.GlobalExceptionHandlerMiddlewareTests" name="Invoke_ShouldWrite500JsonResponse_WhenExceptionIsThrown" time="0.0144109" />
+    <testcase classname="XUnitTest.Middlewares.TenantValidationMiddlewareTests" name="InvokeAsync_ShouldReturn403_WhenGrpcKeyDoesNotMatch" time="0.0474865" />
+    <testcase classname="XUnitTest.Middlewares.TenantValidationMiddlewareTests" name="InvokeAsync_ShouldCallNext_AndClearContext_OnSuccess" time="0.0007455" />
+    <testcase classname="XUnitTest.Middlewares.TenantValidationMiddlewareTests" name="InvokeAsync_ShouldReturn404_WhenTenantNotFoundByDomain" time="0.0003957" />
+    <testcase classname="XUnitTest.Middlewares.TenantValidationMiddlewareTests" name="InvokeAsync_ShouldReturn406_WhenOriginIsInvalid" time="0.0004436" />
+    <testcase classname="Blocks.Genesis.Tests.LmtConfigurationTests" name="GetMongoDatabase_ShouldReturnDatabaseInstance" time="0.0846935" />
+    <testcase classname="Blocks.Genesis.Tests.MongoDBDynamicSinkTests" name="ConvertToBsonDocument_ShouldMapCoreFieldsAndProperties" time="0.0857723" />
+    <testcase classname="Blocks.Genesis.Tests.LmtConfigurationTests" name="GetMongoCollection_ShouldReturnCollectionInstance" time="0.0114715" />
+    <system-out>
+Test Framework Informational Messages:
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.3.1+6b60a9e56a (64-bit .NET 9.0.13)
+[xUnit.net 00:00:00.03]   Discovering: XUnitTest
+[xUnit.net 00:00:00.04]   Discovered:  XUnitTest
+[xUnit.net 00:00:00.04]   Starting:    XUnitTest
+[xUnit.net 00:00:00.15]   Finished:    XUnitTest
+</system-out>
+  </testsuite>
+</testsuites>
