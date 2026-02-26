@@ -1,29 +1,32 @@
-﻿using Moq;
-using Blocks.Genesis;
-namespace UnitTest.Tenant
+﻿using Blocks.Genesis;
+
+namespace XUnitTest.Tenant;
+
+public class TenantsTests
 {
-    public class TenantsTests
+    [Fact]
+    public void Tenant_ShouldInitializeExpectedDefaults()
     {
-        private readonly Mock<IBlocksSecret> _blocksSecretMock;
-        private readonly Mock<ICacheClient> _cacheClientMock;
-
-        public TenantsTests()
+        var tenant = new Blocks.Genesis.Tenant
         {
-            _blocksSecretMock = new Mock<IBlocksSecret>();
-            _cacheClientMock = new Mock<ICacheClient>();
-            _blocksSecretMock.SetupGet(x => x.DatabaseConnectionString).Returns("mongodb://localhost:27017");
-            _blocksSecretMock.SetupGet(x => x.RooDatabaseName).Returns("Blocks");
-        }
+            ApplicationDomain = "sample",
+            DbConnectionString = "mongodb://localhost:27017",
+            JwtTokenParameters = new JwtTokenParameters
+            {
+                Issuer = "issuer",
+                Subject = "subject",
+                Audiences = [],
+                PublicCertificatePath = "path",
+                PublicCertificatePassword = "password",
+                PrivateCertificatePassword = "private",
+                IssueDate = DateTime.UtcNow
+            }
+        };
 
-        //[Fact]
-        //public void TenantsConstructor_ShouldSetupCorrectly()
-        //{
-        //    // Acr
-        //    var tenants = new Tenants(_blocksSecretMock.Object, _cacheClientMock.Object);
-
-        //    // Assert
-        //    Assert.NotNull(tenants);
-        //}
-
+        Assert.NotNull(tenant.TenantId);
+        Assert.NotNull(tenant.DBName);
+        Assert.NotNull(tenant.TenantSalt);
+        Assert.Empty(tenant.AllowedDomains);
+        Assert.False(tenant.IsRootTenant);
     }
 }

@@ -1,72 +1,56 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Xunit;
-using Blocks.Genesis;
-using System.Reflection;
+﻿using Blocks.Genesis;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace XUnitTest.Message;
 
 public class RoutingTableTests
 {
     [Fact]
-    public void RoutingTable_ShouldInitializeWithEmptyRoutes()
+    public void Constructor_ShouldBuildRoute_ForRegisteredConsumer()
     {
-        // Arrange
-        var serviceCollection = new ServiceCollection();
+        var services = new ServiceCollection();
+        services.AddTransient<IConsumer<TestMessage>, TestMessageConsumer>();
 
-        // Act
-        var routingTable = new RoutingTable(serviceCollection);
+        var routingTable = new RoutingTable(services);
 
-        // Assert
+        Assert.Single(routingTable.Routes);
+        Assert.True(routingTable.Routes.ContainsKey(nameof(TestMessage)));
+        Assert.Equal(typeof(IConsumer<TestMessage>), routingTable.Routes[nameof(TestMessage)].ConsumerType);
+    }
+
+    [Fact]
+    public void Constructor_ShouldIgnoreFactoryRegistrations_WithoutImplementationType()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IConsumer<TestMessage>>(_ => new TestMessageConsumer());
+
+        var routingTable = new RoutingTable(services);
+
         Assert.Empty(routingTable.Routes);
     }
 
     [Fact]
-    public void RoutingTable_ShouldIgnoreNonConsumerServices()
+    public void Constructor_ShouldThrow_WhenMultipleConsumersHandleSameMessageType()
     {
-        // Arrange
-        var serviceCollection = new ServiceCollection();
-        serviceCollection.AddTransient<INonConsumerService, NonConsumerService>();
+        var services = new ServiceCollection();
+        services.AddTransient<IConsumer<TestMessage>, TestMessageConsumer>();
+        services.AddTransient<IConsumer<TestMessage>, DuplicateTestMessageConsumer>();
 
-        // Act
-        var routingTable = new RoutingTable(serviceCollection);
+        var ex = Assert.Throws<InvalidOperationException>(() => new RoutingTable(services));
 
-        // Assert
-        Assert.Empty(routingTable.Routes);
+        Assert.Contains("Message of type", ex.Message);
+        Assert.Contains(nameof(TestMessage), ex.Message);
     }
 
-    // Test classes and interfaces for the unit tests
-    public class TestMessage { }
-    public class AnotherTestMessage { }
+    private sealed class TestMessage;
 
-    public interface IConsumer<T>
+    private sealed class TestMessageConsumer : IConsumer<TestMessage>
     {
-        Task Consume(T message);
+        public Task Consume(TestMessage context) => Task.CompletedTask;
     }
 
-    public class TestConsumer : IConsumer<TestMessage>
+    private sealed class DuplicateTestMessageConsumer : IConsumer<TestMessage>
     {
-        public Task Consume(TestMessage message)
-        {
-            return Task.CompletedTask;
-        }
-    }
-
-    public class AnotherTestConsumer : IConsumer<TestMessage>
-    {
-        public Task Consume(TestMessage message)
-        {
-            return Task.CompletedTask;
-        }
-    }
-
-    public interface INonConsumerService
-    {
-        void DoSomething();
-    }
-
-    public class NonConsumerService : INonConsumerService
-    {
-        public void DoSomething() { }
+        public Task Consume(TestMessage context) => Task.CompletedTask;
     }
 }
