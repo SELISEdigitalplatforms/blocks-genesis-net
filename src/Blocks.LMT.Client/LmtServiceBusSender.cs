@@ -278,8 +278,8 @@ namespace SeliseBlocks.LMT.Client
             if (_disposed) return;
 
             _retryTimer?.Dispose();
-            _retrySemaphore?.Dispose();
             RetryFailedBatchesAsync().GetAwaiter().GetResult();
+            _retrySemaphore?.Dispose();
             _serviceBusSender?.DisposeAsync().GetAwaiter().GetResult();
             _serviceBusClient?.DisposeAsync().GetAwaiter().GetResult();
 
