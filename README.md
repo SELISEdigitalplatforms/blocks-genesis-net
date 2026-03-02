@@ -1,158 +1,166 @@
-# l0-net-blocks-genesis
+# blocks-genesis-net
 
-## Overview
+SELISE `<blocks />` Genesis is a .NET 9 service foundation for building APIs and workers with built-in configuration, middleware, messaging, cache, observability, and multi-tenant utilities.
 
-This repository contains the core components for the l0-net-blocks-genesis project. The `src/Genesis` directory is organized into several modules, each responsible for a specific aspect of the system.
+This repository includes:
 
-## Interface Methods and Usage
-
-Below is a summary of all interfaces in `src/Genesis`, their methods, and example usage patterns:
-
-### ICacheClient
-
-Provides synchronous and asynchronous methods for interacting with a Redis cache, including string and hash operations, and pub/sub.
-
-**Key Methods:**
-
-- `IDatabase CacheDatabase()`
-- `bool KeyExists(string key)` / `Task<bool> KeyExistsAsync(string key)`
-- `bool AddStringValue(string key, string value[, long keyLifeSpan])` / `Task<bool> AddStringValueAsync(...)`
-- `string GetStringValue(string key)` / `Task<string> GetStringValueAsync(string key)`
-- `bool RemoveKey(string key)` / `Task<bool> RemoveKeyAsync(string key)`
-- `bool AddHashValue(string key, IEnumerable<HashEntry> value[, long keyLifeSpan])` / `Task<bool> AddHashValueAsync(...)`
-- `HashEntry[] GetHashValue(string key)` / `Task<HashEntry[]> GetHashValueAsync(string key)`
-- `Task<long> PublishAsync(string channel, string message)`
-- `Task SubscribeAsync(string channel, Action<RedisChannel, RedisValue> handler)`
-- `Task UnsubscribeAsync(string channel)`
-
-**Usage:**
-
-```csharp
-var exists = await cacheClient.KeyExistsAsync("myKey");
-await cacheClient.AddStringValueAsync("myKey", "value", 3600);
-```
-
-### IBlocksSecret
-
-Holds configuration secrets for various services.
-
-**Properties:**
-
-- Connection strings, database names, SSH credentials, and flags (see interface for full list).
-
-**Usage:**
-
-```csharp
-string cacheConn = blocksSecret.CacheConnectionString;
-```
-
-### IProjectKey
-
-Represents a project key property.
-
-**Property:**
-
-- `string ProjectKey { get; set; }`
-
-### IDbContextProvider
-
-Provides MongoDB database and collection access.
-
-**Key Methods:**
-
-- `IMongoDatabase GetDatabase(string tenantId)`
-- `IMongoDatabase? GetDatabase()`
-- `IMongoDatabase GetDatabase(string connectionString, string databaseName)`
-- `IMongoCollection<T> GetCollection<T>(string collectionName)`
-- `IMongoCollection<T> GetCollection<T>(string tenantId, string collectionName)`
-
-**Usage:**
-
-```csharp
-var db = dbContextProvider.GetDatabase("tenant1");
-var collection = dbContextProvider.GetCollection<MyEntity>("entities");
-```
-
-### IGrpcClientFactory
-
-Creates gRPC clients for a given address.
-
-**Method:**
-
-- `TClient CreateGrpcClient<TClient>(string address) where TClient : ClientBase<TClient>`
-
-### IConsumer<T>
-
-Consumes a message or context of type T.
-
-**Method:**
-
-- `Task Consume(T context)`
-
-### IMessageClient
-
-Sends messages to consumers.
-
-**Methods:**
-
-- `Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class`
-- `Task SendToMassConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class`
-
-### IRabbitMqService
-
-RabbitMQ service abstraction.
-
-**Properties/Methods:**
-
-- `IChannel RabbitMqChannel { get; }`
-- `Task CreateConnectionAsync()`
-- `Task InitializeSubscriptionsAsync()`
-
-### ITenants
-
-Tenant management operations.
-
-**Key Methods:**
-
-- `Tenant? GetTenantByID(string tenantId)`
-- `Tenant? GetTenantByApplicationDomain(string appName)`
-- `Dictionary<string, (string, string)> GetTenantDatabaseConnectionStrings()`
-- `(string?, string?) GetTenantDatabaseConnectionString(string tenantId)`
-- `JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId)`
-- `Task UpdateTenantVersionAsync()`
-
-### ICryptoService
-
-Hashing utilities.
-
-**Methods:**
-
-- `string Hash(string value, string salt)`
-- `string Hash(byte[] value, bool makeBase64 = false)`
-
-### IHttpService
-
-HTTP client abstraction for RESTful operations.
-
-**Key Methods:**
-
-- `Task<(T, string)> Get<T>(...)`
-- `Task<(T, string)> Post<T>(...)`
-- `Task<(T, string)> Put<T>(...)`
-- `Task<(T, string)> Delete<T>(...)`
-- `Task<(T, string)> Patch<T>(...)`
-- `Task<(T, string)> SendRequest<T>(...)`
-- `Task<(T, string)> PostFormUrlEncoded<T>(...)`
-- `Task<(T, string)> SendFormUrlEncoded<T>(...)`
-
-### IVault
-
-Secret management abstraction.
-
-**Method:**
-
-- `Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)`
+- the core framework package (`src/Genesis`)
+- sample API and worker services (`src/Api1`, `src/Apis`, `src/Workers`, `src/WorkerTwo`)
+- test and driver projects (`src/UnitTest`, `src/TestDriver`)
+- a Node.js LMT client package (`node/`)
 
 ---
 
-For more details, refer to the source code in each interface file under `src/Genesis`.
+## Solution Projects
+
+- `src/Genesis` → reusable framework (`SeliseBlocks.Genesis`)
+- `src/Blocks.LMT.Client` → .NET LMT client used by Genesis
+- `src/Api1` → API sample with HTTP endpoints and framework setup
+- `src/Apis` → API sample with gRPC endpoint
+- `src/Workers` → worker sample using Azure Service Bus configuration
+- `src/WorkerTwo` → worker sample using RabbitMQ configuration
+- `src/UnitTest` → unit test project
+- `src/TestDriver` → helper driver utilities
+- `node/` → `@seliseblocks/lmt-client` TypeScript package
+
+---
+
+## Prerequisites
+
+- **.NET SDK 9.0+**
+- **Node.js 16+** (for `node/` package)
+- **MongoDB / Redis / Message Broker access** for full local integration tests
+
+Optional:
+
+- Docker (if you containerize services)
+
+---
+
+## Local Setup
+
+<details>
+	<summary><strong>1. Clone and Restore</strong></summary>
+
+```bash
+git clone https://github.com/SELISEdigitalplatforms/blocks-genesis-net.git
+cd blocks-genesis-net
+dotnet restore src/blocks-genesis-net.sln
+```
+
+</details>
+
+---
+
+<details>
+	<summary><strong>2. Configure Environment Variables</strong></summary>
+
+Genesis reads `BlocksSecret__*` values from environment variables.
+
+Quick local setup script:
+
+```bash
+cd src/Genesis
+source setup_env.sh
+```
+
+Common variables used by the samples:
+
+- `BlocksSecret__CacheConnectionString`
+- `BlocksSecret__DatabaseConnectionString`
+- `BlocksSecret__RootDatabaseName`
+- `BlocksSecret__LogConnectionString`
+- `BlocksSecret__MetricConnectionString`
+- `BlocksSecret__TraceConnectionString`
+- `BlocksSecret__MessageConnectionString`
+- `BlocksSecret__EnableHsts`
+
+For production, configure these values from your secure secret store (for example Azure Key Vault / Vault).
+
+</details>
+
+---
+
+<details>
+	<summary><strong>3. Build the Solution</strong></summary>
+
+```bash
+dotnet build src/blocks-genesis-net.sln
+```
+
+</details>
+
+---
+
+<details>
+	<summary><strong>4. Run Sample Services</strong></summary>
+
+Run any service independently from repository root:
+
+```bash
+dotnet run --project src/Api1/ApiOne.csproj
+dotnet run --project src/Apis/ApiTwo.csproj
+dotnet run --project src/Workers/WorkerOne.csproj
+dotnet run --project src/WorkerTwo/WorkerTwo.csproj
+```
+
+Notes:
+
+- `src/Api1` uses framework API setup and sample controller(s)
+- `src/Apis` hosts a gRPC service (`GreeterService`)
+- `src/Workers` demonstrates Azure Service Bus consumer registration
+- `src/WorkerTwo` demonstrates RabbitMQ consumer subscriptions
+
+</details>
+
+---
+
+<details>
+	<summary><strong>5. Run Unit Tests</strong></summary>
+
+```bash
+dotnet test src/UnitTest/XUnitTest.csproj
+```
+
+</details>
+
+---
+
+## Genesis Usage (Service Bootstrap)
+
+Typical startup flow in APIs/workers:
+
+1. `ApplicationConfigurations.ConfigureLogAndSecretsAsync(...)`
+2. `ApplicationConfigurations.ConfigureApiEnv(...)` or worker host setup
+3. `ApplicationConfigurations.ConfigureServices(...)`
+4. `ApplicationConfigurations.ConfigureApi(...)` or `ConfigureWorker(...)`
+5. Run host/app
+
+See runnable examples in:
+
+- `src/Api1/Program.cs`
+- `src/Apis/Program.cs`
+- `src/Workers/Program.cs`
+- `src/WorkerTwo/Program.cs`
+
+---
+
+## Node Package (`node/`)
+
+This repo also contains `@seliseblocks/lmt-client` for TypeScript/Node workloads.
+
+```bash
+cd node
+npm install
+npm run build
+```
+
+For usage, see `node/README.md` and `node/example/index.ts`.
+
+---
+
+## Additional Documentation
+
+- Framework package usage: `src/Genesis/README.md`
+- Priority unit test notes: `src/XUnitTest/README-Priority-Unit-Test-Targets.md`
+- Contribution and security policies: `CONTRIBUTING.md`, `SECURITY.md`
