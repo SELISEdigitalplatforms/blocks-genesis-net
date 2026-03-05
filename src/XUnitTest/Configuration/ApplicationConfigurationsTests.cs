@@ -5,6 +5,7 @@ using System.Reflection;
 
 namespace XUnitTest.Configuration;
 
+[Collection("DirectorySensitiveTests")]
 public class ApplicationConfigurationsTests
 {
     [Fact]
@@ -91,7 +92,7 @@ public class ApplicationConfigurationsTests
         }
         finally
         {
-            Directory.SetCurrentDirectory(previousDirectory);
+            RestoreCurrentDirectory(previousDirectory);
             Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousEnvironment);
             Environment.SetEnvironmentVariable("MaxRetries", previousMaxRetries);
             Environment.SetEnvironmentVariable("MaxFailedBatches", previousMaxFailedBatches);
@@ -137,7 +138,7 @@ public class ApplicationConfigurationsTests
         }
         finally
         {
-            Directory.SetCurrentDirectory(previousDirectory);
+            RestoreCurrentDirectory(previousDirectory);
             Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousEnvironment);
             Environment.SetEnvironmentVariable("MaxRetries", previousMaxRetries);
             Environment.SetEnvironmentVariable("MaxFailedBatches", previousMaxFailedBatches);
@@ -161,7 +162,7 @@ public class ApplicationConfigurationsTests
         }
         finally
         {
-            Directory.SetCurrentDirectory(previousDirectory);
+            RestoreCurrentDirectory(previousDirectory);
             TryDeleteDirectory(tempDirectory);
         }
     }
@@ -185,7 +186,7 @@ public class ApplicationConfigurationsTests
         }
         finally
         {
-            Directory.SetCurrentDirectory(previousDirectory);
+            RestoreCurrentDirectory(previousDirectory);
             Environment.SetEnvironmentVariable("APP_CONFIG_TEST_KEY", previousValue);
             TryDeleteDirectory(tempDirectory);
         }
@@ -235,5 +236,16 @@ public class ApplicationConfigurationsTests
         catch
         {
         }
+    }
+
+    private static void RestoreCurrentDirectory(string previousDirectory)
+    {
+        if (!string.IsNullOrWhiteSpace(previousDirectory) && Directory.Exists(previousDirectory))
+        {
+            Directory.SetCurrentDirectory(previousDirectory);
+            return;
+        }
+
+        Directory.SetCurrentDirectory(AppContext.BaseDirectory);
     }
 }
