@@ -35,7 +35,7 @@ jobs:
 
   sonarqube-job:
     if: ${{ needs.initialization.outputs.envvalue2 == 'true' }}
-    needs: [initialization]
+    needs: [test-job]
     uses: ./.github/workflows/2_sonar.yml
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_GLOBAL }}
