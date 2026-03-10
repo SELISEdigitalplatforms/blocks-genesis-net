@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  checks: write
+  pull-requests: write
 
 env:
   RUN_UNIT_TEST: "true"
