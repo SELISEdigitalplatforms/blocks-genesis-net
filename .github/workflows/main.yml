@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 env:
-  RUN_UNIT_TEST: "false"
-  RUN_SONARQUBE: "false"
+  RUN_UNIT_TEST: "true"
+  RUN_SONARQUBE: "true"
 
 jobs:
   initialization:
@@ -19,21 +22,20 @@ jobs:
       envvalue1: ${{ steps.setvar.outputs.envvar1 }}
       envvalue2: ${{ steps.setvar.outputs.envvar2 }}
     steps:
-      - name: set value
+      - name: Set values
         id: setvar
         run: |
-          echo "::set-output name=envvar1::$RUN_UNIT_TEST" 
-          echo "::set-output name=envvar2::$RUN_SONARQUBE"
+          echo "envvar1=$RUN_UNIT_TEST" >> $GITHUB_OUTPUT
+          echo "envvar2=$RUN_SONARQUBE" >> $GITHUB_OUTPUT
 
   test-job:
-    if: ${{ needs.initialization.outputs.envvalue1=='true' }}
-    uses: ./.github/workflows/1_test.yml
+    if: ${{ needs.initialization.outputs.envvalue1 == 'true' }}
     needs: [initialization]
+    uses: ./.github/workflows/1_test.yml
 
   sonarqube-job:
-    # if: ${{ success() && needs.initialization.outputs.envvalue2=='true' }}
-    if: ${{ needs.initialization.outputs.envvalue2=='true' }}
+    if: ${{ needs.initialization.outputs.envvalue2 == 'true' }}
+    needs: [initialization]
     uses: ./.github/workflows/2_sonar.yml
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_GLOBAL }}
-    needs: [initialization]
