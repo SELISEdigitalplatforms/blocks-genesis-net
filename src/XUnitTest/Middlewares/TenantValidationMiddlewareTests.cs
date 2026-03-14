@@ -96,6 +96,39 @@ public class TenantValidationMiddlewareTests
         Assert.Null(BlocksContext.GetContext());
     }
 
+    [Fact]
+    public async Task InvokeAsync_ShouldPreserveOriginalResponseStream_ForStreamingWrites()
+    {
+        var tenants = new Mock<ITenants>();
+        var crypto = new Mock<ICryptoService>();
+        var tenant = CreateTenant("tenant-1", "app.local");
+
+        tenants.Setup(t => t.GetTenantByID("tenant-1")).Returns(tenant);
+
+        RequestDelegate next = async ctx =>
+        {
+            await ctx.Response.WriteAsync("chunk-1");
+            await ctx.Response.Body.FlushAsync();
+            await ctx.Response.WriteAsync("chunk-2");
+        };
+
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var context = CreateHttpContext("app.local");
+        var originalStream = context.Response.Body;
+        context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-1";
+
+        using var activity = new Activity("tenant-validation").Start();
+        await middleware.InvokeAsync(context);
+
+        Assert.Same(originalStream, context.Response.Body);
+
+        originalStream.Position = 0;
+        using var reader = new StreamReader(originalStream, Encoding.UTF8, leaveOpen: true);
+        var responseBody = await reader.ReadToEndAsync();
+
+        Assert.Equal("chunk-1chunk-2", responseBody);
+    }
+
     private static DefaultHttpContext CreateHttpContext(string host)
     {
         var context = new DefaultHttpContext();
