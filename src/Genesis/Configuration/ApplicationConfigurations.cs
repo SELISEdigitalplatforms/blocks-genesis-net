@@ -77,9 +77,10 @@ namespace Blocks.Genesis
         {
 
             builder.Configuration
-                .AddCommandLine(args)
+                .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false)
                 .AddEnvironmentVariables()
-                .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
+                .AddCommandLine(args);
+                
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
 

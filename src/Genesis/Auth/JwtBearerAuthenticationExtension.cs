@@ -338,6 +338,7 @@ namespace Blocks.Genesis
                 phoneNumber: context.PhoneNumber ?? string.Empty,
                 displayName: context.DisplayName ?? string.Empty,
                 oauthToken: string.Empty,
+                refreshToken: string.Empty,
                 actualTentId: context.TenantId);
         }
 
@@ -389,6 +390,7 @@ namespace Blocks.Genesis
                 phoneNumber: string.Empty,
                 displayName: ExtactClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
                 oauthToken: identity.FindFirst("oauth")?.Value,
+                refreshToken: string.Empty,
                 actualTentId: apiKey));
 
             context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] = JsonSerializer.Serialize(BlocksContext.GetContext());
