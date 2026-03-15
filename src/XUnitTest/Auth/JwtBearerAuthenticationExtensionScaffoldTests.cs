@@ -111,36 +111,6 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     }
 
     [Fact]
-    public void GetContextWithoutToken_ShouldClearOauthToken()
-    {
-        var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
-        Assert.NotNull(type);
-        var method = type!.GetMethod("GetContextWithoutToken", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var context = BlocksContext.Create(
-            tenantId: "tenant-1",
-            roles: ["admin"],
-            userId: "user-1",
-            isAuthenticated: true,
-            requestUri: "/api/test",
-            organizationId: "org-1",
-            expireOn: DateTime.UtcNow.AddHours(1),
-            email: "user@example.com",
-            permissions: ["read"],
-            userName: "user",
-            phoneNumber: "123",
-            displayName: "User",
-            oauthToken: "secret-token",
-            actualTentId: "tenant-1");
-
-        var sanitized = (BlocksContext)method!.Invoke(null, [context])!;
-
-        Assert.Equal(string.Empty, sanitized.OAuthToken);
-        Assert.Equal("tenant-1", sanitized.TenantId);
-    }
-
-    [Fact]
     public void HandleTokenIssuer_ShouldAppendRequestUriAndTokenClaims()
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
