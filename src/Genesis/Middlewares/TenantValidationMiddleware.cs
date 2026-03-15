@@ -267,6 +267,7 @@ namespace Blocks.Genesis
                 string.Empty,
                 string.Empty,
                 string.Empty,
+                string.Empty,
                 tenant.TenantId
             );
 
