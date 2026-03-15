@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Azure.Core;
+using Microsoft.AspNetCore.Http;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -40,6 +41,7 @@ namespace Blocks.Genesis
         public DateTime ExpireOn { get; private init; } = DateTime.MinValue;
         public string RequestUri { get; private init; } = string.Empty;
         public string OAuthToken { get; private init; } = string.Empty;
+        public string RefreshToken { get; private init;  } = string.Empty;
         public string OrganizationId { get; private init; } = string.Empty;
         public bool IsAuthenticated { get; private init; }
         public string Email { get; private init; } = string.Empty;
@@ -71,6 +73,7 @@ namespace Blocks.Genesis
             string phoneNumber,
             string displayName,
             string oauthToken,
+            string refreshToken,
             string actualTenantId)
         {
             TenantId = tenantId ?? string.Empty;
@@ -86,6 +89,7 @@ namespace Blocks.Genesis
             PhoneNumber = phoneNumber ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
             OAuthToken = oauthToken ?? string.Empty;
+            RefreshToken = refreshToken ?? string.Empty;
             ActualTenantId = actualTenantId ?? string.Empty;
         }
 
@@ -117,7 +121,8 @@ namespace Blocks.Genesis
                 phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
                 displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
                 oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
-                actualTenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty
+                actualTenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty,
+                refreshToken: GetHttpContext().Request.Cookies[$"refresh_token_{claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value}"]
             );
         }
 
@@ -139,7 +144,8 @@ namespace Blocks.Genesis
                    phoneNumber: thirdPartyContext?.PhoneNumber ?? string.Empty,
                    displayName: thirdPartyContext?.DisplayName ?? string.Empty,
                    oauthToken: thirdPartyContext?.OAuthToken ?? string.Empty,
-                   actualTenantId: thirdPartyContext?.ActualTenantId ?? string.Empty);
+                   actualTenantId: thirdPartyContext?.ActualTenantId ?? string.Empty,
+                   refreshToken: thirdPartyContext?.RefreshToken ?? string.Empty);
         }
 
         /// <summary>
@@ -159,10 +165,11 @@ namespace Blocks.Genesis
             string? phoneNumber,
             string? displayName,
             string? oauthToken,
+            string? refreshToken,
             string? actualTentId)
         {
             return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, actualTentId);
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTentId);
         }
 
         /// <summary>

@@ -47,6 +47,7 @@ namespace Blocks.Genesis
                     phoneNumber: bc?.PhoneNumber ?? string.Empty,
                     displayName: bc?.DisplayName ?? string.Empty,
                     oauthToken: bc?.OAuthToken ?? string.Empty,
+                    refreshToken: bc?.RefreshToken ?? string.Empty,
                     actualTentId: bc?.TenantId ?? string.Empty
                 ));
 
