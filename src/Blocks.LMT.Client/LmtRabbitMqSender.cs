@@ -1,26 +1,35 @@
-﻿using Azure.Messaging.ServiceBus;
-using Blocks.LMT.Client;
+﻿using RabbitMQ.Client;
+using SeliseBlocks.LMT.Client;
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 
-namespace SeliseBlocks.LMT.Client
+namespace Blocks.LMT.Client
 {
-    public class LmtServiceBusSender : ILmtMessageSender
+   
+    public class LmtRabbitMqSender : ILmtMessageSender
     {
         private readonly string _serviceName;
         private readonly int _maxRetries;
         private readonly int _maxFailedBatches;
-        private readonly ConcurrentQueue<FailedLogBatch> _failedLogBatches;
-        private readonly ConcurrentQueue<FailedTraceBatch> _failedTraceBatches;
+
+        private readonly ConcurrentQueue<FailedLogBatch> _failedLogBatches = new();
+        private readonly ConcurrentQueue<FailedTraceBatch> _failedTraceBatches = new();
+        private readonly SemaphoreSlim _retrySemaphore = new(1, 1);
         private readonly Timer _retryTimer;
-        private ServiceBusClient? _serviceBusClient;
-        private ServiceBusSender? _serviceBusSender;
-        private readonly SemaphoreSlim _retrySemaphore = new SemaphoreSlim(1, 1);
+
+        private readonly ConnectionFactory _factory;
+        private IConnection? _connection;
+        private IChannel? _channel;
         private bool _disposed;
 
-        public LmtServiceBusSender(
+        public LmtRabbitMqSender(
             string serviceName,
-            string serviceBusConnectionString,
+            string rabbitMqConnectionString,
             int maxRetries = 3,
             int maxFailedBatches = 100)
         {
@@ -28,14 +37,13 @@ namespace SeliseBlocks.LMT.Client
             _maxRetries = maxRetries;
             _maxFailedBatches = maxFailedBatches;
 
-            _failedLogBatches = new ConcurrentQueue<FailedLogBatch>();
-            _failedTraceBatches = new ConcurrentQueue<FailedTraceBatch>();
-
-            if (!string.IsNullOrWhiteSpace(serviceBusConnectionString))
+            _factory = new ConnectionFactory
             {
-                _serviceBusClient = new ServiceBusClient(serviceBusConnectionString);
-                _serviceBusSender = _serviceBusClient.CreateSender(LmtConstants.GetTopicName(serviceName));
-            }
+                Uri = new Uri(rabbitMqConnectionString),
+                AutomaticRecoveryEnabled = true,
+                NetworkRecoveryInterval = TimeSpan.FromSeconds(10),
+                ClientProvidedName = $"seliseblocks-lmt-client-{serviceName}"
+            };
 
             _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null,
                 TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
@@ -43,18 +51,14 @@ namespace SeliseBlocks.LMT.Client
 
         public async Task SendLogsAsync(List<LogData> logs, int retryCount = 0)
         {
-            if (_serviceBusSender == null)
-            {
-                Console.WriteLine("Service Bus sender not initialized");
-                return;
-            }
-
             int currentRetry = 0;
 
             while (currentRetry <= _maxRetries)
             {
                 try
                 {
+                    await EnsureChannelAsync();
+
                     var payload = new
                     {
                         Type = "logs",
@@ -62,30 +66,17 @@ namespace SeliseBlocks.LMT.Client
                         Data = logs
                     };
 
-                    var json = JsonSerializer.Serialize(payload);
-                    var timestamp = DateTime.UtcNow;
-                    var messageId = $"logs_{_serviceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
+                    await PublishAsync(
+                        routingKey: LmtConstants.RabbitMqLogsRoutingKey,
+                        payload: payload,
+                        source: "LogsSender",
+                        type: "logs");
 
-                    var message = new ServiceBusMessage(json)
-                    {
-                        ContentType = "application/json",
-                        MessageId = messageId,
-                        CorrelationId = LmtConstants.LogSubscription,
-                        ApplicationProperties =
-                        {
-                            { "serviceName", _serviceName },
-                            { "timestamp", timestamp.ToString("o") },
-                            { "source", "LogsSender" },
-                            { "type", "logs" }
-                        }
-                    };
-
-                    await _serviceBusSender.SendMessageAsync(message);
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending logs to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Console.WriteLine($"Exception sending logs to RabbitMQ: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
                 }
 
                 currentRetry++;
@@ -97,18 +88,14 @@ namespace SeliseBlocks.LMT.Client
                 }
             }
 
-            // Queue for later retry
             if (_failedLogBatches.Count < _maxFailedBatches)
             {
-                var failedBatch = new FailedLogBatch
+                _failedLogBatches.Enqueue(new FailedLogBatch
                 {
                     Logs = logs,
                     RetryCount = retryCount + 1,
                     NextRetryTime = DateTime.UtcNow.AddMinutes(Math.Pow(2, retryCount))
-                };
-
-                _failedLogBatches.Enqueue(failedBatch);
-                Console.WriteLine($"Queued log batch for later retry. Failed batches in queue: {_failedLogBatches.Count}");
+                });
             }
             else
             {
@@ -118,18 +105,14 @@ namespace SeliseBlocks.LMT.Client
 
         public async Task SendTracesAsync(Dictionary<string, List<TraceData>> tenantBatches, int retryCount = 0)
         {
-            if (_serviceBusSender == null)
-            {
-                Console.WriteLine("Service Bus sender not initialized");
-                return;
-            }
-
             int currentRetry = 0;
 
             while (currentRetry <= _maxRetries)
             {
                 try
                 {
+                    await EnsureChannelAsync();
+
                     var payload = new
                     {
                         Type = "traces",
@@ -137,30 +120,17 @@ namespace SeliseBlocks.LMT.Client
                         Data = tenantBatches
                     };
 
-                    var json = JsonSerializer.Serialize(payload);
-                    var timestamp = DateTime.UtcNow;
-                    var messageId = $"traces_{_serviceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
+                    await PublishAsync(
+                        routingKey: LmtConstants.RabbitMqTracesRoutingKey,
+                        payload: payload,
+                        source: "TracesSender",
+                        type: "traces");
 
-                    var message = new ServiceBusMessage(json)
-                    {
-                        ContentType = "application/json",
-                        MessageId = messageId,
-                        CorrelationId = LmtConstants.TraceSubscription,
-                        ApplicationProperties =
-                        {
-                            { "serviceName", _serviceName },
-                            { "timestamp", timestamp.ToString("o") },
-                            { "source", "TracesSender" },
-                            { "type", "traces" }
-                        }
-                    };
-
-                    await _serviceBusSender.SendMessageAsync(message);
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending traces to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Console.WriteLine($"Exception sending traces to RabbitMQ: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
                 }
 
                 currentRetry++;
@@ -172,23 +142,76 @@ namespace SeliseBlocks.LMT.Client
                 }
             }
 
-            // Queue for later retry
             if (_failedTraceBatches.Count < _maxFailedBatches)
             {
-                var failedBatch = new FailedTraceBatch
+                _failedTraceBatches.Enqueue(new FailedTraceBatch
                 {
                     TenantBatches = tenantBatches,
                     RetryCount = retryCount + 1,
                     NextRetryTime = DateTime.UtcNow.AddMinutes(Math.Pow(2, retryCount))
-                };
-
-                _failedTraceBatches.Enqueue(failedBatch);
-                Console.WriteLine($"Queued trace batch for later retry. Failed batches in queue: {_failedTraceBatches.Count}");
+                });
             }
             else
             {
                 Console.WriteLine($"Failed trace batch queue is full ({_maxFailedBatches}). Dropping batch.");
             }
+        }
+
+        private async Task EnsureChannelAsync()
+        {
+            if (_connection is { IsOpen: true } && _channel is { IsOpen: true })
+                return;
+
+            _connection?.Dispose();
+            _connection = await _factory.CreateConnectionAsync();
+
+            _channel?.Dispose();
+            _channel = await _connection.CreateChannelAsync();
+
+            var exchangeName = LmtConstants.GetRabbitMqExchangeName(_serviceName);
+
+            await _channel.ExchangeDeclareAsync(
+                exchange: exchangeName,
+                type: ExchangeType.Direct,
+                durable: true,
+                autoDelete: false);
+        }
+
+        private async Task PublishAsync(string routingKey, object payload, string source, string type)
+        {
+            if (_channel == null)
+                throw new InvalidOperationException("RabbitMQ channel is not initialized.");
+
+            var exchangeName = LmtConstants.GetRabbitMqExchangeName(_serviceName);
+            var timestamp = DateTime.UtcNow;
+            var messageId = $"{type}_{_serviceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
+
+            var json = JsonSerializer.Serialize(payload);
+            var body = Encoding.UTF8.GetBytes(json);
+
+            var properties = new BasicProperties
+            {
+                ContentType = "application/json",
+                MessageId = messageId,
+                CorrelationId = type == "logs"
+                    ? LmtConstants.LogSubscription
+                    : LmtConstants.TraceSubscription,
+                Type = type,
+                Headers = new Dictionary<string, object?>
+                {
+                    ["serviceName"] = _serviceName,
+                    ["timestamp"] = timestamp.ToString("o"),
+                    ["source"] = source,
+                    ["type"] = type
+                }
+            };
+
+            await _channel.BasicPublishAsync(
+                exchange: exchangeName,
+                routingKey: routingKey,
+                mandatory: false,
+                basicProperties: properties,
+                body: body);
         }
 
         private async Task RetryFailedBatchesAsync()
@@ -199,11 +222,7 @@ namespace SeliseBlocks.LMT.Client
             try
             {
                 var now = DateTime.UtcNow;
-
-                // Retry failed logs
                 await RetryFailedLogsAsync(now);
-
-                // Retry failed traces
                 await RetryFailedTracesAsync(now);
             }
             finally
@@ -226,9 +245,7 @@ namespace SeliseBlocks.LMT.Client
             }
 
             foreach (var batch in batchesToRequeue)
-            {
                 _failedLogBatches.Enqueue(batch);
-            }
 
             foreach (var failedBatch in batchesToRetry)
             {
@@ -238,7 +255,6 @@ namespace SeliseBlocks.LMT.Client
                     continue;
                 }
 
-                Console.WriteLine($"Retrying failed log batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
                 await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount);
             }
         }
@@ -257,9 +273,7 @@ namespace SeliseBlocks.LMT.Client
             }
 
             foreach (var batch in batchesToRequeue)
-            {
                 _failedTraceBatches.Enqueue(batch);
-            }
 
             foreach (var failedBatch in batchesToRetry)
             {
@@ -269,7 +283,6 @@ namespace SeliseBlocks.LMT.Client
                     continue;
                 }
 
-                Console.WriteLine($"Retrying failed trace batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
                 await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
             }
         }
@@ -278,13 +291,14 @@ namespace SeliseBlocks.LMT.Client
         {
             if (_disposed) return;
 
-            _retryTimer?.Dispose();
-            _retrySemaphore?.Dispose();
+            _retryTimer.Dispose();
+            _retrySemaphore.Dispose();
             RetryFailedBatchesAsync().GetAwaiter().GetResult();
-            _serviceBusSender?.DisposeAsync().GetAwaiter().GetResult();
-            _serviceBusClient?.DisposeAsync().GetAwaiter().GetResult();
+            _channel?.Dispose();
+            _connection?.Dispose();
 
             _disposed = true;
         }
     }
+    
 }
