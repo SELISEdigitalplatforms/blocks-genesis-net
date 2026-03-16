@@ -18,8 +18,13 @@
     {
         public const string LogSubscription = "blocks-lmt-service-logs";
         public const string TraceSubscription = "blocks-lmt-service-traces";
-
+        public const string RabbitMqLogsRoutingKey = "logs";
+        public const string RabbitMqTracesRoutingKey = "traces";
         public static string GetTopicName(string serviceName)
+        {
+            return "lmt-" + serviceName;
+        }
+        public static string GetRabbitMqExchangeName(string serviceName)
         {
             return "lmt-" + serviceName;
         }

@@ -1,7 +1,8 @@
-﻿using System.Collections.Concurrent;
+﻿using Blocks.LMT.Client;
+using Microsoft.Extensions.Logging; // For LogLevel enum mapping
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions; // For parsing message templates
-using Microsoft.Extensions.Logging; // For LogLevel enum mapping
 
 namespace SeliseBlocks.LMT.Client
 {
@@ -10,7 +11,7 @@ namespace SeliseBlocks.LMT.Client
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<LogData> _logBatch;
         private readonly Timer _flushTimer;
-        private readonly LmtServiceBusSender _serviceBusSender;
+        private readonly ILmtMessageSender _serviceBusSender;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
 
@@ -25,12 +26,7 @@ namespace SeliseBlocks.LMT.Client
                 throw new ArgumentException("ServiceBusConnectionString is required", nameof(options));
 
             _logBatch = new ConcurrentQueue<LogData>();
-
-            _serviceBusSender = new LmtServiceBusSender(
-                _options.ServiceId,
-                _options.ConnectionString,
-                _options.MaxRetries,
-                _options.MaxFailedBatches);
+            _serviceBusSender= LmtMessageSenderFactory.Create(_options);
 
             var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
             _flushTimer = new Timer(async _ => await FlushBatchAsync(), null, flushInterval, flushInterval);
