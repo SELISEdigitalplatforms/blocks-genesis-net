@@ -1,158 +1,173 @@
-# l0-net-blocks-genesis
+# Blocks Genesis Service
+
+SELISE `<blocks />` Genesis is a .NET service foundation for building APIs and workers with built-in configuration, middleware, messaging, cache, observability, and multi-tenant utilities.
+
+Naming convention: `Blocks <Service_Name> Service`
 
 ## Overview
 
-This repository contains the core components for the l0-net-blocks-genesis project. The `src/Genesis` directory is organized into several modules, each responsible for a specific aspect of the system.
+This repository provides a multi-project .NET solution containing a reusable framework package, sample API/worker services, tests, and an LMT client package for both .NET and Node.js workloads.
 
-## Interface Methods and Usage
+## Table of Content
 
-Below is a summary of all interfaces in `src/Genesis`, their methods, and example usage patterns:
+- [Overview](#overview)
+- [Table of Content](#table-of-content)
+- [Feature](#feature)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Controller / Endpoint](#controller--endpoint)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+- [Installation](#installation)
 
-### ICacheClient
+## Feature
 
-Provides synchronous and asynchronous methods for interacting with a Redis cache, including string and hash operations, and pub/sub.
+- Reusable application bootstrap and middleware pipeline for API and worker services
+- Built-in support for secrets, logging, tracing, metrics, and health integrations
+- Message broker integration patterns for Azure Service Bus and RabbitMQ consumers
+- Multi-tenant request context handling through `BlocksContext`
+- Sample HTTP and gRPC services demonstrating Genesis integration
+- Shared LMT client libraries for .NET and Node.js
+- Unit tests and driver utilities for validation and integration scenarios
 
-**Key Methods:**
+## Technology Stack
 
-- `IDatabase CacheDatabase()`
-- `bool KeyExists(string key)` / `Task<bool> KeyExistsAsync(string key)`
-- `bool AddStringValue(string key, string value[, long keyLifeSpan])` / `Task<bool> AddStringValueAsync(...)`
-- `string GetStringValue(string key)` / `Task<string> GetStringValueAsync(string key)`
-- `bool RemoveKey(string key)` / `Task<bool> RemoveKeyAsync(string key)`
-- `bool AddHashValue(string key, IEnumerable<HashEntry> value[, long keyLifeSpan])` / `Task<bool> AddHashValueAsync(...)`
-- `HashEntry[] GetHashValue(string key)` / `Task<HashEntry[]> GetHashValueAsync(string key)`
-- `Task<long> PublishAsync(string channel, string message)`
-- `Task SubscribeAsync(string channel, Action<RedisChannel, RedisValue> handler)`
-- `Task UnsubscribeAsync(string channel)`
+- .NET 9
+- ASP.NET Core Web API
+- ASP.NET Core gRPC
+- Worker Service
+- MongoDB Driver
+- Azure Service Bus / RabbitMQ integration
+- xUnit + Moq + FluentAssertions
+- TypeScript (Node package)
 
-**Usage:**
+## Project Structure
 
-```csharp
-var exists = await cacheClient.KeyExistsAsync("myKey");
-await cacheClient.AddStringValueAsync("myKey", "value", 3600);
+```text
+.
+├── src
+│   ├── Genesis                # Core framework package
+│   ├── Blocks.LMT.Client      # Shared .NET LMT client
+│   ├── Api1                   # Sample HTTP API service
+│   ├── Apis                   # Sample API + gRPC service
+│   ├── Workers                # Worker sample (Azure Service Bus)
+│   ├── WorkerTwo              # Worker sample (RabbitMQ)
+│   ├── TestDriver             # Helper driver utilities
+│   └── XUnitTest              # Unit test project
+├── node                       # @seliseblocks/lmt-client package
+├── Apis.Dockerfile            # API image definition
+└── Workers.Dockerfile         # Worker image definition
 ```
 
-### IBlocksSecret
+## Controller / Endpoint
 
-Holds configuration secrets for various services.
+Routing pattern (HTTP): `/api/[controller]/[action-or-route]`
 
-**Properties:**
+### S1Controller (Api1)
 
-- Connection strings, database names, SSH credentials, and flags (see interface for full list).
+Base route: `/api/s1`
 
-**Usage:**
+- `GET /api/s1/process` - Processes a request with tenant context, triggers messaging and downstream API/gRPC calls, and returns aggregated data.
+- `GET /api/s1/cert` - Returns the current request context for protected certificate-authenticated access checks.
 
-```csharp
-string cacheConn = blocksSecret.CacheConnectionString;
+### S2Controller (Apis)
+
+Base route: `/api/s2`
+
+- `GET /api/s2/process` - Handles a sample request, publishes a queue message, and returns the current `BlocksContext`.
+- `GET /api/s2/process_1` - Returns the current `BlocksContext` for a lightweight context-validation endpoint.
+
+### GreeterService (gRPC, Apis)
+
+Service route: `/Greeter/SayHello`
+
+- `RPC Greeter/SayHello` - Returns a serialized `BlocksContext` payload to verify request context propagation over gRPC.
+
+Note: Endpoints that use `Authorize` or `ProtectedEndPoint` require valid authentication and expected request headers/context.
+
+## Prerequisites
+
+- .NET SDK 9.0 or later
+- Node.js 16 or later (for `node/` package)
+- Access to required runtime dependencies for local integration (for example MongoDB, Redis, message broker)
+- Required secret/configuration provider values (environment variables or vault)
+- Docker Desktop (optional, for containerized builds)
+
+## Getting Started
+
+1. Clone the repository.
+2. Move to the solution root.
+3. Restore and build the solution.
+4. Configure environment settings and secrets.
+5. Run API and worker services.
+
+Basic build commands:
+
+```sh
+dotnet restore src/blocks-genesis-net.sln
+dotnet build src/blocks-genesis-net.sln
 ```
 
-### IProjectKey
+Run sample services locally in separate terminals:
 
-Represents a project key property.
-
-**Property:**
-
-- `string ProjectKey { get; set; }`
-
-### IDbContextProvider
-
-Provides MongoDB database and collection access.
-
-**Key Methods:**
-
-- `IMongoDatabase GetDatabase(string tenantId)`
-- `IMongoDatabase? GetDatabase()`
-- `IMongoDatabase GetDatabase(string connectionString, string databaseName)`
-- `IMongoCollection<T> GetCollection<T>(string collectionName)`
-- `IMongoCollection<T> GetCollection<T>(string tenantId, string collectionName)`
-
-**Usage:**
-
-```csharp
-var db = dbContextProvider.GetDatabase("tenant1");
-var collection = dbContextProvider.GetCollection<MyEntity>("entities");
+```sh
+dotnet run --project src/Api1/ApiOne.csproj
+dotnet run --project src/Apis/ApiTwo.csproj
+dotnet run --project src/Workers/WorkerOne.csproj
+dotnet run --project src/WorkerTwo/WorkerTwo.csproj
 ```
 
-### IGrpcClientFactory
+Run tests:
 
-Creates gRPC clients for a given address.
+```sh
+dotnet test src/XUnitTest/XUnitTest.csproj
+```
 
-**Method:**
+Build Node package:
 
-- `TClient CreateGrpcClient<TClient>(string address) where TClient : ClientBase<TClient>`
+```sh
+cd node
+npm install
+npm run build
+```
 
-### IConsumer<T>
+## Installation
 
-Consumes a message or context of type T.
+### 1. Clone the Repository
 
-**Method:**
+```sh
+git clone https://github.com/SELISEdigitalplatforms/blocks-genesis-net.git
+cd blocks-genesis-net
+```
 
-- `Task Consume(T context)`
+### 2. Restore Dependencies
 
-### IMessageClient
+```sh
+dotnet restore src/blocks-genesis-net.sln
+```
 
-Sends messages to consumers.
+### 3. Configure Environment Variables and Secrets
 
-**Methods:**
+Set required `BlocksSecret__*` values for your target environment.
 
-- `Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class`
-- `Task SendToMassConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class`
+Quick local setup helper:
 
-### IRabbitMqService
+```sh
+cd src/Genesis
+source setup_env.sh
+```
 
-RabbitMQ service abstraction.
+### 4. Build the Solution
 
-**Properties/Methods:**
+```sh
+dotnet build src/blocks-genesis-net.sln
+```
 
-- `IChannel RabbitMqChannel { get; }`
-- `Task CreateConnectionAsync()`
-- `Task InitializeSubscriptionsAsync()`
+### 5. Optional Docker Builds
 
-### ITenants
+From the repository root:
 
-Tenant management operations.
-
-**Key Methods:**
-
-- `Tenant? GetTenantByID(string tenantId)`
-- `Tenant? GetTenantByApplicationDomain(string appName)`
-- `Dictionary<string, (string, string)> GetTenantDatabaseConnectionStrings()`
-- `(string?, string?) GetTenantDatabaseConnectionString(string tenantId)`
-- `JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId)`
-- `Task UpdateTenantVersionAsync()`
-
-### ICryptoService
-
-Hashing utilities.
-
-**Methods:**
-
-- `string Hash(string value, string salt)`
-- `string Hash(byte[] value, bool makeBase64 = false)`
-
-### IHttpService
-
-HTTP client abstraction for RESTful operations.
-
-**Key Methods:**
-
-- `Task<(T, string)> Get<T>(...)`
-- `Task<(T, string)> Post<T>(...)`
-- `Task<(T, string)> Put<T>(...)`
-- `Task<(T, string)> Delete<T>(...)`
-- `Task<(T, string)> Patch<T>(...)`
-- `Task<(T, string)> SendRequest<T>(...)`
-- `Task<(T, string)> PostFormUrlEncoded<T>(...)`
-- `Task<(T, string)> SendFormUrlEncoded<T>(...)`
-
-### IVault
-
-Secret management abstraction.
-
-**Method:**
-
-- `Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)`
-
----
-
-For more details, refer to the source code in each interface file under `src/Genesis`.
+```sh
+docker build -f Apis.Dockerfile -t blocks-genesis-api --build-arg git_branch=dev .
+docker build -f Workers.Dockerfile -t blocks-genesis-worker --build-arg git_branch=dev .
+```
