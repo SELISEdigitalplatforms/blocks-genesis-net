@@ -1,0 +1,251 @@
+using Blocks.Genesis;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using System.Reflection;
+
+namespace XUnitTest.Configuration;
+
+[Collection("DirectorySensitiveTests")]
+public class ApplicationConfigurationsTests
+{
+    [Fact]
+    public void GetAppSettingsFileName_ShouldReturnDefault_WhenEnvironmentIsMissing()
+    {
+        var previousEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", null);
+
+            var fileName = InvokeGetAppSettingsFileName();
+
+            Assert.Equal("appsettings.json", fileName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousEnvironment);
+        }
+    }
+
+    [Fact]
+    public void GetAppSettingsFileName_ShouldReturnEnvironmentSpecificFile_WhenEnvironmentIsSet()
+    {
+        var previousEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
+
+            var fileName = InvokeGetAppSettingsFileName();
+
+            Assert.Equal("appsettings.Development.json", fileName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousEnvironment);
+        }
+    }
+
+    [Fact]
+    public void ConfigureApiEnv_ShouldLoadEnvironmentSpecificSettings_AndInitializeLmtProvider()
+    {
+        var previousDirectory = Directory.GetCurrentDirectory();
+        var previousEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var previousMaxRetries = Environment.GetEnvironmentVariable("MaxRetries");
+        var previousMaxFailedBatches = Environment.GetEnvironmentVariable("MaxFailedBatches");
+
+        var tempDirectory = CreateTempDirectory();
+
+        try
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
+            Environment.SetEnvironmentVariable("MaxRetries", "99");
+            Environment.SetEnvironmentVariable("MaxFailedBatches", "199");
+
+            File.WriteAllText(Path.Combine(tempDirectory, "appsettings.Development.json"),
+                """
+                {
+                  "Lmt": {
+                    "MaxRetries": "7",
+                    "MaxFailedBatches": "17"
+                  },
+                  "SwaggerOptions": {
+                    "Title": "Test API",
+                    "Version": "v-test"
+                  }
+                }
+                """);
+
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            var builder = new HostApplicationBuilder();
+
+            ApplicationConfigurations.ConfigureApiEnv(builder, Array.Empty<string>());
+
+            Assert.Equal(7, InvokeLmtConfigurationProviderIntMethod("GetMaxRetries"));
+            Assert.Equal(17, InvokeLmtConfigurationProviderIntMethod("GetMaxFailedBatches"));
+
+            var swaggerOptions = GetPrivateStaticFieldValue<BlocksSwaggerOptions>("_blocksSwaggerOptions");
+            Assert.NotNull(swaggerOptions);
+            Assert.Equal("Test API", swaggerOptions.Title);
+            Assert.Equal("v-test", swaggerOptions.Version);
+        }
+        finally
+        {
+            RestoreCurrentDirectory(previousDirectory);
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousEnvironment);
+            Environment.SetEnvironmentVariable("MaxRetries", previousMaxRetries);
+            Environment.SetEnvironmentVariable("MaxFailedBatches", previousMaxFailedBatches);
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void ConfigureWorkerEnv_ShouldLoadEnvironmentSpecificSettings_AndInitializeLmtProvider()
+    {
+        var previousDirectory = Directory.GetCurrentDirectory();
+        var previousEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var previousMaxRetries = Environment.GetEnvironmentVariable("MaxRetries");
+        var previousMaxFailedBatches = Environment.GetEnvironmentVariable("MaxFailedBatches");
+
+        var tempDirectory = CreateTempDirectory();
+
+        try
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Staging");
+            Environment.SetEnvironmentVariable("MaxRetries", "12");
+            Environment.SetEnvironmentVariable("MaxFailedBatches", "22");
+
+            File.WriteAllText(Path.Combine(tempDirectory, "appsettings.Staging.json"),
+                """
+                {
+                  "Lmt": {
+                    "MaxRetries": "8",
+                    "MaxFailedBatches": "18"
+                  }
+                }
+                """);
+
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            var configurationBuilder = new ConfigurationBuilder()
+                .SetBasePath(tempDirectory);
+
+            ApplicationConfigurations.ConfigureWorkerEnv(configurationBuilder, Array.Empty<string>());
+
+            Assert.Equal(8, InvokeLmtConfigurationProviderIntMethod("GetMaxRetries"));
+            Assert.Equal(18, InvokeLmtConfigurationProviderIntMethod("GetMaxFailedBatches"));
+        }
+        finally
+        {
+            RestoreCurrentDirectory(previousDirectory);
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousEnvironment);
+            Environment.SetEnvironmentVariable("MaxRetries", previousMaxRetries);
+            Environment.SetEnvironmentVariable("MaxFailedBatches", previousMaxFailedBatches);
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void LoadDotEnvFile_ShouldNotThrow_WhenEnvFileDoesNotExist()
+    {
+        var previousDirectory = Directory.GetCurrentDirectory();
+        var tempDirectory = CreateTempDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            var exception = Record.Exception(InvokeLoadDotEnvFile);
+
+            Assert.Null(exception);
+        }
+        finally
+        {
+            RestoreCurrentDirectory(previousDirectory);
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void LoadDotEnvFile_ShouldLoadVariables_WhenEnvFileExists()
+    {
+        var previousDirectory = Directory.GetCurrentDirectory();
+        var previousValue = Environment.GetEnvironmentVariable("APP_CONFIG_TEST_KEY");
+        var tempDirectory = CreateTempDirectory();
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDirectory, ".env"), "APP_CONFIG_TEST_KEY=from-dotenv");
+            Environment.SetEnvironmentVariable("APP_CONFIG_TEST_KEY", null);
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            InvokeLoadDotEnvFile();
+
+            Assert.Equal("from-dotenv", Environment.GetEnvironmentVariable("APP_CONFIG_TEST_KEY"));
+        }
+        finally
+        {
+            RestoreCurrentDirectory(previousDirectory);
+            Environment.SetEnvironmentVariable("APP_CONFIG_TEST_KEY", previousValue);
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    private static string InvokeGetAppSettingsFileName()
+    {
+        var method = typeof(ApplicationConfigurations).GetMethod("GetAppSettingsFileName", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (string)method.Invoke(null, null)!;
+    }
+
+    private static void InvokeLoadDotEnvFile()
+    {
+        var method = typeof(ApplicationConfigurations).GetMethod("LoadDotEnvFile", BindingFlags.NonPublic | BindingFlags.Static)!;
+        method.Invoke(null, null);
+    }
+
+    private static T GetPrivateStaticFieldValue<T>(string fieldName)
+    {
+        var field = typeof(ApplicationConfigurations).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (T)field.GetValue(null)!;
+    }
+
+    private static int InvokeLmtConfigurationProviderIntMethod(string methodName)
+    {
+        var providerType = typeof(ApplicationConfigurations).Assembly.GetType("Blocks.Genesis.LmtConfigurationProvider")!;
+        var method = providerType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static)!;
+        return (int)method.Invoke(null, null)!;
+    }
+
+    private static string CreateTempDirectory()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"genesis-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        return tempDirectory;
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static void RestoreCurrentDirectory(string previousDirectory)
+    {
+        if (!string.IsNullOrWhiteSpace(previousDirectory) && Directory.Exists(previousDirectory))
+        {
+            Directory.SetCurrentDirectory(previousDirectory);
+            return;
+        }
+
+        Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+    }
+}
