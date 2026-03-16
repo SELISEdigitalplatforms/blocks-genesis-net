@@ -1,5 +1,4 @@
-﻿using Blocks.LMT.Client;
-using Microsoft.Extensions.Logging; // For LogLevel enum mapping
+﻿using Microsoft.Extensions.Logging; // For LogLevel enum mapping
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions; // For parsing message templates

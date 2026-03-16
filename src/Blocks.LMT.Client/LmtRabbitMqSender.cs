@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace Blocks.LMT.Client
+namespace SeliseBlocks.LMT.Client
 {
    
     public class LmtRabbitMqSender : ILmtMessageSender

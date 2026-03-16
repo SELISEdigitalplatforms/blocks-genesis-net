@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Blocks.LMT.Client
+namespace SeliseBlocks.LMT.Client
 {
     public interface ILmtMessageSender : IDisposable
     {

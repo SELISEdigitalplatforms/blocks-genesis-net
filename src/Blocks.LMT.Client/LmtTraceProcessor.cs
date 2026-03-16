@@ -1,5 +1,4 @@
-﻿using Blocks.LMT.Client;
-using OpenTelemetry;
+﻿using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
