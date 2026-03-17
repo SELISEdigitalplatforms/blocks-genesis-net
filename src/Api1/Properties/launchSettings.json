@@ -1,0 +1,15 @@
+﻿{
+  "$schema": "http://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "ApiOne": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "HTTP1_PORT": "4000",
+        "HTTP2_PORT": "4001"
+      },
+      "launchUrl": "swagger"
+    }
+  }
+}

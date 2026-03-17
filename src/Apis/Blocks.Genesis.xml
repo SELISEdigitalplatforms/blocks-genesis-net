@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Apis</name>
+    </assembly>
+    <members>
+        <member name="T:GrpcServiceTestTemp.GreetReflection">
+            <summary>Holder for reflection information generated from Protos/greet.proto</summary>
+        </member>
+        <member name="P:GrpcServiceTestTemp.GreetReflection.Descriptor">
+            <summary>File descriptor for Protos/greet.proto</summary>
+        </member>
+        <member name="T:GrpcServiceTestTemp.HelloRequest">
+            <summary>
+            The request message containing the user's name.
+            </summary>
+        </member>
+        <member name="F:GrpcServiceTestTemp.HelloRequest.NameFieldNumber">
+            <summary>Field number for the "name" field.</summary>
+        </member>
+        <member name="T:GrpcServiceTestTemp.HelloReply">
+            <summary>
+            The response message containing the greetings.
+            </summary>
+        </member>
+        <member name="F:GrpcServiceTestTemp.HelloReply.MessageFieldNumber">
+            <summary>Field number for the "message" field.</summary>
+        </member>
+        <member name="T:GrpcServiceTestTemp.Greeter">
+            <summary>
+            The greeting service definition.
+            </summary>
+        </member>
+        <member name="P:GrpcServiceTestTemp.Greeter.Descriptor">
+            <summary>Service descriptor</summary>
+        </member>
+        <member name="T:GrpcServiceTestTemp.Greeter.GreeterBase">
+            <summary>Base class for server-side implementations of Greeter</summary>
+        </member>
+        <member name="M:GrpcServiceTestTemp.Greeter.GreeterBase.SayHello(GrpcServiceTestTemp.HelloRequest,Grpc.Core.ServerCallContext)">
+            <summary>
+            Sends a greeting
+            </summary>
+            <param name="request">The request received from the client.</param>
+            <param name="context">The context of the server-side call handler being invoked.</param>
+            <returns>The response to send back to the client (wrapped by a task).</returns>
+        </member>
+        <member name="M:GrpcServiceTestTemp.Greeter.BindService(GrpcServiceTestTemp.Greeter.GreeterBase)">
+            <summary>Creates service definition that can be registered with a server</summary>
+            <param name="serviceImpl">An object implementing the server-side handling logic.</param>
+        </member>
+        <member name="M:GrpcServiceTestTemp.Greeter.BindService(Grpc.Core.ServiceBinderBase,GrpcServiceTestTemp.Greeter.GreeterBase)">
+            <summary>Register service method with a service binder with or without implementation. Useful when customizing the service binding logic.
+            Note: this method is part of an experimental API that can change or be removed without any prior notice.</summary>
+            <param name="serviceBinder">Service methods will be bound by calling <c>AddMethod</c> on this object.</param>
+            <param name="serviceImpl">An object implementing the server-side handling logic.</param>
+        </member>
+    </members>
+</doc>
