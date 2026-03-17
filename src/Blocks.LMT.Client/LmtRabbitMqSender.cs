@@ -26,6 +26,7 @@ namespace SeliseBlocks.LMT.Client
         private IConnection? _connection;
         private IChannel? _channel;
         private bool _disposed;
+        private readonly SemaphoreSlim _publishSemaphore = new(1, 1);
 
         public LmtRabbitMqSender(
             string serviceName,
@@ -57,7 +58,7 @@ namespace SeliseBlocks.LMT.Client
             {
                 try
                 {
-                    await EnsureChannelAsync();
+                   await EnsureChannelAsync();
 
                     var payload = new
                     {
@@ -179,39 +180,49 @@ namespace SeliseBlocks.LMT.Client
 
         private async Task PublishAsync(string routingKey, object payload, string source, string type)
         {
-            if (_channel == null)
-                throw new InvalidOperationException("RabbitMQ channel is not initialized.");
-
-            var exchangeName = LmtConstants.GetRabbitMqExchangeName(_serviceName);
-            var timestamp = DateTime.UtcNow;
-            var messageId = $"{type}_{_serviceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
-
-            var json = JsonSerializer.Serialize(payload);
-            var body = Encoding.UTF8.GetBytes(json);
-
-            var properties = new BasicProperties
+            await _publishSemaphore.WaitAsync();
+            try
             {
-                ContentType = "application/json",
-                MessageId = messageId,
-                CorrelationId = type == "logs"
-                    ? LmtConstants.LogSubscription
-                    : LmtConstants.TraceSubscription,
-                Type = type,
-                Headers = new Dictionary<string, object?>
-                {
-                    ["serviceName"] = _serviceName,
-                    ["timestamp"] = timestamp.ToString("o"),
-                    ["source"] = source,
-                    ["type"] = type
-                }
-            };
+                if (_channel == null)
+                    throw new InvalidOperationException("RabbitMQ channel is not initialized.");
 
-            await _channel.BasicPublishAsync(
-                exchange: exchangeName,
-                routingKey: routingKey,
-                mandatory: false,
-                basicProperties: properties,
-                body: body);
+                var exchangeName = LmtConstants.GetRabbitMqExchangeName(_serviceName);
+                var timestamp = DateTime.UtcNow;
+                var messageId = $"{type}_{_serviceName}_{timestamp:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
+
+                var json = JsonSerializer.Serialize(payload);
+                var body = Encoding.UTF8.GetBytes(json);
+
+                var properties = new BasicProperties
+                {
+                    ContentType = "application/json",
+                    MessageId = messageId,
+                    CorrelationId = type == "logs"
+                        ? LmtConstants.LogSubscription
+                        : LmtConstants.TraceSubscription,
+                    Type = type,
+                    Headers = new Dictionary<string, object?>
+                    {
+                        ["serviceName"] = _serviceName,
+                        ["timestamp"] = timestamp.ToString("o"),
+                        ["source"] = source,
+                        ["type"] = type
+                    }
+                };
+
+                Console.WriteLine($"[APP PUBLISH] exchange='{exchangeName}', routingKey='{routingKey}', messageId='{messageId}'");
+
+                await _channel.BasicPublishAsync(
+                    exchange: exchangeName,
+                    routingKey: routingKey,
+                    mandatory: true,
+                    basicProperties: properties,
+                    body: body);
+            }
+            finally
+            {
+                _publishSemaphore.Release();
+            }
         }
 
         private async Task RetryFailedBatchesAsync()
