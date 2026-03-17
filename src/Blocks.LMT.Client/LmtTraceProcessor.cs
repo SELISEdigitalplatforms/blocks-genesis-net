@@ -9,7 +9,7 @@ namespace SeliseBlocks.LMT.Client
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<TraceData> _traceBatch;
         private readonly Timer _flushTimer;
-        private readonly LmtServiceBusSender _serviceBusSender;
+        private readonly ILmtMessageSender _serviceBusSender;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
 
@@ -20,11 +20,7 @@ namespace SeliseBlocks.LMT.Client
             _traceBatch = new ConcurrentQueue<TraceData>();
 
             // Use shared sender
-            _serviceBusSender = new LmtServiceBusSender(
-                _options.ServiceId,
-                _options.ConnectionString,
-                _options.MaxRetries,
-                _options.MaxFailedBatches);
+            _serviceBusSender = LmtMessageSenderFactory.Create(_options);
 
             var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
             _flushTimer = new Timer(async _ => await FlushBatchAsync(), null, flushInterval, flushInterval);
