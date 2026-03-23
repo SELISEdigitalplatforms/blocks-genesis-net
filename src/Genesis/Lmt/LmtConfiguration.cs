@@ -1,4 +1,5 @@
 ﻿using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 
 namespace Blocks.Genesis
@@ -27,9 +28,7 @@ namespace Blocks.Genesis
         {
             var options = new CreateCollectionOptions
             {
-                //Capped = true,
-                //MaxSize = 52428800, // 50MB
-                //ExpireAfter = TimeSpan.FromDays(90),
+                ExpireAfter = TimeSpan.FromDays(90),
                 TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TraceId", TimeSeriesGranularity.Minutes)
             };
 
@@ -48,9 +47,7 @@ namespace Blocks.Genesis
         {
             var options = new CreateCollectionOptions
             {
-                //Capped = true,
-                //MaxSize = 52428800, // 50MB
-                //ExpireAfter = TimeSpan.FromDays(90),
+                ExpireAfter = TimeSpan.FromDays(90),
                 TimeSeriesOptions = new TimeSeriesOptions(_timeField, "MeterName", TimeSeriesGranularity.Minutes)
             };
 
@@ -69,16 +66,19 @@ namespace Blocks.Genesis
         {
             var options = new CreateCollectionOptions
             {
-                //Capped = true,
-                //MaxSize = 52428800, // 50MB
-                //ExpireAfter = TimeSpan.FromDays(90),
+                ExpireAfter = TimeSpan.FromDays(90),
                 TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TenantId", TimeSeriesGranularity.Minutes)
             };
 
             try
             {
                 CreateCollectionIfNotExists(connection, LogDatabaseName, collectionName, options);
-                CreateIndex(connection, LogDatabaseName, collectionName, new BsonDocument { { "TenantId", 1 }, { _timeField, -1 } });
+                CreateIndex(
+                    connection,
+                    LogDatabaseName,
+                    collectionName,
+                    new BsonDocument { { "TenantId", 1 }, { _timeField, -1 } },
+                    new BsonDocument("TenantId", new BsonDocument("$exists", true)));
             }
             catch (Exception ex)
             {
@@ -98,9 +98,16 @@ namespace Blocks.Genesis
                     database.CreateCollection(collectionName, options);
                     Console.WriteLine($"Created collection '{collectionName}' in database '{databaseName}'");
                 }
+                else if (!IsTimeSeriesCollection(database, collectionName))
+                {
+                    Console.WriteLine($"Collection '{collectionName}' in database '{databaseName}' is a normal collection. Dropping and recreating as time series.");
+                    database.DropCollection(collectionName);
+                    database.CreateCollection(collectionName, options);
+                    Console.WriteLine($"Recreated collection '{collectionName}' as time series in database '{databaseName}'");
+                }
                 else
                 {
-                    Console.WriteLine($"Collection '{collectionName}' already exists in database '{databaseName}'");
+                    Console.WriteLine($"Collection '{collectionName}' already exists as time series in database '{databaseName}'");
                 }
             }
             catch (Exception ex)
@@ -119,11 +126,32 @@ namespace Blocks.Genesis
             return collections.Any();
         }
 
-        public static void CreateIndex(string connection, string databaseName, string collectionName, IndexKeysDefinition<BsonDocument> indexKeys)
+        private static bool IsTimeSeriesCollection(IMongoDatabase database, string collectionName)
+        {
+            var filter = new BsonDocument("name", collectionName);
+            var options = new ListCollectionsOptions { Filter = filter };
+            var collectionInfo = database.ListCollections(options).FirstOrDefault();
+
+            return collectionInfo != null
+                && collectionInfo.Contains("type")
+                && collectionInfo["type"].AsString == "timeseries";
+        }
+
+        public static void CreateIndex(
+            string connection,
+            string databaseName,
+            string collectionName,
+            IndexKeysDefinition<BsonDocument> indexKeys,
+            FilterDefinition<BsonDocument>? partialFilter = null)
         {
             var indexName = $"{collectionName}_Index";
-            var indexOptions = new CreateIndexOptions { Background = true, Name = indexName };
+            var indexOptions = new CreateIndexOptions { Name = indexName };
+            if (partialFilter != null)
+            {
+                indexOptions.PartialFilterExpression = partialFilter;
+            }
             var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
+            var expectedIndexKeys = indexKeys.Render(BsonDocumentSerializer.Instance, BsonSerializer.SerializerRegistry);
 
             try
             {
@@ -136,23 +164,11 @@ namespace Blocks.Genesis
                     idx.Contains("name") && idx["name"].AsString == indexName);
 
                 // Check if index with same key definition exists but different name
-                // This is a simplified check - you may need to enhance based on your specific key structure
-                var indexWithSameKeysExists = false;
-                foreach (var idx in existingIndexes)
-                {
-                    // Skip the _id index which exists by default
-                    if (idx["name"].AsString == "_id_")
-                        continue;
-
-                    // Check if the key structure is the same
-                    if (idx.Contains("key"))
-                    {
-                        // This is a simplified check - in real use, you'd need to compare 
-                        // the actual key structures which can be complex
-                        indexWithSameKeysExists = true;
-                        break;
-                    }
-                }
+                var indexWithSameKeysExists = existingIndexes.Any(idx =>
+                    idx.Contains("name")
+                    && idx["name"].AsString != "_id_"
+                    && idx.Contains("key")
+                    && idx["key"].AsBsonDocument.Equals(expectedIndexKeys));
 
                 // Create index if it doesn't exist with either the same name or key structure
                 if (!indexWithSameNameExists && !indexWithSameKeysExists)
