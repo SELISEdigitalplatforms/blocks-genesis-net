@@ -113,7 +113,7 @@ namespace Blocks.Genesis
 
         private void InitializeCache()
         {
-            ReloadTenants();
+            ReloadTenants(checkAll: true);
         }
 
         private async Task SubscribeToTenantUpdates()
@@ -155,7 +155,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private void ReloadTenants()
+        private void ReloadTenants(bool checkAll = false)
         {
             try
             {
@@ -171,7 +171,7 @@ namespace Blocks.Genesis
 
                     _tenantCache[tenant.TenantId] = tenant;
 
-                    if (tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
+                    if (checkAll || tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
                     {
                         LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
                     }

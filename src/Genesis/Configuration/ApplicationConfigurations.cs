@@ -37,6 +37,7 @@ namespace Blocks.Genesis
             if (!string.IsNullOrWhiteSpace(_blocksSecret.LogConnectionString))
             {
                 LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, BlocksConstants.Miscellaneous);
+                LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, serviceName);
             }
             if (!string.IsNullOrWhiteSpace(_blocksSecret.MetricConnectionString))
             {
