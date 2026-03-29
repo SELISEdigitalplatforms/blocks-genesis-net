@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 
@@ -105,10 +105,6 @@ namespace Blocks.Genesis
                     database.CreateCollection(collectionName, options);
                     Console.WriteLine($"Recreated collection '{collectionName}' as time series in database '{databaseName}'");
                 }
-                else
-                {
-                    Console.WriteLine($"Collection '{collectionName}' already exists as time series in database '{databaseName}'");
-                }
             }
             catch (Exception ex)
             {
@@ -145,13 +141,15 @@ namespace Blocks.Genesis
             FilterDefinition<BsonDocument>? partialFilter = null)
         {
             var indexName = $"{collectionName}_Index";
-            var indexOptions = new CreateIndexOptions { Name = indexName };
+            var indexOptions = new CreateIndexOptions<BsonDocument> { Name = indexName };
             if (partialFilter != null)
             {
                 indexOptions.PartialFilterExpression = partialFilter;
             }
             var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
-            var expectedIndexKeys = indexKeys.Render(BsonDocumentSerializer.Instance, BsonSerializer.SerializerRegistry);
+            var serializerRegistry = BsonSerializer.SerializerRegistry;
+            var documentSerializer = serializerRegistry.GetSerializer<BsonDocument>();
+            var expectedIndexKeys = indexKeys.Render(new RenderArgs<BsonDocument>(documentSerializer, serializerRegistry));
 
             try
             {
@@ -176,14 +174,6 @@ namespace Blocks.Genesis
                     var indexModel = new CreateIndexModel<BsonDocument>(indexKeys, indexOptions);
                     collection.Indexes.CreateOne(indexModel);
                     Console.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
-                }
-                else if (indexWithSameKeysExists)
-                {
-                    Console.WriteLine($"Index with the same key structure already exists on collection '{collectionName}' in database '{databaseName}'");
-                }
-                else
-                {
-                    Console.WriteLine($"Index with name '{indexName}' already exists on collection '{collectionName}' in database '{databaseName}'");
                 }
             }
             catch (MongoCommandException ex) when (ex.Message.Contains("Index already exists with a different name"))

@@ -19,17 +19,28 @@ namespace Blocks.Genesis
         public static (string Token, bool IsThirdPartyToken) GetTokenFromCookie(HttpRequest request, ITenants tenants)
         {
             var bc = BlocksContext.GetContext();
+            if (string.IsNullOrWhiteSpace(bc?.TenantId))
+            {
+                return (string.Empty, false);
+            }
 
             var blocksToken = request.Cookies.TryGetValue($"access_token_{bc.TenantId}", out string token);
 
-            if (blocksToken)
+            if (blocksToken && !string.IsNullOrWhiteSpace(token))
                 return (token, false);
 
-           var tenant = tenants.GetTenantByID(bc.TenantId);
-           request.Cookies.TryGetValue(tenant?.ThirdPartyJwtTokenParameters?.CookieKey?? "", out string thirdPartyToken);
+            var tenant = tenants.GetTenantByID(bc.TenantId);
+            var cookieKey = tenant?.ThirdPartyJwtTokenParameters?.CookieKey;
+
+            if (string.IsNullOrWhiteSpace(cookieKey))
+            {
+                return (string.Empty, false);
+            }
+
+            request.Cookies.TryGetValue(cookieKey, out string thirdPartyToken);
 
 
-           return (thirdPartyToken, !string.IsNullOrWhiteSpace(thirdPartyToken)? true: false);
+            return (thirdPartyToken ?? string.Empty, !string.IsNullOrWhiteSpace(thirdPartyToken));
         }
 
         public static void HandleTokenIssuer(ClaimsIdentity claimsIdentity, string requestUri)

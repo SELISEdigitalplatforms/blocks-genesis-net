@@ -8,6 +8,8 @@ namespace Blocks.Genesis
 {
     public sealed record BlocksContext
     {
+        private const string HttpContextItemKey = "blocks.security.context";
+
         // JWT Standard Claims
         public const string ISSUER_CLAIM = "iss";
         public const string AUDIANCES_CLAIM = "aud";
@@ -41,7 +43,7 @@ namespace Blocks.Genesis
         public DateTime ExpireOn { get; private init; } = DateTime.MinValue;
         public string RequestUri { get; private init; } = string.Empty;
         public string OAuthToken { get; private init; } = string.Empty;
-        public string RefreshToken { get; private init;  } = string.Empty;
+        public string RefreshToken { get; private init; } = string.Empty;
         public string OrganizationId { get; private init; } = string.Empty;
         public bool IsAuthenticated { get; private init; }
         public string Email { get; private init; } = string.Empty;
@@ -188,6 +190,11 @@ namespace Blocks.Genesis
                     return _asyncLocalContext.Value;
 
                 var httpContext = GetHttpContext();
+                if (httpContext?.Items.TryGetValue(HttpContextItemKey, out var storedContext) == true && storedContext is BlocksContext requestContext)
+                {
+                    return requestContext;
+                }
+
                 if (httpContext?.User?.Identity is ClaimsIdentity identity && identity.IsAuthenticated)
                 {
                     return CreateFromClaimsIdentity(identity);
@@ -197,7 +204,7 @@ namespace Blocks.Genesis
             }
             catch (Exception)
             {
-                return null;
+                return _asyncLocalContext.Value;
             }
         }
 
@@ -208,6 +215,19 @@ namespace Blocks.Genesis
         {
             _asyncLocalContext.Value = context;
             _forceAsyncLocalContext.Value = context != null && changeContext;
+
+            var httpContext = GetHttpContext();
+            if (httpContext != null)
+            {
+                if (context is null)
+                {
+                    httpContext.Items.Remove(HttpContextItemKey);
+                }
+                else
+                {
+                    httpContext.Items[HttpContextItemKey] = context;
+                }
+            }
         }
 
         /// <summary>
@@ -216,6 +236,9 @@ namespace Blocks.Genesis
         public static void ClearContext()
         {
             _asyncLocalContext.Value = null;
+
+            var httpContext = GetHttpContext();
+            httpContext?.Items.Remove(HttpContextItemKey);
         }
 
         /// <summary>

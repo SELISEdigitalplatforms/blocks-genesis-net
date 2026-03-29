@@ -22,6 +22,7 @@ namespace Blocks.Genesis
         private static IBlocksSecret _blocksSecret;
         private static BlocksSwaggerOptions _blocksSwaggerOptions;
 
+
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName, VaultType vaultType)
         {
             LoadDotEnvFile();
@@ -81,7 +82,7 @@ namespace Blocks.Genesis
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false)
                 .AddEnvironmentVariables()
                 .AddCommandLine(args);
-                
+
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
 
@@ -155,10 +156,44 @@ namespace Blocks.Genesis
             });
 
             services.AddSingleton<ChangeControllerContext>();
+            services.AddAntiforgery();
         }
 
         public static void ConfigureMiddleware(WebApplication app)
         {
+            ConfigureMicroserviceMiddleware(app);
+        }
+
+        /// <summary>
+        /// Configures the full middleware pipeline for API-only microservice applications.
+        /// </summary>
+        /// <param name="app">The web application pipeline.</param>
+        /// <param name="beforeAuthentication">Optional hook to add middleware between exception handling and authentication.</param>
+        /// <param name="afterAuthorization">Optional hook to add middleware after authorization.</param>
+        /// <param name="beforeControllerMapping">Optional hook to add middleware before controller endpoint mapping.</param>
+        /// <param name="afterControllerMapping">Optional hook to run additional setup after controller endpoint mapping.</param>
+        /// <remarks>
+        /// Sequence:
+        /// HSTS -> CORS -> HealthChecks -> Swagger -> Routing -> API branch middleware
+        /// -> beforeControllerMapping -> MapControllers -> afterControllerMapping -> Antiforgery.
+        ///
+        /// Example:
+        /// ApplicationConfigurations.ConfigureMicroserviceMiddleware(
+        ///     app,
+        ///     beforeAuthentication: p => p.UseMiddleware&lt;RequestAuditMiddleware&gt;(),
+        ///     afterAuthorization: p => p.UseMiddleware&lt;PermissionTelemetryMiddleware&gt;(),
+        ///     beforeControllerMapping: a => { },
+        ///     afterControllerMapping: a => { });
+        /// </remarks>
+        public static void ConfigureMicroserviceMiddleware(
+            WebApplication app,
+            Action<IApplicationBuilder>? beforeAuthentication = null,
+            Action<IApplicationBuilder>? afterAuthorization = null,
+            Action<WebApplication>? beforeControllerMapping = null,
+            Action<WebApplication>? afterControllerMapping = null)
+        {
+            ArgumentNullException.ThrowIfNull(app);
+
             var enableHsts = _blocksSecret.EnableHsts || app.Configuration.GetValue<bool>("EnableHsts");
             if (enableHsts)
             {
@@ -189,12 +224,54 @@ namespace Blocks.Genesis
                 app.UseSwaggerUI();
             }
 
+            app.UseRouting();
+
+            ConfigureApiBranchMiddleware(
+                app,
+                beforeAuthentication: beforeAuthentication,
+                afterAuthorization: afterAuthorization);
+
+            beforeControllerMapping?.Invoke(app);
+            app.MapControllers();
+            afterControllerMapping?.Invoke(app);
+            app.UseAntiforgery();
+        }
+
+        /// <summary>
+        /// Configures the reusable API security middleware chain for branch pipelines (for example, inside UseWhen for /api).
+        /// </summary>
+        /// <param name="app">The application builder for the target branch pipeline.</param>
+        /// <param name="beforeAuthentication">Optional hook to insert middleware before authentication.</param>
+        /// <param name="afterAuthorization">Optional hook to insert middleware after authorization.</param>
+        /// <remarks>
+        /// Sequence:
+        /// TenantValidationMiddleware -> GlobalExceptionHandlerMiddleware -> beforeAuthentication
+        /// -> UseAuthentication -> UseAuthorization -> afterAuthorization.
+        ///
+        /// Example:
+        /// app.UseWhen(
+        ///     ctx => ctx.Request.Path.StartsWithSegments("/api"),
+        ///     api => ApplicationConfigurations.ConfigureApiBranchMiddleware(
+        ///         api,
+        ///         beforeAuthentication: p => p.UseMiddleware&lt;CustomPreAuthMiddleware&gt;(),
+        ///         afterAuthorization: p => p.UseMiddleware&lt;CustomPostAuthMiddleware&gt;()));
+        /// </remarks>
+        public static void ConfigureApiBranchMiddleware(
+            IApplicationBuilder app,
+            Action<IApplicationBuilder>? beforeAuthentication = null,
+            Action<IApplicationBuilder>? afterAuthorization = null)
+        {
+            ArgumentNullException.ThrowIfNull(app);
+
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-            app.UseRouting();
+
+            beforeAuthentication?.Invoke(app);
+
             app.UseAuthentication();
             app.UseAuthorization();
-            app.MapControllers();
+
+            afterAuthorization?.Invoke(app);
         }
 
         public static void ConfigureWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
