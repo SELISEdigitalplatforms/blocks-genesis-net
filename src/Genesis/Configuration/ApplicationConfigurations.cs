@@ -160,6 +160,7 @@ namespace Blocks.Genesis
             });
 
             services.AddSingleton<ChangeControllerContext>();
+            services.AddAntiforgery();
         }
 
         public static void ConfigureMiddleware(WebApplication app)

@@ -168,16 +168,33 @@ namespace Blocks.Genesis
 
                 foreach (var tenant in tenants)
                 {
-
-                    _tenantCache[tenant.TenantId] = tenant;
-
-                    if (checkAll || tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
-                    {
-                        LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, tenant.TenantId);
-                    }
+                    _tenantCache[tenant.TenantId] = tenant;                   
                 }
 
-                _logger.LogInformation("Reloaded {Count} tenants into cache.", tenants.Count);
+                // Run the per-tenant processing in a background thread
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        foreach (var tenant in tenants)
+                        {
+                           // _tenantCache[tenant.TenantId] = tenant;
+
+                            if (checkAll || tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
+                            {
+                                LmtConfiguration.CreateCollectionForTrace(
+                                    _blocksSecret.TraceConnectionString,
+                                    tenant.TenantId);
+                            }
+                        }
+
+                     //   _logger.LogInformation("Reloaded {Count} tenants into cache.", tenants.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed while processing tenants in background.");
+                    }
+                });
             }
             catch (Exception ex)
             {
