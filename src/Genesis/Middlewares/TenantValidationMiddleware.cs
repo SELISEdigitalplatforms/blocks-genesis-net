@@ -23,6 +23,14 @@ namespace Blocks.Genesis
         {
             var activity = Activity.Current;
 
+            var endpoint = context.GetEndpoint();
+            if (endpoint is null || endpoint.DisplayName?.Contains("Controller") == false)
+            {
+                Console.WriteLine("Skipping tenant validation for controller-action");
+                await _next(context);
+                return;
+            }
+
             activity?.SetTag("http.headers", JsonSerializer.Serialize(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
             activity?.SetTag("http.query", JsonSerializer.Serialize(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString())));
             context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
@@ -41,7 +49,7 @@ namespace Blocks.Genesis
 
                 tenant = _tenants.GetTenantByApplicationDomain(baseUrl);
 
-                if (tenant == null)
+                if (tenant is null)
                 {
                     await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                     return;
@@ -50,7 +58,7 @@ namespace Blocks.Genesis
 
             tenant ??= _tenants.GetTenantByID(apiKey.ToString());
 
-            if (tenant == null || tenant.IsDisabled)
+            if (tenant is null || tenant.IsDisabled)
             {
                 await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                 return;
