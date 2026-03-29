@@ -41,7 +41,7 @@ namespace Blocks.Genesis
         public DateTime ExpireOn { get; private init; } = DateTime.MinValue;
         public string RequestUri { get; private init; } = string.Empty;
         public string OAuthToken { get; private init; } = string.Empty;
-        public string RefreshToken { get; private init;  } = string.Empty;
+        public string RefreshToken { get; private init; } = string.Empty;
         public string OrganizationId { get; private init; } = string.Empty;
         public bool IsAuthenticated { get; private init; }
         public string Email { get; private init; } = string.Empty;
@@ -193,13 +193,14 @@ namespace Blocks.Genesis
                     return CreateFromClaimsIdentity(identity);
                 }
 
-                return _asyncLocalContext.Value;
+                return _asyncLocalContext.Value ?? new BlocksContext(BlocksConstants.BlocksProjectKey, [], string.Empty, false, string.Empty, string.Empty, DateTime.MinValue, string.Empty, [], string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
             }
             catch (Exception)
             {
                 return null;
             }
         }
+
 
         /// <summary>
         /// Sets the context in AsyncLocal storage (for background services/workers)
