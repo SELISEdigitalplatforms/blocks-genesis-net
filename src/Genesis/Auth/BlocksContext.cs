@@ -200,13 +200,14 @@ namespace Blocks.Genesis
                     return CreateFromClaimsIdentity(identity);
                 }
 
-                return _asyncLocalContext.Value;
+                return _asyncLocalContext.Value ?? new BlocksContext(BlocksConstants.BlocksProjectKey, [], string.Empty, false, string.Empty, string.Empty, DateTime.MinValue, string.Empty, [], string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
             }
             catch (Exception)
             {
                 return _asyncLocalContext.Value;
             }
         }
+
 
         /// <summary>
         /// Sets the context in AsyncLocal storage (for background services/workers)

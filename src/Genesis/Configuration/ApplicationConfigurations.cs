@@ -86,8 +86,12 @@ namespace Blocks.Genesis
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
 
+            var blocksProjectKey = builder.Configuration.GetValue<string>("BlocksProjectKey");
+            Console.WriteLine($"Blocks Project Key: {blocksProjectKey}");
+            BlocksConstants.SetBlocksProjectKey(blocksProjectKey);
             // Initialize LMT configuration provider
             LmtConfigurationProvider.Initialize(builder.Configuration);
+
         }
 
         public static void ConfigureWorkerEnv(IConfigurationBuilder builder, string[] args)

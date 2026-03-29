@@ -23,6 +23,14 @@ namespace Blocks.Genesis
         {
             var activity = Activity.Current;
 
+            var endpoint = context.GetEndpoint();
+            if (endpoint is null || endpoint.DisplayName?.Contains("Controller") == false)
+            {
+                Console.WriteLine("Skipping tenant validation for controller-action");
+                await _next(context);
+                return;
+            }
+
             activity?.SetTag("http.headers", JsonSerializer.Serialize(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
             activity?.SetTag("http.query", JsonSerializer.Serialize(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString())));
             var tenantId = TenantContextHelper.ResolveTenantId(context.Request);
