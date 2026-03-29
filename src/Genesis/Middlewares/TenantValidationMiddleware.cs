@@ -25,32 +25,28 @@ namespace Blocks.Genesis
 
             activity?.SetTag("http.headers", JsonSerializer.Serialize(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
             activity?.SetTag("http.query", JsonSerializer.Serialize(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString())));
-            context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
-            bool apiKeyFoundInHeader = !StringValues.IsNullOrEmpty(apiKey);
-
-            if (!apiKeyFoundInHeader)
-            {
-                context.Request.Query.TryGetValue(BlocksConstants.BlocksKey, out apiKey);
-            }
+            var tenantId = TenantContextHelper.ResolveTenantId(context.Request);
 
             Tenant? tenant = null;
 
-            if (StringValues.IsNullOrEmpty(apiKey))
+            if (string.IsNullOrWhiteSpace(tenantId))
             {
                 var baseUrl = context.Request.Host.Value;
 
                 tenant = _tenants.GetTenantByApplicationDomain(baseUrl);
 
-                if (tenant == null)
+                if (tenant is null)
                 {
                     await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                     return;
                 }
             }
+            else
+            {
+                tenant = _tenants.GetTenantByID(tenantId);
+            }
 
-            tenant ??= _tenants.GetTenantByID(apiKey.ToString());
-
-            if (tenant == null || tenant.IsDisabled)
+            if (tenant is null || tenant.IsDisabled)
             {
                 await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
                 return;
@@ -64,10 +60,11 @@ namespace Blocks.Genesis
             }
 
             AttachTenantDataToActivity(tenant);
+            TenantContextHelper.EnsureTenantContext(context, tenant.TenantId);
 
             if (context.Request.ContentType == "application/grpc" && context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
             {
-                var hash = _cryptoService.Hash(apiKey, tenant.TenantSalt);
+                var hash = _cryptoService.Hash(tenant.TenantId, tenant.TenantSalt);
                 if (hash != grpcKey)
                 {
                     await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key");

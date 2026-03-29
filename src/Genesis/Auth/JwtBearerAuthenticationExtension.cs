@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -18,42 +19,57 @@ namespace Blocks.Genesis
 {
     internal static class JwtBearerAuthenticationExtension
     {
+        private const string RequestAccessTokenItemKey = "blocks.auth.accessToken";
+        private const string RequestTenantIdItemKey = "blocks.auth.tenantId";
+
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
+            services.AddHttpClient();
+
             var serviceProvider = services.BuildServiceProvider();
             var tenants = serviceProvider.GetRequiredService<ITenants>();
             var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
+            var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
             BlocksHttpContextAccessor.Init(serviceProvider);
 
-            ConfigureAuthentication(services, tenants, cacheDb);
+            ConfigureAuthentication(services, tenants, cacheDb, httpClientFactory);
             ConfigureAuthorization(services);
         }
 
-        private static void ConfigureAuthentication(IServiceCollection services, ITenants tenants, IDatabase cacheDb)
+        private static void ConfigureAuthentication(IServiceCollection services, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
         {
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
-                    string accessToken = "";
-
                     options.Events = new JwtBearerEvents
                     {
                         OnMessageReceived = async context =>
                         {
                             var tokenResult = TokenHelper.GetToken(context.Request, tenants);
-                            accessToken = tokenResult.Token;
+                            SetRequestAccessToken(context.HttpContext, tokenResult.Token);
+
+                            if (string.IsNullOrWhiteSpace(tokenResult.Token))
+                            {
+                                return;
+                            }
+
+                            var tenantId = TenantContextHelper.ResolveTenantId(context.Request, tokenResult.Token);
+                            SetRequestTenantId(context.HttpContext, tenantId);
+                            TenantContextHelper.EnsureTenantContext(context.HttpContext, tenantId);
 
                             if (tokenResult.IsThirdPartyToken)
                             {
                                 await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
                                                        tenants,
-                                                       accessToken);
+                                                       tokenResult.Token,
+                                                       tenantId,
+                                                       httpClientFactory);
                                 return;
                             }
 
                             context.Token = tokenResult.Token;
-                            await ConfigureTokenValidationAsync(context, tenants, cacheDb);
+                            await ConfigureTokenValidationAsync(context, tenants, cacheDb, httpClientFactory, tenantId);
                         },
 
                         OnTokenValidated = context =>
@@ -73,34 +89,55 @@ namespace Blocks.Genesis
 
                             if (ex is SecurityTokenExpiredException)
                             {
-                                Console.WriteLine("⚠ Token expired — fallback skipped.");
+                                SecurityLog("token_expired", "Fallback skipped for expired token.");
                                 return;
                             }
 
-                            await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options), tenants, accessToken, ex);
+                            SecurityLog("authentication_failed", "Primary token validation failed, attempting fallback.", ex);
+                            await TryFallbackAsync(
+                                new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+                                tenants,
+                                GetRequestAccessToken(context.HttpContext),
+                                GetRequestTenantId(context.HttpContext),
+                                httpClientFactory,
+                                ex);
                         },
 
                         OnForbidden = context =>
                         {
-                            Console.WriteLine("🚫 Authorization failed: Forbidden");
+                            SecurityLog("forbidden", "Authorization failed with forbidden response.");
                             return Task.CompletedTask;
                         }
                     };
                 });
         }
 
-        private static async Task ConfigureTokenValidationAsync(MessageReceivedContext context, ITenants tenants, IDatabase cacheDb)
+        private static async Task ConfigureTokenValidationAsync(
+            MessageReceivedContext context,
+            ITenants tenants,
+            IDatabase cacheDb,
+            IHttpClientFactory httpClientFactory,
+            string? tenantId)
         {
-            var bc = BlocksContext.GetContext();
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                if (string.IsNullOrWhiteSpace(context.Token))
+                {
+                    return;
+                }
 
-            var certificate = await GetCertificateAsync(bc.TenantId, tenants, cacheDb);
+                context.Fail("❌ Tenant context not found");
+                return;
+            }
+
+            var certificate = await GetCertificateAsync(tenantId, tenants, cacheDb, httpClientFactory);
             if (certificate == null)
             {
                 context.Fail("❌ Certificate not found");
                 return;
             }
 
-            var validationParams = tenants.GetTenantTokenValidationParameter(bc.TenantId);
+            var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
             if (validationParams == null)
             {
                 context.Fail("❌ Validation parameters not found");
@@ -120,37 +157,94 @@ namespace Blocks.Genesis
             services.AddScoped<IAuthorizationHandler, SecretAuthorizationHandler>();
         }
 
-        public static async Task<bool> TryFallbackAsync(TokenValidatedContext context, ITenants tenants, string token, Exception? ex = null)
+        public static async Task<bool> TryFallbackAsync(
+            TokenValidatedContext context,
+            ITenants tenants,
+            string token,
+            string? tenantId,
+            IHttpClientFactory httpClientFactory,
+            Exception? ex = null)
         {
             if (ex != null)
-                Console.WriteLine($"[Fallback] Triggered due to: {ex.GetType().Name} - {ex.Message}");
+                SecurityLog("fallback_triggered", $"Triggered due to {ex.GetType().Name}: {ex.Message}", ex);
 
             try
             {
                 if (string.IsNullOrWhiteSpace(token))
                 {
-                    Console.WriteLine("[Fallback] ❌ No token found in request.");
+                    SecurityLog("fallback_no_token", "No token found in request for fallback.");
                     return false;
                 }
 
-                var bc = BlocksContext.GetContext();
-                var tenant = tenants.GetTenantByID(bc.TenantId);
+                tenantId ??= TenantContextHelper.ResolveTenantId(context.Request, token);
+                if (string.IsNullOrWhiteSpace(tenantId))
+                {
+                    SecurityLog("fallback_missing_tenant_context", "Tenant context is missing for fallback validation.");
+                    return false;
+                }
+
+                var tenant = tenants.GetTenantByID(tenantId);
+                if (tenant?.ThirdPartyJwtTokenParameters == null)
+                {
+                    SecurityLog("fallback_missing_tenant_config", "Tenant or third-party token parameters are missing.");
+                    return false;
+                }
+
                 var fallbackValidationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl) ?
-                                                await GetFromJwksUrl(tenant, bc) :
-                                                await GetFromPublicCertificate(tenant, bc);
+                                                await GetFromJwksUrl(tenant, httpClientFactory) :
+                                                await GetFromPublicCertificate(tenant, tenantId, httpClientFactory);
 
                 return await ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
             }
             catch (Exception finalEx)
             {
-                Console.WriteLine($"[Fallback] 💥 Unhandled error: {finalEx}");
+                SecurityLog("fallback_unhandled_exception", "Unhandled fallback exception.", finalEx);
                 return false;
             }
         }
 
-        private static async Task<TokenValidationParameters> GetFromJwksUrl(Tenant tenant, BlocksContext bc)
+        private static void SecurityLog(string eventName, string message, Exception? ex = null)
         {
-            using var httpClient = new HttpClient();
+            var payload = new
+            {
+                category = "auth",
+                eventName,
+                message,
+                exceptionType = ex?.GetType().Name
+            };
+
+            Console.WriteLine($"[Security] {JsonSerializer.Serialize(payload)}");
+        }
+
+        private static void SetRequestAccessToken(HttpContext context, string token)
+        {
+            context.Items[RequestAccessTokenItemKey] = token;
+        }
+
+        private static string GetRequestAccessToken(HttpContext context)
+        {
+            return context.Items.TryGetValue(RequestAccessTokenItemKey, out var token)
+                ? token?.ToString() ?? string.Empty
+                : string.Empty;
+        }
+
+        private static void SetRequestTenantId(HttpContext context, string? tenantId)
+        {
+            context.Items[RequestTenantIdItemKey] = tenantId ?? string.Empty;
+        }
+
+        private static string? GetRequestTenantId(HttpContext context)
+        {
+            var tenantId = context.Items.TryGetValue(RequestTenantIdItemKey, out var value)
+                ? value?.ToString()
+                : null;
+
+            return string.IsNullOrWhiteSpace(tenantId) ? null : tenantId;
+        }
+
+        private static async Task<TokenValidationParameters> GetFromJwksUrl(Tenant tenant, IHttpClientFactory httpClientFactory)
+        {
+            var httpClient = httpClientFactory.CreateClient();
             var jwks = await httpClient.GetFromJsonAsync<JsonWebKeySet>(tenant.ThirdPartyJwtTokenParameters.JwksUrl);
 
             var parameters = new TokenValidationParameters
@@ -167,9 +261,9 @@ namespace Blocks.Genesis
         }
 
 
-        private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, BlocksContext bc)
+        private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
         {
-            var cert = await GetThirdPartyCertificateAsync(tenant, bc.TenantId);
+            var cert = await GetThirdPartyCertificateAsync(tenant, tenantId, httpClientFactory);
             if (cert == null)
             {
                 Console.WriteLine("[Fallback] ❌ No fallback certificate found.");
@@ -221,15 +315,15 @@ namespace Blocks.Genesis
             }
         }
 
-        private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, string tenantId)
+        private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
         {
-            var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath);
+            var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath, httpClientFactory);
             return certificateData == null
                 ? null
                 : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters.PublicCertificatePassword);
         }
 
-        private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb)
+        private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
         {
             string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
 
@@ -242,7 +336,7 @@ namespace Blocks.Genesis
             if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
                 return null;
 
-            var certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath);
+            var certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath, httpClientFactory);
             if (certificateData == null)
                 return null;
 
@@ -250,13 +344,13 @@ namespace Blocks.Genesis
             return CreateCertificate(certificateData, validationParams.PublicCertificatePassword);
         }
 
-        private static async Task<byte[]?> LoadCertificateDataAsync(string path)
+        private static async Task<byte[]?> LoadCertificateDataAsync(string path, IHttpClientFactory httpClientFactory)
         {
             try
             {
                 if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
                 {
-                    using var httpClient = new HttpClient();
+                    var httpClient = httpClientFactory.CreateClient();
                     return await httpClient.GetByteArrayAsync(path);
                 }
 
