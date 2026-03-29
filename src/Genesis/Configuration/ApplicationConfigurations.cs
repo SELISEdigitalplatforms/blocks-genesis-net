@@ -22,6 +22,7 @@ namespace Blocks.Genesis
         private static IBlocksSecret _blocksSecret;
         private static BlocksSwaggerOptions _blocksSwaggerOptions;
 
+
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName, VaultType vaultType)
         {
             LoadDotEnvFile();
@@ -81,12 +82,16 @@ namespace Blocks.Genesis
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false)
                 .AddEnvironmentVariables()
                 .AddCommandLine(args);
-                
+
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
 
+            var blocksProjectKey = builder.Configuration.GetValue<string>("BlocksProjectKey");
+            Console.WriteLine($"Blocks Project Key: {blocksProjectKey}");
+            BlocksConstants.SetBlocksProjectKey(blocksProjectKey);
             // Initialize LMT configuration provider
             LmtConfigurationProvider.Initialize(builder.Configuration);
+
         }
 
         public static void ConfigureWorkerEnv(IConfigurationBuilder builder, string[] args)
@@ -155,6 +160,7 @@ namespace Blocks.Genesis
             });
 
             services.AddSingleton<ChangeControllerContext>();
+            services.AddAntiforgery();
         }
 
         public static void ConfigureMiddleware(WebApplication app)
@@ -189,12 +195,13 @@ namespace Blocks.Genesis
                 app.UseSwaggerUI();
             }
 
+            app.UseRouting();
             app.UseMiddleware<TenantValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-            app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapControllers();
+            app.UseAntiforgery();
         }
 
         public static void ConfigureWorker(IServiceCollection services, MessageConfiguration messageConfiguration)
