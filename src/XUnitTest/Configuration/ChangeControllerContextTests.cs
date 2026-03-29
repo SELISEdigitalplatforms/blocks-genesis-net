@@ -246,6 +246,7 @@ public class ChangeControllerContextTests : IDisposable
             phoneNumber: "000",
             displayName: "Test User",
             oauthToken: "token",
+            refreshToken: "refresh",    
             actualTentId: tenantId);
     }
 
