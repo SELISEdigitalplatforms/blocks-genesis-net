@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 
@@ -145,13 +145,15 @@ namespace Blocks.Genesis
             FilterDefinition<BsonDocument>? partialFilter = null)
         {
             var indexName = $"{collectionName}_Index";
-            var indexOptions = new CreateIndexOptions { Name = indexName };
+            var indexOptions = new CreateIndexOptions<BsonDocument> { Name = indexName };
             if (partialFilter != null)
             {
                 indexOptions.PartialFilterExpression = partialFilter;
             }
             var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
-            var expectedIndexKeys = indexKeys.Render(BsonDocumentSerializer.Instance, BsonSerializer.SerializerRegistry);
+            var serializerRegistry = BsonSerializer.SerializerRegistry;
+            var documentSerializer = serializerRegistry.GetSerializer<BsonDocument>();
+            var expectedIndexKeys = indexKeys.Render(new RenderArgs<BsonDocument>(documentSerializer, serializerRegistry));
 
             try
             {
