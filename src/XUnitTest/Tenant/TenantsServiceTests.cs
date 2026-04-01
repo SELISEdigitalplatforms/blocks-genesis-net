@@ -405,7 +405,7 @@ public class TenantsServiceTests
     private static void InvokePrivateReloadTenants(Tenants sut)
     {
         var method = typeof(Tenants).GetMethod("ReloadTenants", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        method.Invoke(sut, null);
+        method.Invoke(sut, [false]);
     }
 
     private static void InvokePrivateHandleTenantUpdate(Tenants sut, string channel, string message)
