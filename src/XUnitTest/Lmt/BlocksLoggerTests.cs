@@ -67,8 +67,8 @@ public class BlocksLoggerTests
         var queue = GetLogQueue(logger);
         Assert.True(queue.TryPeek(out var log));
         Assert.Equal("User Alice logged in at 10:00", log.Message);
-        Assert.Equal("Alice", log.Properties["Arg0"]);
-        Assert.Equal("10:00", log.Properties["Arg1"]);
+           Assert.Equal("Alice", log.Properties["Name"]);
+           Assert.Equal("10:00", log.Properties["Time"]);
     }
 
     [Fact]

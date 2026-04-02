@@ -30,6 +30,8 @@ namespace SeliseBlocks.LMT.Client
         {
             if (!_options.EnableTracing) return;
 
+                if (_disposed) return;
+
             var endTime = activity.StartTimeUtc.Add(activity.Duration);
 
             var traceData = new TraceData

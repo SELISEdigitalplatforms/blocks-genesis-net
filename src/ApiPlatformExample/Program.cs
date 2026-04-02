@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Serilog;
 
 const string serviceName = "Service-API-Platform-Example";
 
@@ -16,6 +17,14 @@ Action<GenesisSecretOptions> configurePlatformSecrets = options =>
 await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, SecretMode.Platform, configurePlatformSecrets);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Loads appsettings, env vars, and command-line args; also calls LmtConfigurationProvider.Initialize
+// so Lmt:ConnectionString in appsettings / Lmt__ConnectionString env var is respected.
+ApplicationConfigurations.ConfigureApiEnv(builder, args);
+
+// Route ILogger<T> in controllers through Serilog → MongoDBDynamicSink → LMT transport
+builder.Host.UseSerilog();
+
 builder.Services.AddControllers();
 builder.Services.AddGenesisSecrets(configurePlatformSecrets);
 

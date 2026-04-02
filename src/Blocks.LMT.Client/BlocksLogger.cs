@@ -35,6 +35,8 @@ namespace SeliseBlocks.LMT.Client
         {
             if (!_options.EnableLogging) return;
 
+                if (_disposed) return;
+
             var activity = Activity.Current;
             var properties = new Dictionary<string, object>();
             string formattedMessage = FormatLogMessage(messageTemplate, args, properties);
@@ -89,30 +91,34 @@ namespace SeliseBlocks.LMT.Client
         {
             if (args.Length > 0)
             {
-                // Add each arg as Arg0, Arg1, etc. to the properties dictionary
-                for (int i = 0; i < args.Length; i++)
-                {
-                    if (!properties.ContainsKey($"Arg{i}"))
-                        properties[$"Arg{i}"] = args[i];
-                }
+                    // Extract placeholder names from the template (e.g. {Name}, {@User}, {Count:D})
+                    var placeholderRegex = new Regex(@"\{(.*?)\}");
+                    var matches = placeholderRegex.Matches(messageTemplate);
 
+                    for (int i = 0; i < args.Length; i++)
+                    {
+                        var key = $"Arg{i}";
+                        if (i < matches.Count)
+                        {
+                            // Strip leading @ (destructuring) and any format/alignment specs after the name
+                            var nameMatch = Regex.Match(matches[i].Groups[1].Value, @"^@?(\w+)");
+                            if (nameMatch.Success)
+                                key = nameMatch.Groups[1].Value;
+                        }
+                        if (!properties.ContainsKey(key))
+                            properties[key] = args[i] ?? string.Empty;
+                    }
 
-                var formatted = messageTemplate;
-                var regex = new Regex(@"\{(.*?)\}");
+                    int index = 0;
+                    return placeholderRegex.Replace(messageTemplate, match =>
+                    {
+                        if (index >= args.Length)
+                            return match.Value;
 
-                int index = 0;
-                formatted = regex.Replace(formatted, match =>
-                {
-                    // If we run out of args, leave placeholder as-is
-                    if (index >= args.Length)
-                        return match.Value;
-
-                    var value = args[index]?.ToString() ?? string.Empty;
-                    index++;
-                    return value;
-                });
-
-                return formatted;
+                        var value = args[index]?.ToString() ?? string.Empty;
+                        index++;
+                        return value;
+                    });
             }
 
             return messageTemplate;

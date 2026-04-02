@@ -58,8 +58,6 @@ namespace SeliseBlocks.LMT.Client
             {
                 try
                 {
-                   await EnsureChannelAsync();
-
                     var payload = new
                     {
                         Type = "logs",
@@ -112,8 +110,6 @@ namespace SeliseBlocks.LMT.Client
             {
                 try
                 {
-                    await EnsureChannelAsync();
-
                     var payload = new
                     {
                         Type = "traces",
@@ -183,6 +179,8 @@ namespace SeliseBlocks.LMT.Client
             await _publishSemaphore.WaitAsync();
             try
             {
+                await EnsureChannelAsync();
+
                 if (_channel == null)
                     throw new InvalidOperationException("RabbitMQ channel is not initialized.");
 
