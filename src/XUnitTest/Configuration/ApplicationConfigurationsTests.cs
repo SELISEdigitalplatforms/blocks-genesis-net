@@ -82,8 +82,8 @@ public class ApplicationConfigurationsTests
 
             ApplicationConfigurations.ConfigureApiEnv(builder, Array.Empty<string>());
 
-            Assert.Equal(7, InvokeLmtConfigurationProviderIntMethod("GetMaxRetries"));
-            Assert.Equal(17, InvokeLmtConfigurationProviderIntMethod("GetMaxFailedBatches"));
+            Assert.Equal(7, InvokeLmtConfigurationProviderIntMethod("GetLmtMaxRetries"));
+            Assert.Equal(17, InvokeLmtConfigurationProviderIntMethod("GetLmtMaxFailedBatches"));
 
             var swaggerOptions = GetPrivateStaticFieldValue<BlocksSwaggerOptions>("_blocksSwaggerOptions");
             Assert.NotNull(swaggerOptions);
@@ -133,8 +133,8 @@ public class ApplicationConfigurationsTests
 
             ApplicationConfigurations.ConfigureWorkerEnv(configurationBuilder, Array.Empty<string>());
 
-            Assert.Equal(8, InvokeLmtConfigurationProviderIntMethod("GetMaxRetries"));
-            Assert.Equal(18, InvokeLmtConfigurationProviderIntMethod("GetMaxFailedBatches"));
+            Assert.Equal(8, InvokeLmtConfigurationProviderIntMethod("GetLmtMaxRetries"));
+            Assert.Equal(18, InvokeLmtConfigurationProviderIntMethod("GetLmtMaxFailedBatches"));
         }
         finally
         {
@@ -143,6 +143,63 @@ public class ApplicationConfigurationsTests
             Environment.SetEnvironmentVariable("MaxRetries", previousMaxRetries);
             Environment.SetEnvironmentVariable("MaxFailedBatches", previousMaxFailedBatches);
             TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void ConfigureApiEnv_ShouldLoadLmtConnectionStringFromConfiguration()
+    {
+        var previousDirectory = Directory.GetCurrentDirectory();
+        var previousEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var tempDirectory = CreateTempDirectory();
+
+        try
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
+
+            File.WriteAllText(Path.Combine(tempDirectory, "appsettings.Development.json"),
+                """
+                {
+                  "Lmt": {
+                    "ConnectionString": "amqps://config-priority-host"
+                  },
+                  "SwaggerOptions": {
+                    "Title": "Test API",
+                    "Version": "v-test"
+                  }
+                }
+                """);
+
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            var builder = new HostApplicationBuilder();
+            ApplicationConfigurations.ConfigureApiEnv(builder, Array.Empty<string>());
+
+            Assert.Equal("amqps://config-priority-host", InvokeLmtConfigurationProviderStringMethod("GetLmtConnectionString"));
+        }
+        finally
+        {
+            RestoreCurrentDirectory(previousDirectory);
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousEnvironment);
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void LmtConfigurationProvider_ShouldUseEnvFallback_WhenLmtConnectionStringIsNotConfigured()
+    {
+        var previousLmt = Environment.GetEnvironmentVariable("Lmt__ConnectionString");
+
+        try
+        {
+            InitializeLmtConfigurationProvider(new ConfigurationBuilder().Build());
+            Environment.SetEnvironmentVariable("Lmt__ConnectionString", "Endpoint=sb://env-fallback");
+
+            Assert.Equal("Endpoint=sb://env-fallback", InvokeLmtConfigurationProviderStringMethod("GetLmtConnectionString"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Lmt__ConnectionString", previousLmt);
         }
     }
 
@@ -215,6 +272,20 @@ public class ApplicationConfigurationsTests
         var providerType = typeof(ApplicationConfigurations).Assembly.GetType("Blocks.Genesis.LmtConfigurationProvider")!;
         var method = providerType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static)!;
         return (int)method.Invoke(null, null)!;
+    }
+
+    private static string? InvokeLmtConfigurationProviderStringMethod(string methodName)
+    {
+        var providerType = typeof(ApplicationConfigurations).Assembly.GetType("Blocks.Genesis.LmtConfigurationProvider")!;
+        var method = providerType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static)!;
+        return (string?)method.Invoke(null, null);
+    }
+
+    private static void InitializeLmtConfigurationProvider(IConfiguration configuration)
+    {
+        var providerType = typeof(ApplicationConfigurations).Assembly.GetType("Blocks.Genesis.LmtConfigurationProvider")!;
+        var method = providerType.GetMethod("Initialize", BindingFlags.Public | BindingFlags.Static)!;
+        method.Invoke(null, [configuration]);
     }
 
     private static string CreateTempDirectory()

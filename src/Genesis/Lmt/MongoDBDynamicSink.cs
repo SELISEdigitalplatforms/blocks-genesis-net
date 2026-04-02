@@ -10,7 +10,8 @@ namespace Blocks.Genesis
     {
         private readonly string _serviceName;
         private readonly IMongoDatabase? _database;
-        private readonly LmtServiceBusSender? _serviceBusSender;
+        private readonly IBlocksSecret _blocksSecret;
+        private ILmtMessageSender? _messageSender;
         private bool _disposed;
 
         public MongoDBDynamicSink(
@@ -18,26 +19,41 @@ namespace Blocks.Genesis
             IBlocksSecret blocksSecret)
         {
             _serviceName = serviceName;
+            _blocksSecret = blocksSecret;
 
             var connectionString = blocksSecret?.LogConnectionString ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(connectionString))
             {
                 _database = LmtConfiguration.GetMongoDatabase(connectionString, LmtConfiguration.LogDatabaseName);
             }
-
-            _serviceBusSender = TryCreateLogsSender(serviceName);
         }
 
-        private static LmtServiceBusSender? TryCreateLogsSender(string serviceName)
+        private ILmtMessageSender? GetOrCreateMessageSender()
         {
-            var connectionString = LmtConfigurationProvider.GetServiceBusConnectionString();
+            if (_messageSender != null)
+                return _messageSender;
+
+            var connectionString = LmtConfigurationProvider.GetLmtConnectionString();
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                connectionString = _blocksSecret.LmtMessageConnectionString;
+            }
+
             if (string.IsNullOrWhiteSpace(connectionString))
                 return null;
 
-            var maxRetries = LmtConfigurationProvider.GetMaxRetries();
-            var maxFailedBatches = LmtConfigurationProvider.GetMaxFailedBatches();
+            var maxRetries = LmtConfigurationProvider.GetLmtMaxRetries();
+            var maxFailedBatches = LmtConfigurationProvider.GetLmtMaxFailedBatches();
 
-            return new LmtServiceBusSender(serviceName, connectionString, maxRetries, maxFailedBatches);
+            _messageSender = LmtMessageSenderFactory.Create(new LmtOptions
+            {
+                ServiceId = _serviceName,
+                ConnectionString = connectionString,
+                MaxRetries = maxRetries,
+                MaxFailedBatches = maxFailedBatches,
+            });
+
+            return _messageSender;
         }
 
         private static readonly HashSet<string> AllowedMongoProperties = new()
@@ -77,9 +93,10 @@ namespace Blocks.Genesis
                 logDataList.Add(logData);
             }
 
-            if (_serviceBusSender != null)
+            var messageSender = GetOrCreateMessageSender();
+            if (messageSender != null)
             {
-                await _serviceBusSender.SendLogsAsync(logDataList);
+                await messageSender.SendLogsAsync(logDataList);
                 return;
             }
 
@@ -172,7 +189,7 @@ namespace Blocks.Genesis
             if (_disposed)
                 return;
 
-            _serviceBusSender?.Dispose();
+            _messageSender?.Dispose();
             _disposed = true;
         }
     }

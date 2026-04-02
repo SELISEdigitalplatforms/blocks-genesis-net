@@ -14,7 +14,8 @@ namespace Blocks.Genesis
         private readonly Timer _timer;
         private readonly IMongoDatabase? _database;
         private readonly int _batchSize;
-        private readonly LmtServiceBusSender? _serviceBusSender;
+        private readonly IBlocksSecret? _blocksSecret;
+        private ILmtMessageSender? _messageSender;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
 
@@ -25,6 +26,7 @@ namespace Blocks.Genesis
         {
             _serviceName = serviceName;
             _batchSize = batchSize;
+            _blocksSecret = blocksSecret;
 
             var interval = TimeSpan.FromSeconds(3);
             _batch = new ConcurrentQueue<TraceData>();
@@ -35,21 +37,35 @@ namespace Blocks.Genesis
                 _database = LmtConfiguration.GetMongoDatabase(connectionString, LmtConfiguration.TraceDatabaseName);
             }
 
-            _serviceBusSender = TryCreateTracesSender(serviceName);
-
             _timer = new Timer(async _ => await FlushBatchAsync(), null, interval, interval);
         }
 
-        private static LmtServiceBusSender? TryCreateTracesSender(string serviceName)
+        private ILmtMessageSender? GetOrCreateMessageSender()
         {
-            var connectionString = LmtConfigurationProvider.GetServiceBusConnectionString();
+            if (_messageSender != null)
+                return _messageSender;
+
+            var connectionString = LmtConfigurationProvider.GetLmtConnectionString();
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                connectionString = _blocksSecret?.LmtMessageConnectionString;
+            }
+
             if (string.IsNullOrWhiteSpace(connectionString))
                 return null;
 
-            var maxRetries = LmtConfigurationProvider.GetMaxRetries();
-            var maxFailedBatches = LmtConfigurationProvider.GetMaxFailedBatches();
+            var maxRetries = LmtConfigurationProvider.GetLmtMaxRetries();
+            var maxFailedBatches = LmtConfigurationProvider.GetLmtMaxFailedBatches();
 
-            return new LmtServiceBusSender(serviceName, connectionString, maxRetries, maxFailedBatches);
+            _messageSender = LmtMessageSenderFactory.Create(new LmtOptions
+            {
+                ServiceId = _serviceName,
+                ConnectionString = connectionString,
+                MaxRetries = maxRetries,
+                MaxFailedBatches = maxFailedBatches,
+            });
+
+            return _messageSender;
         }
 
         public override void OnEnd(Activity data)
@@ -119,9 +135,10 @@ namespace Blocks.Genesis
                 if (tenantBatches.Count == 0)
                     return;
 
-                if (_serviceBusSender != null)
+                var messageSender = GetOrCreateMessageSender();
+                if (messageSender != null)
                 {
-                    await _serviceBusSender.SendTracesAsync(tenantBatches);
+                    await messageSender.SendTracesAsync(tenantBatches);
                     return;
                 }
 
@@ -193,10 +210,10 @@ namespace Blocks.Genesis
 
             if (disposing)
             {
+                FlushBatchAsync().GetAwaiter().GetResult();
                 _timer.Dispose();
                 _semaphore.Dispose();
-                FlushBatchAsync().GetAwaiter().GetResult();
-                _serviceBusSender?.Dispose();
+                _messageSender?.Dispose();
             }
 
             _disposed = true;

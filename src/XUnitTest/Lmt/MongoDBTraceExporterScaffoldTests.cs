@@ -8,6 +8,7 @@ using System.Diagnostics;
 using Moq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Configuration;
 
 namespace XUnitTest.Lmt;
 
@@ -153,6 +154,98 @@ public class MongoDBTraceExporterScaffoldTests
         collection.Verify(c => c.InsertManyAsync(It.IsAny<IEnumerable<BsonDocument>>(), It.IsAny<InsertManyOptions>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public void Dispose_ShouldNotThrow_WhenExporterIsInitialized()
+    {
+        var exporter = CreateExporterForOnEndTests("svc", batchSize: 1000);
+        SetField(exporter, "_timer", new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite));
+        SetField(exporter, "_messageSender", Mock.Of<ILmtMessageSender>());
+
+        var exception = Record.Exception(() => exporter.Dispose());
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Constructor_ShouldNotCreateMessageSender_Eagerly()
+    {
+        var secret = new Mock<IBlocksSecret>();
+        secret.Setup(x => x.TraceConnectionString).Returns(string.Empty);
+        secret.Setup(x => x.LmtMessageConnectionString).Returns("Endpoint=sb://secret.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=value");
+
+        var exporter = new MongoDBTraceExporter("svc", blocksSecret: secret.Object);
+
+        var field = typeof(MongoDBTraceExporter).GetField("_messageSender", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        Assert.Null(field!.GetValue(exporter));
+    }
+
+    [Fact]
+    public void GetOrCreateMessageSender_ShouldPreferLmtConfiguration_OverSecret()
+    {
+        ILmtMessageSender? sender = null;
+
+        try
+        {
+            InitializeLmtConfigurationProvider(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Lmt:ConnectionString"] = "amqps://guest:guest@localhost:5672"
+                })
+                .Build());
+
+            var exporter = CreateExporterForSenderTests("svc", "Endpoint=sb://secret.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=value");
+            sender = InvokeGetOrCreateMessageSender(exporter);
+
+            Assert.IsType<LmtRabbitMqSender>(sender);
+        }
+        finally
+        {
+            DisposeSenderQuietly(sender);
+        }
+    }
+
+    [Fact]
+    public void GetOrCreateMessageSender_ShouldFallbackToSecret_WhenLmtConfigurationMissing()
+    {
+        ILmtMessageSender? sender = null;
+
+        try
+        {
+            InitializeLmtConfigurationProvider(new ConfigurationBuilder().Build());
+
+            var exporter = CreateExporterForSenderTests("svc", "Endpoint=sb://secret.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=value");
+            sender = InvokeGetOrCreateMessageSender(exporter);
+
+            Assert.IsType<LmtServiceBusSender>(sender);
+        }
+        finally
+        {
+            DisposeSenderQuietly(sender);
+        }
+    }
+
+    [Fact]
+    public void GetOrCreateMessageSender_ShouldIgnoreLegacyServiceBusEnv_WhenLmtConfigurationAndSecretMissing()
+    {
+        var previousServiceBus = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+
+        try
+        {
+            InitializeLmtConfigurationProvider(new ConfigurationBuilder().Build());
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", "Endpoint=sb://legacy.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=value");
+
+            var exporter = CreateExporterForSenderTests("svc", string.Empty);
+            var sender = InvokeGetOrCreateMessageSender(exporter);
+
+            Assert.Null(sender);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", previousServiceBus);
+        }
+    }
+
     private static MongoDBTraceExporter CreateExporterForOnEndTests(string serviceName, int batchSize)
     {
         var exporter = (MongoDBTraceExporter)RuntimeHelpers.GetUninitializedObject(typeof(MongoDBTraceExporter));
@@ -160,6 +253,19 @@ public class MongoDBTraceExporterScaffoldTests
         SetField(exporter, "_serviceName", serviceName);
         SetField(exporter, "_batch", new ConcurrentQueue<TraceData>());
         SetField(exporter, "_batchSize", batchSize);
+        SetField(exporter, "_semaphore", new SemaphoreSlim(1, 1));
+
+        return exporter;
+    }
+
+    private static MongoDBTraceExporter CreateExporterForSenderTests(string serviceName, string lmtMessageConnectionString)
+    {
+        var exporter = (MongoDBTraceExporter)RuntimeHelpers.GetUninitializedObject(typeof(MongoDBTraceExporter));
+        var secret = new Mock<IBlocksSecret>();
+        secret.Setup(x => x.LmtMessageConnectionString).Returns(lmtMessageConnectionString);
+
+        SetField(exporter, "_serviceName", serviceName);
+        SetField(exporter, "_blocksSecret", secret.Object);
         SetField(exporter, "_semaphore", new SemaphoreSlim(1, 1));
 
         return exporter;
@@ -190,5 +296,36 @@ public class MongoDBTraceExporterScaffoldTests
         var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(instance, value);
+    }
+
+    private static ILmtMessageSender? InvokeGetOrCreateMessageSender(MongoDBTraceExporter exporter)
+    {
+        var method = typeof(MongoDBTraceExporter).GetMethod("GetOrCreateMessageSender", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(method);
+        return (ILmtMessageSender?)method!.Invoke(exporter, null);
+    }
+
+    private static void InitializeLmtConfigurationProvider(IConfiguration configuration)
+    {
+        var providerType = typeof(MongoDBTraceExporter).Assembly.GetType("Blocks.Genesis.LmtConfigurationProvider")!;
+        var method = providerType.GetMethod("Initialize", BindingFlags.Public | BindingFlags.Static)!;
+        method.Invoke(null, [configuration]);
+    }
+
+    private static void DisposeSenderQuietly(ILmtMessageSender? sender)
+    {
+        if (sender == null)
+            return;
+
+        Task.Run(() =>
+        {
+            try
+            {
+                sender.Dispose();
+            }
+            catch
+            {
+            }
+        }).GetAwaiter().GetResult();
     }
 }

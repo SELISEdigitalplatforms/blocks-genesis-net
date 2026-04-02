@@ -46,10 +46,10 @@ namespace Blocks.Genesis
                 LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, BlocksConstants.Miscellaneous);
                 LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, serviceName);
             }
-            if (!string.IsNullOrWhiteSpace(_blocksSecret.MetricConnectionString))
-            {
-                LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, BlocksConstants.Miscellaneous);
-            }
+            // if (!string.IsNullOrWhiteSpace(_blocksSecret.MetricConnectionString))
+            // {
+            //     LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, BlocksConstants.Miscellaneous);
+            // }
 
             Log.Logger = new LoggerConfiguration()
                 .Enrich.FromLogContext()

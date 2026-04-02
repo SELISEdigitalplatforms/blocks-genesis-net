@@ -28,7 +28,8 @@ public class BlocksLoggerTests
     {
         var options = new LmtOptions { ServiceId = "svc", ConnectionString = "" };
 
-        Assert.Throws<ArgumentException>(() => new BlocksLogger(options));
+        var exception = Assert.Throws<ArgumentException>(() => new BlocksLogger(options));
+        Assert.Contains("ConnectionString is required", exception.Message);
     }
 
     [Fact]

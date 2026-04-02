@@ -11,12 +11,17 @@ namespace Blocks.Genesis
             _configuration = configuration;
         }
 
-        public static string? GetServiceBusConnectionString()
+        public static string? GetLmtConnectionString()
         {
-            return Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+            var configuredConnectionString = _configuration?["Lmt:ConnectionString"];
+            if (!string.IsNullOrWhiteSpace(configuredConnectionString))
+                return configuredConnectionString;
+
+            return Environment.GetEnvironmentVariable("Lmt__ConnectionString")
+                ?? Environment.GetEnvironmentVariable("Lmt:ConnectionString");
         }
 
-        public static int GetMaxRetries()
+        public static int GetLmtMaxRetries()
         {
             var retries = _configuration?.GetSection("Lmt:MaxRetries")?.Value;
             if (int.TryParse(retries, out var retriesValue))
@@ -28,7 +33,7 @@ namespace Blocks.Genesis
             return 3;
         }
 
-        public static int GetMaxFailedBatches()
+        public static int GetLmtMaxFailedBatches()
         {
             var batches = _configuration?.GetSection("Lmt:MaxFailedBatches")?.Value;
             if (int.TryParse(batches, out var batchesValue))

@@ -151,9 +151,9 @@ public class LmtTraceProcessorTests
     {
         var processor = CreateProcessorWithMockSender(out _);
 
-        // Source code disposes _semaphore before FlushBatchAsync uses it,
-        // so Dispose throws ObjectDisposedException
-        Assert.ThrowsAny<ObjectDisposedException>(() => processor.Dispose());
+        var exception = Record.Exception(() => processor.Dispose());
+
+        Assert.Null(exception);
     }
 
     [Fact]
@@ -161,12 +161,8 @@ public class LmtTraceProcessorTests
     {
         var processor = CreateProcessorWithMockSender(out _);
 
-        // First dispose throws due to source code bug
-        try { processor.Dispose(); } catch (ObjectDisposedException) { }
-
-        // Manually set _disposed so second call returns early
-        SetField(processor, "_disposed", true);
-        processor.Dispose(); // should not throw since _disposed is true
+        processor.Dispose();
+        processor.Dispose();
     }
 
     [Fact]

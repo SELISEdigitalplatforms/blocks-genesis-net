@@ -22,7 +22,7 @@ namespace SeliseBlocks.LMT.Client
                 throw new ArgumentException("ServiceName is required", nameof(options));
 
             if (string.IsNullOrWhiteSpace(_options.ConnectionString))
-                throw new ArgumentException("ServiceBusConnectionString is required", nameof(options));
+                throw new ArgumentException("ConnectionString is required", nameof(options));
 
             _logBatch = new ConcurrentQueue<LogData>();
             _serviceBusSender= LmtMessageSenderFactory.Create(_options);
@@ -153,7 +153,6 @@ namespace SeliseBlocks.LMT.Client
             _flushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
             _flushTimer?.Dispose();
 
-            _semaphore.Wait();
             try
             {
                 FlushBatchAsync().GetAwaiter().GetResult();
@@ -164,7 +163,6 @@ namespace SeliseBlocks.LMT.Client
             }
             finally
             {
-                _semaphore.Release();
                 _semaphore?.Dispose();
             }
 

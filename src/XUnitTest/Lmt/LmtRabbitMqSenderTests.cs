@@ -166,9 +166,9 @@ public class LmtRabbitMqSenderTests
     {
         var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 0);
 
-        // Source code disposes _retrySemaphore before RetryFailedBatchesAsync uses it,
-        // so Dispose throws ObjectDisposedException
-        Assert.ThrowsAny<ObjectDisposedException>(() => sender.Dispose());
+        var exception = Record.Exception(() => sender.Dispose());
+
+        Assert.Null(exception);
     }
 
     [Fact]
