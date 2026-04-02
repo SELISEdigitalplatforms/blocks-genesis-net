@@ -120,7 +120,6 @@ public class TenantsServiceTests
         var instance = (Tenants)RuntimeHelpers.GetUninitializedObject(typeof(Tenants));
 
         SetField(instance, "_logger", Mock.Of<ILogger<Tenants>>());
-        SetField(instance, "_blocksSecret", Mock.Of<IBlocksSecret>());
         SetField(instance, "_cacheClient", cacheClient ?? Mock.Of<ICacheClient>());
         SetField(instance, "_memoryCache", new MemoryCache(new MemoryCacheOptions { SizeLimit = 100 }));
         SetField(instance, "_rootConnectionString", "mongodb://localhost:27017");

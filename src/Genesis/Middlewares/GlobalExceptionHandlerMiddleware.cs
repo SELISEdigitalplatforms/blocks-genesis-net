@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Text.Json;
@@ -62,11 +63,14 @@ namespace Blocks.Genesis
             context.Response.ContentType = JsonContentType;
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
 
-            var errorResponse = new
+            var errorResponse = new ProblemDetails
             {
-                Message = "An error occurred while processing your request.",
-                TraceId = context.TraceIdentifier
+                Title = "An unexpected error occurred.",
+                Detail = "An error occurred while processing your request.",
+                Status = StatusCodes.Status500InternalServerError,
+                Instance = context.Request.Path
             };
+            errorResponse.Extensions["traceId"] = context.TraceIdentifier;
 
             var errorJson = JsonSerializer.Serialize(errorResponse, new JsonSerializerOptions { WriteIndented = true });
 

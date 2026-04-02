@@ -190,7 +190,9 @@ public class LmtRabbitMqSenderTests
         SetField(sender, "_retrySemaphore", new SemaphoreSlim(1, 1));
         SetField(sender, "_publishSemaphore", new SemaphoreSlim(1, 1));
         SetField(sender, "_disposed", false);
-        SetField(sender, "_retryTimer", new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite));
+        SetField(sender, "_retryTimer", new PeriodicTimer(TimeSpan.FromHours(1)));
+        SetField(sender, "_disposeCts", new CancellationTokenSource());
+        SetField(sender, "_retryLoopTask", Task.CompletedTask);
         return sender;
     }
 

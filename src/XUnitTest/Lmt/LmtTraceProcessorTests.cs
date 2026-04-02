@@ -207,7 +207,9 @@ public class LmtTraceProcessorTests
         SetField(processor, "_traceBatch", new ConcurrentQueue<TraceData>());
         SetField(processor, "_serviceBusSender", mockSender.Object);
         SetField(processor, "_semaphore", new SemaphoreSlim(1, 1));
-        SetField(processor, "_flushTimer", new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite));
+        SetField(processor, "_flushTimer", new PeriodicTimer(TimeSpan.FromHours(1)));
+        SetField(processor, "_disposeCts", new CancellationTokenSource());
+        SetField(processor, "_flushLoopTask", Task.CompletedTask);
         SetField(processor, "_disposed", false);
         return processor;
     }

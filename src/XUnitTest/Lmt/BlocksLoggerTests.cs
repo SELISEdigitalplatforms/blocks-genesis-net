@@ -286,7 +286,9 @@ public class BlocksLoggerTests
         SetField(logger, "_logBatch", new ConcurrentQueue<LogData>());
         SetField(logger, "_serviceBusSender", mockSender.Object);
         SetField(logger, "_semaphore", new SemaphoreSlim(2, 2));
-        SetField(logger, "_flushTimer", new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite));
+        SetField(logger, "_flushTimer", new PeriodicTimer(TimeSpan.FromHours(1)));
+        SetField(logger, "_disposeCts", new CancellationTokenSource());
+        SetField(logger, "_flushLoopTask", Task.CompletedTask);
         SetField(logger, "_disposed", false);
         return logger;
     }

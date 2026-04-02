@@ -11,14 +11,23 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
 using System.Diagnostics;
+using System.Threading;
 
 namespace Blocks.Genesis
 {
     public static class ApplicationConfigurations
     {
-        private static string _serviceName = string.Empty;
-        private static IBlocksSecret _blocksSecret;
-        private static BlocksSwaggerOptions _blocksSwaggerOptions;
+        private static readonly AsyncLocal<ApplicationBootstrapState?> CurrentBootstrapState = new();
+        private static readonly Lock BootstrapStateSyncRoot = new();
+        private static ApplicationBootstrapState? LastBootstrapState;
+
+        internal static ApplicationBootstrapState? GetBootstrapState()
+        {
+            lock (BootstrapStateSyncRoot)
+            {
+                return CurrentBootstrapState.Value ?? LastBootstrapState;
+            }
+        }
 
 
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(
@@ -27,26 +36,34 @@ namespace Blocks.Genesis
             Action<GenesisSecretOptions>? configure = null)
         {
             LoadDotEnvFile();
-            _serviceName = serviceName;
 
             var options = new GenesisSecretOptions { Mode = mode };
             configure?.Invoke(options);
 
-            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(options);
-            _blocksSecret.ServiceName = _serviceName;
+            var blocksSecret = await BlocksSecret.ProcessBlocksSecret(options);
+            blocksSecret.ServiceName = serviceName;
 
-            if (!string.IsNullOrWhiteSpace(_blocksSecret.TraceConnectionString))
+            CurrentBootstrapState.Value = new ApplicationBootstrapState(
+                serviceName,
+                blocksSecret,
+                null);
+            lock (BootstrapStateSyncRoot)
             {
-                LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
+                LastBootstrapState = CurrentBootstrapState.Value;
             }
-            if (!string.IsNullOrWhiteSpace(_blocksSecret.LogConnectionString))
+
+            if (!string.IsNullOrWhiteSpace(blocksSecret.TraceConnectionString))
             {
-                LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, BlocksConstants.Miscellaneous);
-                LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, serviceName);
+                LmtConfiguration.CreateCollectionForTrace(blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
             }
-            // if (!string.IsNullOrWhiteSpace(_blocksSecret.MetricConnectionString))
+            if (!string.IsNullOrWhiteSpace(blocksSecret.LogConnectionString))
+            {
+                LmtConfiguration.CreateCollectionForLogs(blocksSecret.LogConnectionString, BlocksConstants.Miscellaneous);
+                LmtConfiguration.CreateCollectionForLogs(blocksSecret.LogConnectionString, serviceName);
+            }
+            // if (!string.IsNullOrWhiteSpace(blocksSecret.MetricConnectionString))
             // {
-            //     LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, BlocksConstants.Miscellaneous);
+            //     LmtConfiguration.CreateCollectionForMetrics(blocksSecret.MetricConnectionString, BlocksConstants.Miscellaneous);
             // }
 
             Log.Logger = new LoggerConfiguration()
@@ -54,10 +71,10 @@ namespace Blocks.Genesis
                 .Enrich.With<TraceContextEnricher>()
                 .Enrich.WithEnvironmentName()
                 .WriteTo.Console()
-                .WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret)
+                .WriteTo.MongoDBWithDynamicCollection(serviceName, blocksSecret)
                 .CreateLogger();
 
-            return _blocksSecret;
+            return blocksSecret;
         }
 
         public static void ConfigureKestrel(WebApplicationBuilder builder)
@@ -81,17 +98,24 @@ namespace Blocks.Genesis
 
         public static void ConfigureApiEnv(IHostApplicationBuilder builder, string[] args)
         {
-
             builder.Configuration
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false)
                 .AddEnvironmentVariables()
                 .AddCommandLine(args);
 
 
-            _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
+            var swaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
+            if (GetBootstrapState() != null)
+            {
+                CurrentBootstrapState.Value = GetBootstrapState()! with { SwaggerOptions = swaggerOptions };
+                lock (BootstrapStateSyncRoot)
+                {
+                    LastBootstrapState = CurrentBootstrapState.Value;
+                }
+            }
 
             var blocksProjectKey = builder.Configuration.GetValue<string>("BlocksProjectKey");
-            Console.WriteLine($"Blocks Project Key: {blocksProjectKey}");
+            Log.Information("Blocks project key configured: {BlocksProjectKey}", blocksProjectKey);
             BlocksConstants.SetBlocksProjectKey(blocksProjectKey);
             // Initialize LMT configuration provider
             LmtConfigurationProvider.Initialize(builder.Configuration);
@@ -112,13 +136,16 @@ namespace Blocks.Genesis
 
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
+            var state = GetRequiredBootstrapState();
+
             services.AddMemoryCache(options =>
             {
                 options.SizeLimit = 100;  // Max 100 entries (tenants + mongo clients combined)
                 options.CompactionPercentage = 0.25;  // Evict 25% when cache is full
             });
 
-            services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
+            services.AddSingleton(state);
+            services.AddSingleton(typeof(IBlocksSecret), state.BlocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddSingleton<ITenants, Tenants>();
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
@@ -132,7 +159,7 @@ namespace Blocks.Genesis
                 builder.AddSerilog();
             });
 
-            services.AddSingleton(new ActivitySource(_serviceName));
+            services.AddSingleton(new ActivitySource(state.ServiceName));
 
             services.AddOpenTelemetry()
                 .WithTracing(tracingBuilder =>
@@ -140,17 +167,19 @@ namespace Blocks.Genesis
                     tracingBuilder
                         .SetSampler(new AlwaysOnSampler())
                         .AddAspNetCoreInstrumentation()
-                        .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
+                        .AddProcessor(new MongoDBTraceExporter(state.ServiceName, blocksSecret: state.BlocksSecret));
                 });
 
             services.AddSingleton<IHttpService, HttpService>();
 
-            ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
+            ConfigureMessageClient(services, messageConfiguration, state).GetAwaiter().GetResult();
+
+            CurrentBootstrapState.Value = null;
 
             services.AddHttpContextAccessor();
 
-            if (_blocksSwaggerOptions != null)
-                services.AddBlocksSwagger(_blocksSwaggerOptions);
+            if (state.SwaggerOptions != null)
+                services.AddBlocksSwagger(state.SwaggerOptions);
 
             services.AddSingleton<ICryptoService, CryptoService>();
             services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();
@@ -206,7 +235,9 @@ namespace Blocks.Genesis
         {
             ArgumentNullException.ThrowIfNull(app);
 
-            var enableHsts = _blocksSecret.EnableHsts || app.Configuration.GetValue<bool>("EnableHsts");
+            var state = app.Services.GetRequiredService<ApplicationBootstrapState>();
+
+            var enableHsts = state.BlocksSecret.EnableHsts || app.Configuration.GetValue<bool>("EnableHsts");
             if (enableHsts)
             {
                 app.UseHsts();
@@ -220,9 +251,9 @@ namespace Blocks.Genesis
                     .AllowCredentials()
                     .SetPreflightMaxAge(TimeSpan.FromDays(365)));
 
-            app.MapGet("/ping", () => Results.Json(new { message = $"pong from {_serviceName}" }));
+            app.MapGet("/ping", () => Results.Json(new { message = $"pong from {state.ServiceName}" }));
 
-            if (_blocksSwaggerOptions != null)
+            if (state.SwaggerOptions != null)
             {
                 app.UseSwagger();
                 app.UseSwaggerUI();
@@ -297,10 +328,19 @@ namespace Blocks.Genesis
             services.AddSingleton(routingTable);
         }
 
-        private static async Task ConfigureMessageClient(IServiceCollection services, MessageConfiguration messageConfiguration)
+        private static async Task ConfigureMessageClient(
+            IServiceCollection services,
+            MessageConfiguration messageConfiguration,
+            ApplicationBootstrapState state)
         {
-            messageConfiguration.Connection ??= _blocksSecret.MessageConnectionString;
-            messageConfiguration.ServiceName ??= _serviceName;
+            if (messageConfiguration.AzureServiceBusConfiguration != null &&
+                messageConfiguration.RabbitMqConfiguration != null)
+            {
+                throw new InvalidOperationException("Configure either Azure Service Bus or RabbitMQ for IMessageClient, not both.");
+            }
+
+            messageConfiguration.Connection ??= state.BlocksSecret.MessageConnectionString;
+            messageConfiguration.ServiceName ??= state.ServiceName;
 
             services.AddSingleton(messageConfiguration);
 
@@ -326,13 +366,19 @@ namespace Blocks.Genesis
                 if (File.Exists(envFilePath))
                 {
                     DotNetEnv.Env.Load(envFilePath);
-                    Console.WriteLine($"✓ Loaded environment variables from .env file");
+                    Log.Information("Loaded environment variables from .env file");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Failed to load .env file: {ex.Message}");
+                Log.Warning(ex, "Failed to load .env file");
             }
+        }
+
+        private static ApplicationBootstrapState GetRequiredBootstrapState()
+        {
+            return CurrentBootstrapState.Value ?? throw new InvalidOperationException(
+                "Call ConfigureLogAndSecretsAsync before configuring application services or middleware.");
         }
 
         private static string GetAppSettingsFileName()
@@ -340,5 +386,10 @@ namespace Blocks.Genesis
             var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
             return string.IsNullOrWhiteSpace(currentEnvironment) ? "appsettings.json" : $"appsettings.{currentEnvironment}.json";
         }
+
+        internal sealed record ApplicationBootstrapState(
+            string ServiceName,
+            IBlocksSecret BlocksSecret,
+            BlocksSwaggerOptions? SwaggerOptions);
     }
 }

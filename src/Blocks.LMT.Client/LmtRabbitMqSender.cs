@@ -1,12 +1,9 @@
 ﻿using RabbitMQ.Client;
 using SeliseBlocks.LMT.Client;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 
 namespace SeliseBlocks.LMT.Client
 {
@@ -20,7 +17,9 @@ namespace SeliseBlocks.LMT.Client
         private readonly ConcurrentQueue<FailedLogBatch> _failedLogBatches = new();
         private readonly ConcurrentQueue<FailedTraceBatch> _failedTraceBatches = new();
         private readonly SemaphoreSlim _retrySemaphore = new(1, 1);
-        private readonly Timer _retryTimer;
+        private readonly PeriodicTimer _retryTimer;
+        private readonly CancellationTokenSource _disposeCts = new();
+        private readonly Task _retryLoopTask;
 
         private readonly ConnectionFactory _factory;
         private IConnection? _connection;
@@ -46,8 +45,8 @@ namespace SeliseBlocks.LMT.Client
                 ClientProvidedName = $"seliseblocks-lmt-client-{serviceName}"
             };
 
-            _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null,
-                TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            _retryTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+            _retryLoopTask = RunRetryLoopAsync(_disposeCts.Token);
         }
 
         public async Task SendLogsAsync(List<LogData> logs, int retryCount = 0)
@@ -75,7 +74,7 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending logs to RabbitMQ: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Trace.TraceWarning($"Exception sending logs to RabbitMQ. Retry {currentRetry}/{_maxRetries}: {ex}");
                 }
 
                 currentRetry++;
@@ -98,7 +97,7 @@ namespace SeliseBlocks.LMT.Client
             }
             else
             {
-                Console.WriteLine($"Failed log batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                Trace.TraceWarning($"Failed log batch queue is full ({_maxFailedBatches}). Dropping batch.");
             }
         }
 
@@ -127,7 +126,7 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending traces to RabbitMQ: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Trace.TraceWarning($"Exception sending traces to RabbitMQ. Retry {currentRetry}/{_maxRetries}: {ex}");
                 }
 
                 currentRetry++;
@@ -150,7 +149,21 @@ namespace SeliseBlocks.LMT.Client
             }
             else
             {
-                Console.WriteLine($"Failed trace batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                Trace.TraceWarning($"Failed trace batch queue is full ({_maxFailedBatches}). Dropping batch.");
+            }
+        }
+
+        private async Task RunRetryLoopAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (await _retryTimer.WaitForNextTickAsync(cancellationToken))
+                {
+                    await RetryFailedBatchesAsync();
+                }
+            }
+            catch (OperationCanceledException)
+            {
             }
         }
 
@@ -208,7 +221,7 @@ namespace SeliseBlocks.LMT.Client
                     }
                 };
 
-                Console.WriteLine($"[APP PUBLISH] exchange='{exchangeName}', routingKey='{routingKey}', messageId='{messageId}'");
+                Trace.TraceInformation($"Publishing RabbitMQ message to exchange '{exchangeName}' with routing key '{routingKey}' and message id '{messageId}'");
 
                 await _channel.BasicPublishAsync(
                     exchange: exchangeName,
@@ -260,7 +273,7 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Log batch exceeded max retries ({_maxRetries}). Dropping batch with {failedBatch.Logs.Count} logs.");
+                    Trace.TraceWarning($"Log batch exceeded max retries ({_maxRetries}). Dropping batch with {failedBatch.Logs.Count} logs.");
                     continue;
                 }
 
@@ -288,7 +301,7 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Trace batch exceeded max retries ({_maxRetries}). Dropping batch.");
+                    Trace.TraceWarning($"Trace batch exceeded max retries ({_maxRetries}). Dropping batch.");
                     continue;
                 }
 
@@ -300,14 +313,26 @@ namespace SeliseBlocks.LMT.Client
         {
             if (_disposed) return;
 
-            _retryTimer.Dispose();
-            RetryFailedBatchesAsync().GetAwaiter().GetResult();
-            _retrySemaphore.Dispose();
-            _publishSemaphore.Dispose();
-            _channel?.Dispose();
-            _connection?.Dispose();
-
             _disposed = true;
+
+            _disposeCts.Cancel();
+            _retryTimer.Dispose();
+
+            try
+            {
+                _retryLoopTask.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                _disposeCts.Dispose();
+                _retrySemaphore.Dispose();
+                _publishSemaphore.Dispose();
+                _channel?.Dispose();
+                _connection?.Dispose();
+            }
         }
     }
     

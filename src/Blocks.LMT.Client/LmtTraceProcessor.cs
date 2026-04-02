@@ -8,9 +8,11 @@ namespace SeliseBlocks.LMT.Client
     {
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<TraceData> _traceBatch;
-        private readonly Timer _flushTimer;
+        private readonly PeriodicTimer _flushTimer;
         private readonly ILmtMessageSender _serviceBusSender;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private readonly CancellationTokenSource _disposeCts = new();
+        private readonly Task _flushLoopTask;
         private bool _disposed;
 
         public LmtTraceProcessor(LmtOptions options)
@@ -19,11 +21,11 @@ namespace SeliseBlocks.LMT.Client
 
             _traceBatch = new ConcurrentQueue<TraceData>();
 
-            // Use shared sender
-            _serviceBusSender = LmtMessageSenderFactory.Create(_options);
+            _serviceBusSender = LmtMessageSenderFactory.CreateShared(_options);
 
             var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
-            _flushTimer = new Timer(async _ => await FlushBatchAsync(), null, flushInterval, flushInterval);
+            _flushTimer = new PeriodicTimer(flushInterval);
+            _flushLoopTask = RunPeriodicFlushAsync(_disposeCts.Token);
         }
 
         public override void OnEnd(Activity activity)
@@ -62,7 +64,7 @@ namespace SeliseBlocks.LMT.Client
 
             if (_traceBatch.Count >= _options.TraceBatchSize)
             {
-                Task.Run(() => FlushBatchAsync());
+                _ = Task.Run(FlushBatchSafeAsync);
             }
         }
 
@@ -74,6 +76,32 @@ namespace SeliseBlocks.LMT.Client
                 baggage[item.Key] = item.Value;
             }
             return baggage;
+        }
+
+        private async Task RunPeriodicFlushAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (await _flushTimer.WaitForNextTickAsync(cancellationToken))
+                {
+                    await FlushBatchSafeAsync();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private async Task FlushBatchSafeAsync()
+        {
+            try
+            {
+                await FlushBatchAsync();
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"Error flushing traces: {ex}");
+            }
         }
 
         private async Task FlushBatchAsync()
@@ -107,15 +135,29 @@ namespace SeliseBlocks.LMT.Client
         {
             if (_disposed) return;
 
+            _disposed = true;
+
             if (disposing)
             {
-                FlushBatchAsync().GetAwaiter().GetResult();
-                _flushTimer?.Dispose();
-                _semaphore?.Dispose();
-                _serviceBusSender?.Dispose();
+                _disposeCts.Cancel();
+                _flushTimer.Dispose();
+
+                try
+                {
+                    _flushLoopTask.GetAwaiter().GetResult();
+                    FlushBatchAsync().GetAwaiter().GetResult();
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                finally
+                {
+                    _disposeCts.Dispose();
+                    _semaphore.Dispose();
+                    _serviceBusSender.Dispose();
+                }
             }
 
-            _disposed = true;
             base.Dispose(disposing);
         }
     }

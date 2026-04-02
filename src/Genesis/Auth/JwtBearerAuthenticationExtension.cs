@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -90,11 +92,11 @@ namespace Blocks.Genesis
 
                             if (ex is SecurityTokenExpiredException)
                             {
-                                SecurityLog("token_expired", "Fallback skipped for expired token.");
+                                SecurityLog(context.HttpContext, "token_expired", "Fallback skipped for expired token.");
                                 return;
                             }
 
-                            SecurityLog("authentication_failed", "Primary token validation failed, attempting fallback.", ex);
+                            SecurityLog(context.HttpContext, "authentication_failed", "Primary token validation failed, attempting fallback.", ex);
                             await TryFallbackAsync(
                                 new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
                                 tenants,
@@ -106,7 +108,7 @@ namespace Blocks.Genesis
 
                         OnForbidden = context =>
                         {
-                            SecurityLog("forbidden", "Authorization failed with forbidden response.");
+                            SecurityLog(context.HttpContext, "forbidden", "Authorization failed with forbidden response.");
                             return Task.CompletedTask;
                         }
                     };
@@ -132,7 +134,7 @@ namespace Blocks.Genesis
 
             var cacheDb = context.HttpContext.RequestServices.GetRequiredService<ICacheClient>().CacheDatabase();
             
-            var certificate = await GetCertificateAsync(tenantId, tenants, cacheDb, httpClientFactory);
+            var certificate = await GetCertificateAsync(tenantId, tenants, cacheDb, httpClientFactory, context.HttpContext);
             if (certificate == null)
             {
                 context.Fail("❌ Certificate not found");
@@ -168,54 +170,53 @@ namespace Blocks.Genesis
             Exception? ex = null)
         {
             if (ex != null)
-                SecurityLog("fallback_triggered", $"Triggered due to {ex.GetType().Name}: {ex.Message}", ex);
+                SecurityLog(context.HttpContext, "fallback_triggered", $"Triggered due to {ex.GetType().Name}: {ex.Message}", ex);
 
             try
             {
                 if (string.IsNullOrWhiteSpace(token))
                 {
-                    SecurityLog("fallback_no_token", "No token found in request for fallback.");
+                    SecurityLog(context.HttpContext, "fallback_no_token", "No token found in request for fallback.");
                     return false;
                 }
 
                 tenantId ??= TenantContextHelper.ResolveTenantId(context.Request, token);
                 if (string.IsNullOrWhiteSpace(tenantId))
                 {
-                    SecurityLog("fallback_missing_tenant_context", "Tenant context is missing for fallback validation.");
+                    SecurityLog(context.HttpContext, "fallback_missing_tenant_context", "Tenant context is missing for fallback validation.");
                     return false;
                 }
 
                 var tenant = tenants.GetTenantByID(tenantId);
                 if (tenant?.ThirdPartyJwtTokenParameters == null)
                 {
-                    SecurityLog("fallback_missing_tenant_config", "Tenant or third-party token parameters are missing.");
+                    SecurityLog(context.HttpContext, "fallback_missing_tenant_config", "Tenant or third-party token parameters are missing.");
                     return false;
                 }
 
                 var fallbackValidationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl) ?
                                                 await GetFromJwksUrl(tenant, httpClientFactory) :
-                                                await GetFromPublicCertificate(tenant, tenantId, httpClientFactory);
+                                                await GetFromPublicCertificate(context.HttpContext, tenant, tenantId, httpClientFactory);
 
                 return await ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
             }
             catch (Exception finalEx)
             {
-                SecurityLog("fallback_unhandled_exception", "Unhandled fallback exception.", finalEx);
+                SecurityLog(context.HttpContext, "fallback_unhandled_exception", "Unhandled fallback exception.", finalEx);
                 return false;
             }
         }
 
-        private static void SecurityLog(string eventName, string message, Exception? ex = null)
+        private static void SecurityLog(HttpContext httpContext, string eventName, string message, Exception? ex = null)
         {
-            var payload = new
+            var logger = GetAuthLogger(httpContext);
+            if (ex == null)
             {
-                category = "auth",
-                eventName,
-                message,
-                exceptionType = ex?.GetType().Name
-            };
+                logger.LogInformation("Auth event {EventName}: {Message}", eventName, message);
+                return;
+            }
 
-            Console.WriteLine($"[Security] {JsonSerializer.Serialize(payload)}");
+            logger.LogWarning(ex, "Auth event {EventName}: {Message}", eventName, message);
         }
 
         private static void SetRequestAccessToken(HttpContext context, string token)
@@ -263,19 +264,19 @@ namespace Blocks.Genesis
         }
 
 
-        private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
+        private static async Task<TokenValidationParameters> GetFromPublicCertificate(HttpContext httpContext, Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
         {
-            var cert = await GetThirdPartyCertificateAsync(tenant, tenantId, httpClientFactory);
+            var cert = await GetThirdPartyCertificateAsync(httpContext, tenant, tenantId, httpClientFactory);
             if (cert == null)
             {
-                Console.WriteLine("[Fallback] ❌ No fallback certificate found.");
+                GetAuthLogger(httpContext).LogWarning("Fallback certificate not found for tenant {TenantId}", tenantId);
                 return new TokenValidationParameters();
             }
 
             var validationParams = tenant.ThirdPartyJwtTokenParameters;
             if (validationParams == null)
             {
-                Console.WriteLine("[Fallback] ❌ No validation parameters found.");
+                GetAuthLogger(httpContext).LogWarning("Fallback validation parameters not found for tenant {TenantId}", tenantId);
                 return new TokenValidationParameters();
             }
 
@@ -307,25 +308,25 @@ namespace Blocks.Genesis
                 context.HttpContext.User = validatedPrincipal;
                 context.Success();
 
-                Console.WriteLine("[Fallback] ✅ Token validated via fallback certificate.");
+                GetAuthLogger(context.HttpContext).LogInformation("Fallback token validation succeeded");
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Fallback] ❌ Validation failed: {ex.Message}");
+                GetAuthLogger(context.HttpContext).LogWarning(ex, "Fallback token validation failed");
                 return false;
             }
         }
 
-        private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
+        private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(HttpContext httpContext, Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
         {
-            var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath, httpClientFactory);
+            var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath, httpClientFactory, httpContext);
             return certificateData == null
                 ? null
                 : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters.PublicCertificatePassword);
         }
 
-        private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
+        private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory, HttpContext httpContext)
         {
             string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
 
@@ -338,7 +339,7 @@ namespace Blocks.Genesis
             if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
                 return null;
 
-            var certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath, httpClientFactory);
+            var certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath, httpClientFactory, httpContext);
             if (certificateData == null)
                 return null;
 
@@ -346,7 +347,7 @@ namespace Blocks.Genesis
             return CreateCertificate(certificateData, validationParams.PublicCertificatePassword);
         }
 
-        private static async Task<byte[]?> LoadCertificateDataAsync(string path, IHttpClientFactory httpClientFactory)
+        private static async Task<byte[]?> LoadCertificateDataAsync(string path, IHttpClientFactory httpClientFactory, HttpContext httpContext)
         {
             try
             {
@@ -360,9 +361,16 @@ namespace Blocks.Genesis
             }
             catch (Exception e)
             {
-                Console.WriteLine($"[Cert] ❌ Failed to load certificate: {e.Message}");
+                GetAuthLogger(httpContext).LogWarning(e, "Failed to load certificate from {CertificatePath}", path);
                 return null;
             }
+        }
+
+        private static ILogger GetAuthLogger(HttpContext httpContext)
+        {
+            var loggerFactory = httpContext.RequestServices?.GetService<ILoggerFactory>();
+            return loggerFactory?.CreateLogger("Blocks.Genesis.Auth.JwtBearerAuthenticationExtension")
+                   ?? NullLogger.Instance;
         }
 
         private static async Task CacheCertificateAsync(IDatabase cacheDb, string cacheKey, byte[] certificateData, JwtTokenParameters validationParams)

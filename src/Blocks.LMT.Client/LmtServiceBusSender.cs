@@ -1,5 +1,6 @@
 ﻿using Azure.Messaging.ServiceBus;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace SeliseBlocks.LMT.Client
@@ -11,10 +12,12 @@ namespace SeliseBlocks.LMT.Client
         private readonly int _maxFailedBatches;
         private readonly ConcurrentQueue<FailedLogBatch> _failedLogBatches;
         private readonly ConcurrentQueue<FailedTraceBatch> _failedTraceBatches;
-        private readonly Timer _retryTimer;
+        private readonly PeriodicTimer _retryTimer;
         private ServiceBusClient? _serviceBusClient;
         private ServiceBusSender? _serviceBusSender;
         private readonly SemaphoreSlim _retrySemaphore = new SemaphoreSlim(1, 1);
+        private readonly CancellationTokenSource _disposeCts = new();
+        private readonly Task _retryLoopTask;
         private bool _disposed;
 
         public LmtServiceBusSender(
@@ -36,15 +39,15 @@ namespace SeliseBlocks.LMT.Client
                 _serviceBusSender = _serviceBusClient.CreateSender(LmtConstants.GetTopicName(serviceName));
             }
 
-            _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null,
-                TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            _retryTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+            _retryLoopTask = RunRetryLoopAsync(_disposeCts.Token);
         }
 
         public async Task SendLogsAsync(List<LogData> logs, int retryCount = 0)
         {
             if (_serviceBusSender == null)
             {
-                Console.WriteLine("Service Bus sender not initialized");
+                Trace.TraceWarning("Service Bus sender not initialized");
                 return;
             }
 
@@ -84,7 +87,7 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending logs to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Trace.TraceWarning($"Exception sending logs to Service Bus. Retry {currentRetry}/{_maxRetries}: {ex}");
                 }
 
                 currentRetry++;
@@ -107,11 +110,11 @@ namespace SeliseBlocks.LMT.Client
                 };
 
                 _failedLogBatches.Enqueue(failedBatch);
-                Console.WriteLine($"Queued log batch for later retry. Failed batches in queue: {_failedLogBatches.Count}");
+                Trace.TraceWarning($"Queued log batch for later retry. Failed batches in queue: {_failedLogBatches.Count}");
             }
             else
             {
-                Console.WriteLine($"Failed log batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                Trace.TraceWarning($"Failed log batch queue is full ({_maxFailedBatches}). Dropping batch.");
             }
         }
 
@@ -119,7 +122,7 @@ namespace SeliseBlocks.LMT.Client
         {
             if (_serviceBusSender == null)
             {
-                Console.WriteLine("Service Bus sender not initialized");
+                Trace.TraceWarning("Service Bus sender not initialized");
                 return;
             }
 
@@ -159,7 +162,7 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending traces to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    Trace.TraceWarning($"Exception sending traces to Service Bus. Retry {currentRetry}/{_maxRetries}: {ex}");
                 }
 
                 currentRetry++;
@@ -182,11 +185,25 @@ namespace SeliseBlocks.LMT.Client
                 };
 
                 _failedTraceBatches.Enqueue(failedBatch);
-                Console.WriteLine($"Queued trace batch for later retry. Failed batches in queue: {_failedTraceBatches.Count}");
+                Trace.TraceWarning($"Queued trace batch for later retry. Failed batches in queue: {_failedTraceBatches.Count}");
             }
             else
             {
-                Console.WriteLine($"Failed trace batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                Trace.TraceWarning($"Failed trace batch queue is full ({_maxFailedBatches}). Dropping batch.");
+            }
+        }
+
+        private async Task RunRetryLoopAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (await _retryTimer.WaitForNextTickAsync(cancellationToken))
+                {
+                    await RetryFailedBatchesAsync();
+                }
+            }
+            catch (OperationCanceledException)
+            {
             }
         }
 
@@ -233,11 +250,11 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Log batch exceeded max retries ({_maxRetries}). Dropping batch with {failedBatch.Logs.Count} logs.");
+                    Trace.TraceWarning($"Log batch exceeded max retries ({_maxRetries}). Dropping batch with {failedBatch.Logs.Count} logs.");
                     continue;
                 }
 
-                Console.WriteLine($"Retrying failed log batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
+                Trace.TraceInformation($"Retrying failed log batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
                 await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount);
             }
         }
@@ -264,11 +281,11 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Trace batch exceeded max retries ({_maxRetries}). Dropping batch.");
+                    Trace.TraceWarning($"Trace batch exceeded max retries ({_maxRetries}). Dropping batch.");
                     continue;
                 }
 
-                Console.WriteLine($"Retrying failed trace batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
+                Trace.TraceInformation($"Retrying failed trace batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
                 await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
             }
         }
@@ -277,13 +294,25 @@ namespace SeliseBlocks.LMT.Client
         {
             if (_disposed) return;
 
-            _retryTimer?.Dispose();
-            RetryFailedBatchesAsync().GetAwaiter().GetResult();
-            _retrySemaphore?.Dispose();
-            _serviceBusSender?.DisposeAsync().GetAwaiter().GetResult();
-            _serviceBusClient?.DisposeAsync().GetAwaiter().GetResult();
-
             _disposed = true;
+
+            _disposeCts.Cancel();
+            _retryTimer.Dispose();
+
+            try
+            {
+                _retryLoopTask.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                _disposeCts.Dispose();
+                _retrySemaphore.Dispose();
+                _serviceBusSender?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                _serviceBusClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
         }
     }
 }

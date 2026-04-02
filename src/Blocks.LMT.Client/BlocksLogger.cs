@@ -1,7 +1,6 @@
-﻿using Microsoft.Extensions.Logging; // For LogLevel enum mapping
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text.RegularExpressions; // For parsing message templates
+using System.Text.RegularExpressions;
 
 namespace SeliseBlocks.LMT.Client
 {
@@ -9,9 +8,11 @@ namespace SeliseBlocks.LMT.Client
     {
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<LogData> _logBatch;
-        private readonly Timer _flushTimer;
+        private readonly PeriodicTimer _flushTimer;
         private readonly ILmtMessageSender _serviceBusSender;
-        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _semaphore = new(1, 1);
+        private readonly CancellationTokenSource _disposeCts = new();
+        private readonly Task _flushLoopTask;
         private bool _disposed;
 
         public BlocksLogger(LmtOptions options)
@@ -25,17 +26,19 @@ namespace SeliseBlocks.LMT.Client
                 throw new ArgumentException("ConnectionString is required", nameof(options));
 
             _logBatch = new ConcurrentQueue<LogData>();
-            _serviceBusSender= LmtMessageSenderFactory.Create(_options);
+            _serviceBusSender = LmtMessageSenderFactory.CreateShared(_options);
 
             var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
-            _flushTimer = new Timer(async _ => await FlushBatchAsync(), null, flushInterval, flushInterval);
+            _flushTimer = new PeriodicTimer(flushInterval);
+            _flushLoopTask = RunPeriodicFlushAsync(_disposeCts.Token);
         }
 
         public void Log(LmtLogLevel level, string messageTemplate, Exception? exception = null, params object?[] args)
         {
-            if (!_options.EnableLogging) return;
-
-                if (_disposed) return;
+            if (!_options.EnableLogging || _disposed)
+            {
+                return;
+            }
 
             var activity = Activity.Current;
             var properties = new Dictionary<string, object>();
@@ -48,7 +51,7 @@ namespace SeliseBlocks.LMT.Client
                 Message = formattedMessage,
                 Exception = exception?.ToString() ?? string.Empty,
                 ServiceName = _options.ServiceId,
-                Properties = properties, // Use the parsed properties
+                Properties = properties,
                 TenantId = _options.XBlocksKey
             };
 
@@ -62,9 +65,7 @@ namespace SeliseBlocks.LMT.Client
 
             if (_logBatch.Count >= _options.LogBatchSize)
             {
-                // Do not await to avoid blocking the caller of Log.
-                // This will run on a ThreadPool thread.
-                _ = Task.Run(() => FlushBatchAsync());
+                _ = Task.Run(FlushBatchSafeAsync);
             }
         }
 
@@ -86,45 +87,67 @@ namespace SeliseBlocks.LMT.Client
         public void LogCritical(string messageTemplate, Exception? exception = null, params object?[] args)
             => Log(LmtLogLevel.Critical, messageTemplate, exception, args);
 
-
         private string FormatLogMessage(string messageTemplate, object?[] args, Dictionary<string, object> properties)
         {
-            if (args.Length > 0)
+            if (args.Length == 0)
             {
-                    // Extract placeholder names from the template (e.g. {Name}, {@User}, {Count:D})
-                    var placeholderRegex = new Regex(@"\{(.*?)\}");
-                    var matches = placeholderRegex.Matches(messageTemplate);
-
-                    for (int i = 0; i < args.Length; i++)
-                    {
-                        var key = $"Arg{i}";
-                        if (i < matches.Count)
-                        {
-                            // Strip leading @ (destructuring) and any format/alignment specs after the name
-                            var nameMatch = Regex.Match(matches[i].Groups[1].Value, @"^@?(\w+)");
-                            if (nameMatch.Success)
-                                key = nameMatch.Groups[1].Value;
-                        }
-                        if (!properties.ContainsKey(key))
-                            properties[key] = args[i] ?? string.Empty;
-                    }
-
-                    int index = 0;
-                    return placeholderRegex.Replace(messageTemplate, match =>
-                    {
-                        if (index >= args.Length)
-                            return match.Value;
-
-                        var value = args[index]?.ToString() ?? string.Empty;
-                        index++;
-                        return value;
-                    });
+                return messageTemplate;
             }
 
-            return messageTemplate;
+            var placeholderRegex = new Regex(@"\{(.*?)\}");
+            var matches = placeholderRegex.Matches(messageTemplate);
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                var key = $"Arg{i}";
+                if (i < matches.Count)
+                {
+                    var nameMatch = Regex.Match(matches[i].Groups[1].Value, @"^@?(\w+)");
+                    if (nameMatch.Success)
+                        key = nameMatch.Groups[1].Value;
+                }
+
+                if (!properties.ContainsKey(key))
+                    properties[key] = args[i] ?? string.Empty;
+            }
+
+            int index = 0;
+            return placeholderRegex.Replace(messageTemplate, match =>
+            {
+                if (index >= args.Length)
+                    return match.Value;
+
+                var value = args[index]?.ToString() ?? string.Empty;
+                index++;
+                return value;
+            });
         }
 
+        private async Task RunPeriodicFlushAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (await _flushTimer.WaitForNextTickAsync(cancellationToken))
+                {
+                    await FlushBatchSafeAsync();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
 
+        private async Task FlushBatchSafeAsync()
+        {
+            try
+            {
+                await FlushBatchAsync();
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"Error flushing logs: {ex}");
+            }
+        }
 
         private async Task FlushBatchAsync()
         {
@@ -144,7 +167,7 @@ namespace SeliseBlocks.LMT.Client
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error flushing logs: {ex}");
+                Trace.TraceError($"Error flushing logs: {ex}");
             }
             finally
             {
@@ -154,28 +177,34 @@ namespace SeliseBlocks.LMT.Client
 
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+            {
+                return;
+            }
 
-            _flushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-            _flushTimer?.Dispose();
+            _disposed = true;
+            _disposeCts.Cancel();
+            _flushTimer.Dispose();
 
             try
             {
+                _flushLoopTask.GetAwaiter().GetResult();
                 FlushBatchAsync().GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error during synchronous flush on dispose: {ex}");
+                Trace.TraceError($"Error during logger dispose flush: {ex}");
             }
             finally
             {
-                _semaphore?.Dispose();
+                _disposeCts.Dispose();
+                _semaphore.Dispose();
+                _serviceBusSender.Dispose();
+                GC.SuppressFinalize(this);
             }
-
-            _serviceBusSender?.Dispose();
-
-            _disposed = true;
-            GC.SuppressFinalize(this);
         }
     }
 }

@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Configuration;
-using System.Reflection;
 
 namespace Blocks.Genesis
 {
@@ -33,17 +32,16 @@ namespace Blocks.Genesis
         {
             ISecretProvider provider = CreateProvider(options);
             var blocksSecret = new BlocksSecret();
-            PropertyInfo[] properties = typeof(BlocksSecret).GetProperties();
 
-            foreach (PropertyInfo property in properties)
+            foreach (var binding in GetBindings())
             {
-                var value = await provider.GetAsync(property.Name);
-
-                if (!string.IsNullOrWhiteSpace(value))
+                var value = await provider.GetAsync(binding.Key);
+                if (string.IsNullOrWhiteSpace(value))
                 {
-                    object convertedValue = ConvertValue(value, property.PropertyType);
-                    UpdateProperty(blocksSecret, property.Name, convertedValue);
+                    continue;
                 }
+
+                binding.Assign(blocksSecret, ConvertConfiguredValue(binding.Key, value, binding.ValueType));
             }
 
             return blocksSecret;
@@ -57,7 +55,49 @@ namespace Blocks.Genesis
             _ => throw new InvalidOperationException($"Unknown SecretMode: {options.Mode}")
         };
 
-        
+        private static IReadOnlyList<SecretBinding> GetBindings()
+        {
+            return
+            [
+                new(nameof(CacheConnectionString), typeof(string), static (secret, value) => secret.CacheConnectionString = (string)value),
+                new(nameof(MessageConnectionString), typeof(string), static (secret, value) => secret.MessageConnectionString = (string)value),
+                new(nameof(LogConnectionString), typeof(string), static (secret, value) => secret.LogConnectionString = (string)value),
+                new(nameof(MetricConnectionString), typeof(string), static (secret, value) => secret.MetricConnectionString = (string)value),
+                new(nameof(TraceConnectionString), typeof(string), static (secret, value) => secret.TraceConnectionString = (string)value),
+                new(nameof(LogDatabaseName), typeof(string), static (secret, value) => secret.LogDatabaseName = (string)value),
+                new(nameof(MetricDatabaseName), typeof(string), static (secret, value) => secret.MetricDatabaseName = (string)value),
+                new(nameof(TraceDatabaseName), typeof(string), static (secret, value) => secret.TraceDatabaseName = (string)value),
+                new(nameof(ServiceName), typeof(string), static (secret, value) => secret.ServiceName = (string)value),
+                new(nameof(DatabaseConnectionString), typeof(string), static (secret, value) => secret.DatabaseConnectionString = (string)value),
+                new(nameof(RootDatabaseName), typeof(string), static (secret, value) => secret.RootDatabaseName = (string)value),
+                new(nameof(EnableHsts), typeof(bool), static (secret, value) => secret.EnableHsts = (bool)value),
+                new(nameof(SshHost), typeof(string), static (secret, value) => secret.SshHost = (string)value),
+                new(nameof(SshUsername), typeof(string), static (secret, value) => secret.SshUsername = (string)value),
+                new(nameof(SshPassword), typeof(string), static (secret, value) => secret.SshPassword = (string)value),
+                new(nameof(SshNginxTemplate), typeof(string), static (secret, value) => secret.SshNginxTemplate = (string)value),
+                new(nameof(ProdDatabaseConnectionString), typeof(string), static (secret, value) => secret.ProdDatabaseConnectionString = (string)value),
+                new(nameof(LmtMessageConnectionString), typeof(string), static (secret, value) => secret.LmtMessageConnectionString = (string)value),
+                new(nameof(LmtBlobStorageConnectionString), typeof(string), static (secret, value) => secret.LmtBlobStorageConnectionString = (string)value),
+                new(nameof(ProdVaultUrl), typeof(string), static (secret, value) => secret.ProdVaultUrl = (string)value),
+                new(nameof(ProdVaultTenantId), typeof(string), static (secret, value) => secret.ProdVaultTenantId = (string)value),
+                new(nameof(ProdVaultClientId), typeof(string), static (secret, value) => secret.ProdVaultClientId = (string)value),
+                new(nameof(ProdVaultClientSecret), typeof(string), static (secret, value) => secret.ProdVaultClientSecret = (string)value)
+            ];
+        }
+
+        private static object ConvertConfiguredValue(string key, string value, Type targetType)
+        {
+            try
+            {
+                return targetType == typeof(string)
+                    ? value
+                    : Convert.ChangeType(value, targetType);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException($"Invalid secret value for '{key}'.", exception);
+            }
+        }
 
         public static void UpdateProperty<T>(T blocksSecret, string propertyName, object propertyValue) where T : class
         {
@@ -67,26 +107,25 @@ namespace Blocks.Genesis
             {
                 property.SetValue(blocksSecret, propertyValue);
             }
-            else
-            {
-                Console.WriteLine($"Property '{propertyName}' not found or is read-only.");
-            }
         }
 
         public static object ConvertValue(string value, Type targetType)
         {
-            if (targetType != typeof(string))
+            if (targetType == typeof(string))
             {
-                try
-                {
-                    return Convert.ChangeType(value, targetType);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e.Message);
-                }
+                return value;
             }
-            return value;
+
+            try
+            {
+                return Convert.ChangeType(value, targetType);
+            }
+            catch
+            {
+                return value;
+            }
         }
+
+        private sealed record SecretBinding(string Key, Type ValueType, Action<BlocksSecret, object> Assign);
     }
 }

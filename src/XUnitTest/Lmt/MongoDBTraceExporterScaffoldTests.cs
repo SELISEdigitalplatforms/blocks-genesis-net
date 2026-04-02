@@ -197,7 +197,7 @@ public class MongoDBTraceExporterScaffoldTests
             var exporter = CreateExporterForSenderTests("svc", "Endpoint=sb://secret.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=value");
             sender = InvokeGetOrCreateMessageSender(exporter);
 
-            Assert.IsType<LmtRabbitMqSender>(sender);
+            AssertTransportType<LmtRabbitMqSender>(sender);
         }
         finally
         {
@@ -217,7 +217,7 @@ public class MongoDBTraceExporterScaffoldTests
             var exporter = CreateExporterForSenderTests("svc", "Endpoint=sb://secret.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=value");
             sender = InvokeGetOrCreateMessageSender(exporter);
 
-            Assert.IsType<LmtServiceBusSender>(sender);
+            AssertTransportType<LmtServiceBusSender>(sender);
         }
         finally
         {
@@ -327,5 +327,25 @@ public class MongoDBTraceExporterScaffoldTests
             {
             }
         }).GetAwaiter().GetResult();
+    }
+
+    private static void AssertTransportType<TSender>(ILmtMessageSender? sender)
+    {
+        Assert.NotNull(sender);
+
+        if (sender is TSender)
+        {
+            return;
+        }
+
+        var registrationField = sender!.GetType().GetField("_registration", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(registrationField);
+
+        var registration = registrationField!.GetValue(sender);
+        Assert.NotNull(registration);
+
+        var senderProperty = registration!.GetType().GetProperty("Sender", BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(senderProperty);
+        Assert.IsType<TSender>(senderProperty!.GetValue(registration));
     }
 }

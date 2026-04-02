@@ -12,6 +12,7 @@ namespace SeliseBlocks.LMT.Client
             configureOptions(options);
 
             services.AddSingleton(options);
+            services.AddSingleton<ILmtMessageSender>(sp => LmtMessageSenderFactory.CreateShared(sp.GetRequiredService<LmtOptions>()));
             services.AddSingleton<IBlocksLogger, BlocksLogger>();
 
             return services;
@@ -23,6 +24,7 @@ namespace SeliseBlocks.LMT.Client
             configuration.GetSection("Lmt").Bind(options);
 
             services.AddSingleton(options);
+            services.AddSingleton<ILmtMessageSender>(sp => LmtMessageSenderFactory.CreateShared(sp.GetRequiredService<LmtOptions>()));
             services.AddSingleton<IBlocksLogger, BlocksLogger>();
 
             return services;

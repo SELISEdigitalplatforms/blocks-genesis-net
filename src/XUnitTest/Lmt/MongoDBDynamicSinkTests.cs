@@ -75,7 +75,7 @@ namespace Blocks.Genesis.Tests
 
                 sender = InvokeGetOrCreateMessageSender(_sink);
 
-                Assert.IsType<LmtRabbitMqSender>(sender);
+                AssertTransportType<LmtRabbitMqSender>(sender);
             }
             finally
             {
@@ -97,7 +97,7 @@ namespace Blocks.Genesis.Tests
 
                 sender = InvokeGetOrCreateMessageSender(_sink);
 
-                Assert.IsType<LmtServiceBusSender>(sender);
+                AssertTransportType<LmtServiceBusSender>(sender);
             }
             finally
             {
@@ -162,6 +162,26 @@ namespace Blocks.Genesis.Tests
                 {
                 }
             }).GetAwaiter().GetResult();
+        }
+
+        private static void AssertTransportType<TSender>(ILmtMessageSender? sender)
+        {
+            Assert.NotNull(sender);
+
+            if (sender is TSender)
+            {
+                return;
+            }
+
+            var registrationField = sender!.GetType().GetField("_registration", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(registrationField);
+
+            var registration = registrationField!.GetValue(sender);
+            Assert.NotNull(registration);
+
+            var senderProperty = registration!.GetType().GetProperty("Sender", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(senderProperty);
+            Assert.IsType<TSender>(senderProperty!.GetValue(registration));
         }
     }
 }

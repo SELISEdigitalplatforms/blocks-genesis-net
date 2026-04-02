@@ -78,6 +78,8 @@ public class ApplicationConfigurationsTests
 
             Directory.SetCurrentDirectory(tempDirectory);
 
+            InitializeBootstrapState("test-api-service");
+
             var builder = new HostApplicationBuilder();
 
             ApplicationConfigurations.ConfigureApiEnv(builder, Array.Empty<string>());
@@ -85,7 +87,7 @@ public class ApplicationConfigurationsTests
             Assert.Equal(7, InvokeLmtConfigurationProviderIntMethod("GetLmtMaxRetries"));
             Assert.Equal(17, InvokeLmtConfigurationProviderIntMethod("GetLmtMaxFailedBatches"));
 
-            var swaggerOptions = GetPrivateStaticFieldValue<BlocksSwaggerOptions>("_blocksSwaggerOptions");
+            var swaggerOptions = GetBootstrapSwaggerOptions();
             Assert.NotNull(swaggerOptions);
             Assert.Equal("Test API", swaggerOptions.Title);
             Assert.Equal("v-test", swaggerOptions.Version);
@@ -171,6 +173,8 @@ public class ApplicationConfigurationsTests
                 """);
 
             Directory.SetCurrentDirectory(tempDirectory);
+
+            InitializeBootstrapState("test-api-service");
 
             var builder = new HostApplicationBuilder();
             ApplicationConfigurations.ConfigureApiEnv(builder, Array.Empty<string>());
@@ -261,10 +265,17 @@ public class ApplicationConfigurationsTests
         method.Invoke(null, null);
     }
 
-    private static T GetPrivateStaticFieldValue<T>(string fieldName)
+    private static void InitializeBootstrapState(string serviceName)
     {
-        var field = typeof(ApplicationConfigurations).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static)!;
-        return (T)field.GetValue(null)!;
+        ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, SecretMode.OnPrem).GetAwaiter().GetResult();
+    }
+
+    private static BlocksSwaggerOptions? GetBootstrapSwaggerOptions()
+    {
+        var method = typeof(ApplicationConfigurations).GetMethod("GetBootstrapState", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var state = method.Invoke(null, null);
+        var property = state?.GetType().GetProperty("SwaggerOptions", BindingFlags.Public | BindingFlags.Instance);
+        return (BlocksSwaggerOptions?)property?.GetValue(state);
     }
 
     private static int InvokeLmtConfigurationProviderIntMethod(string methodName)

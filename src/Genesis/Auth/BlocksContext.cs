@@ -42,7 +42,9 @@ namespace Blocks.Genesis
         public string UserId { get; private init; } = string.Empty;
         public DateTime ExpireOn { get; private init; } = DateTime.MinValue;
         public string RequestUri { get; private init; } = string.Empty;
+        [JsonIgnore]
         public string OAuthToken { get; private init; } = string.Empty;
+        [JsonIgnore]
         public string RefreshToken { get; private init; } = string.Empty;
         public string OrganizationId { get; private init; } = string.Empty;
         public bool IsAuthenticated { get; private init; }

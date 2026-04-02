@@ -3,6 +3,7 @@ using MongoDB.Driver;
 using SeliseBlocks.LMT.Client;
 using Serilog.Core;
 using Serilog.Events;
+using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
@@ -45,7 +46,7 @@ namespace Blocks.Genesis
             var maxRetries = LmtConfigurationProvider.GetLmtMaxRetries();
             var maxFailedBatches = LmtConfigurationProvider.GetLmtMaxFailedBatches();
 
-            _messageSender = LmtMessageSenderFactory.Create(new LmtOptions
+            _messageSender = LmtMessageSenderFactory.CreateShared(new LmtOptions
             {
                 ServiceId = _serviceName,
                 ConnectionString = connectionString,
@@ -137,7 +138,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to insert log batch for service {_serviceName}: {ex.Message}");
+                Trace.TraceWarning($"Failed to insert log batch for service {_serviceName}: {ex}");
             }
         }
 

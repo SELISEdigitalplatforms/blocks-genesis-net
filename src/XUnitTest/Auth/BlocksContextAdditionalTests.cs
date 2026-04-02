@@ -190,6 +190,10 @@ public class BlocksContextAdditionalTests : IDisposable
         Assert.Equal("serde-tenant", deserialized!.TenantId);
         Assert.Equal("serde-user", deserialized.UserId);
         Assert.True(deserialized.IsAuthenticated);
+        Assert.DoesNotContain("tok", json);
+        Assert.DoesNotContain("ref", json);
+        Assert.Equal(string.Empty, deserialized.OAuthToken);
+        Assert.Equal(string.Empty, deserialized.RefreshToken);
     }
 
     [Fact]

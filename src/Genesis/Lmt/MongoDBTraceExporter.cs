@@ -57,7 +57,7 @@ namespace Blocks.Genesis
             var maxRetries = LmtConfigurationProvider.GetLmtMaxRetries();
             var maxFailedBatches = LmtConfigurationProvider.GetLmtMaxFailedBatches();
 
-            _messageSender = LmtMessageSenderFactory.Create(new LmtOptions
+            _messageSender = LmtMessageSenderFactory.CreateShared(new LmtOptions
             {
                 ServiceId = _serviceName,
                 ConnectionString = connectionString,
@@ -166,7 +166,7 @@ namespace Blocks.Genesis
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Failed to insert batch for tenant {tenantBatch.Key}: {ex.Message}");
+                    Trace.TraceWarning($"Failed to insert batch for tenant {tenantBatch.Key}: {ex}");
                 }
             }
         }
