@@ -117,7 +117,7 @@ public class BlocksSecretTests
             Environment.SetEnvironmentVariable("BlocksSecret__ServiceName", "env-service");
             Environment.SetEnvironmentVariable("BlocksSecret__MessageConnectionString", "   ");
 
-            var secret = await BlocksSecret.ProcessBlocksSecret(VaultType.OnPrem);
+            var secret = await BlocksSecret.ProcessBlocksSecret(new GenesisSecretOptions { Mode = SecretMode.OnPrem });
 
             Assert.NotNull(secret);
             Assert.Equal("redis://localhost:6379", secret.CacheConnectionString);

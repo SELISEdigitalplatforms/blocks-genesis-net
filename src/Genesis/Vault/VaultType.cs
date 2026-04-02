@@ -1,10 +1,9 @@
 ﻿namespace Blocks.Genesis
 {
-    public enum VaultType
+    public enum SecretMode
     {
-        Unknown = 0,
+        Azure = 0,
         OnPrem = 1,
-        Azure = 2
+        Platform = 2
     }
-
 }

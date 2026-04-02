@@ -4,19 +4,41 @@ using Microsoft.Extensions.Configuration;
 
 namespace Blocks.Genesis
 {
-    public class AzureKeyVault : IVault
+    public class AzureSecretProvider : ISecretProvider
     {
-        private SecretClient _secretClient;
-        private string _keyVaultUrl;
-        private string _tenantId;
-        private string _clientId;
-        private string _clientSecret;
+        private readonly SecretClient _client;
+        private string _keyVaultUrl = string.Empty;
+        private string _tenantId = string.Empty;
+        private string _clientId = string.Empty;
+        private string _clientSecret = string.Empty;
 
-        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
+        public AzureSecretProvider()
         {
             ExtractValuesFromGlobalConfig(GetVaultConfig());
-            ConnectToAzureKeyVaultSecret();
-            return await GetSecretsFromVaultAsync(keys);
+            _client = ConnectToAzureKeyVaultSecret();
+        }
+
+        public AzureSecretProvider(GenesisSecretOptions options)
+        {
+            var cloudConfig = GetVaultConfig();
+
+            if (!string.IsNullOrWhiteSpace(options.Azure?.VaultUri))
+            {
+                cloudConfig["KeyVaultUrl"] = options.Azure.VaultUri;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.Azure?.TenantId))
+            {
+                cloudConfig["TenantId"] = options.Azure.TenantId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.Azure?.ManagedIdentityClientId))
+            {
+                cloudConfig["ClientId"] = options.Azure.ManagedIdentityClientId;
+            }
+
+            ExtractValuesFromGlobalConfig(cloudConfig);
+            _client = ConnectToAzureKeyVaultSecret();
         }
 
         public static Dictionary<string, string> GetVaultConfig()
@@ -30,48 +52,50 @@ namespace Blocks.Genesis
 
         private void ExtractValuesFromGlobalConfig(Dictionary<string, string> cloudConfig)
         {
-            if (!cloudConfig.TryGetValue("KeyVaultUrl", out _keyVaultUrl) ||
-                !cloudConfig.TryGetValue("TenantId", out _tenantId) ||
-                !cloudConfig.TryGetValue("ClientId", out _clientId) ||
-                !cloudConfig.TryGetValue("ClientSecret", out _clientSecret))
+            if (!cloudConfig.TryGetValue("KeyVaultUrl", out _keyVaultUrl) || string.IsNullOrWhiteSpace(_keyVaultUrl))
             {
-                throw new InvalidOperationException("One or more required Azure config values are missing. Please check your environment configuration.");
-            }
-        }
-
-        private void ConnectToAzureKeyVaultSecret()
-        {
-            var credential = new ClientSecretCredential(_tenantId, _clientId, _clientSecret);
-            _secretClient = new SecretClient(new Uri(_keyVaultUrl), credential);
-        }
-
-        private async Task<Dictionary<string, string>> GetSecretsFromVaultAsync(List<string> keys)
-        {
-            var secrets = new Dictionary<string, string>();
-
-            foreach (var key in keys)
-            {
-                var secretValue = await GetSecretFromKeyVaultAsync(key);
-                if (!string.IsNullOrEmpty(secretValue))
-                {
-                    secrets.Add(key, secretValue);
-                }
+                throw new InvalidOperationException("KeyVaultUrl is missing. Please check your environment configuration.");
             }
 
-            return secrets;
+            cloudConfig.TryGetValue("TenantId", out _tenantId);
+            cloudConfig.TryGetValue("ClientId", out _clientId);
+            cloudConfig.TryGetValue("ClientSecret", out _clientSecret);
         }
 
-        private async Task<string> GetSecretFromKeyVaultAsync(string key)
+        private SecretClient ConnectToAzureKeyVaultSecret()
+        {
+            if (!string.IsNullOrWhiteSpace(_tenantId) &&
+                !string.IsNullOrWhiteSpace(_clientId) &&
+                !string.IsNullOrWhiteSpace(_clientSecret))
+            {
+                var clientSecretCredential = new ClientSecretCredential(_tenantId, _clientId, _clientSecret);
+                return new SecretClient(new Uri(_keyVaultUrl), clientSecretCredential);
+            }
+
+            var envConfig = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+            var tenantId = string.IsNullOrWhiteSpace(_tenantId) ? envConfig["AZURE_TENANT_ID"] : _tenantId;
+            var managedIdentityClientId = string.IsNullOrWhiteSpace(_clientId) ? envConfig["AZURE_CLIENT_ID"] : _clientId;
+
+            var credentialOptions = new DefaultAzureCredentialOptions
+            {
+                TenantId = string.IsNullOrWhiteSpace(tenantId) ? null : tenantId,
+                ManagedIdentityClientId = string.IsNullOrWhiteSpace(managedIdentityClientId) ? null : managedIdentityClientId,
+            };
+
+            return new SecretClient(new Uri(_keyVaultUrl), new DefaultAzureCredential(credentialOptions));
+        }
+
+        public async Task<string?> GetAsync(string key)
         {
             try
             {
-                var secret = await _secretClient.GetSecretAsync(key);
-                return secret.Value.Value;
+                var response = await _client.GetSecretAsync(key);
+                return response.Value.Value;
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error retrieving secret '{key}': {e.Message}");
-                return string.Empty;
+                Console.WriteLine($"Error retrieving secret '{key}': {ex.Message}");
+                return null;
             }
         }
     }

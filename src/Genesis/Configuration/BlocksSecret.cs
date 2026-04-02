@@ -29,29 +29,33 @@ namespace Blocks.Genesis
         public string ProdVaultClientId { get ; set ; }
         public string ProdVaultClientSecret { get ; set ; }
 
-        public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
+        public static async Task<IBlocksSecret> ProcessBlocksSecret(GenesisSecretOptions options)
         {
-            IVault cloudVault = Vault.GetCloudVault(vaultType);
+            ISecretProvider provider = CreateProvider(options);
             var blocksSecret = new BlocksSecret();
             PropertyInfo[] properties = typeof(BlocksSecret).GetProperties();
-            var blocksSecretVault = await cloudVault.ProcessSecretsAsync(properties.Select(x => x.Name).ToList());
 
             foreach (PropertyInfo property in properties)
             {
-                string propertyName = property.Name;
-                var isExist = blocksSecretVault.TryGetValue(propertyName, out var retrievedValue);
+                var value = await provider.GetAsync(property.Name);
 
-                if (isExist && !string.IsNullOrWhiteSpace(retrievedValue))
+                if (!string.IsNullOrWhiteSpace(value))
                 {
-                    object convertedValue = ConvertValue(retrievedValue, property.PropertyType);
-
-                    UpdateProperty(blocksSecret, propertyName, convertedValue);
+                    object convertedValue = ConvertValue(value, property.PropertyType);
+                    UpdateProperty(blocksSecret, property.Name, convertedValue);
                 }
             }
 
-
             return blocksSecret;
         }
+
+        private static ISecretProvider CreateProvider(GenesisSecretOptions options) => options.Mode switch
+        {
+            SecretMode.Azure => new AzureSecretProvider(),
+            SecretMode.OnPrem => new LocalSecretProvider(),
+            SecretMode.Platform => new PlatformSecretProvider(new HttpClient(), options),
+            _ => throw new InvalidOperationException($"Unknown SecretMode: {options.Mode}")
+        };
 
         
 

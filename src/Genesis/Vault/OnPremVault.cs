@@ -2,20 +2,26 @@
 
 namespace Blocks.Genesis
 {
-    public class OnPremVault : IVault
+    public class LocalSecretProvider : ISecretProvider
     {
-        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
+        private readonly IConfiguration _configuration;
+
+        /// <summary>DI constructor — injects the application's IConfiguration.</summary>
+        public LocalSecretProvider(IConfiguration configuration)
         {
-            return await Task.FromResult(GetVaultValues());
+            _configuration = configuration;
         }
 
-        public static Dictionary<string, string> GetVaultValues()
+        /// <summary>No-arg constructor for use before the DI container is available (startup).</summary>
+        public LocalSecretProvider()
         {
-            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
-            var keyVaultConfig = new Dictionary<string, string>();
-            configuration.GetSection("BlocksSecret").Bind(keyVaultConfig);
+            _configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+        }
 
-            return keyVaultConfig;
+        public Task<string?> GetAsync(string key)
+        {
+            var value = _configuration[$"BlocksSecret:{key}"] ?? _configuration[key];
+            return Task.FromResult(value);
         }
     }
 }

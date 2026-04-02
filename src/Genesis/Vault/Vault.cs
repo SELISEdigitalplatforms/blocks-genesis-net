@@ -1,15 +1,36 @@
-﻿namespace Blocks.Genesis
+﻿using Microsoft.Extensions.DependencyInjection;
+
+namespace Blocks.Genesis
 {
-    public static class Vault
+    public static class SecretServiceExtensions
     {
-        public static IVault GetCloudVault(VaultType configType)
+        public static IServiceCollection AddGenesisSecrets(
+            this IServiceCollection services,
+            Action<GenesisSecretOptions> configure)
         {
-            return configType switch
+            var options = new GenesisSecretOptions();
+            configure(options);
+            services.AddSingleton(options);
+
+            switch (options.Mode)
             {
-                VaultType.Azure => new AzureKeyVault(),
-                VaultType.OnPrem => new OnPremVault(),
-                _ => throw new Exception("ConfigType is missing. Please see the Secret.json file")
-            };
+                case SecretMode.Azure:
+                    services.AddSingleton<ISecretProvider, AzureSecretProvider>();
+                    break;
+
+                case SecretMode.OnPrem:
+                    services.AddSingleton<ISecretProvider, LocalSecretProvider>();
+                    break;
+
+                case SecretMode.Platform:
+                    services.AddHttpClient<ISecretProvider, PlatformSecretProvider>();
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"Unknown SecretMode: {options.Mode}");
+            }
+
+            return services;
         }
     }
 }

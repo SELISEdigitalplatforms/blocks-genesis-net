@@ -23,12 +23,18 @@ namespace Blocks.Genesis
         private static BlocksSwaggerOptions _blocksSwaggerOptions;
 
 
-        public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName, VaultType vaultType)
+        public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(
+            string serviceName,
+            SecretMode mode,
+            Action<GenesisSecretOptions>? configure = null)
         {
             LoadDotEnvFile();
             _serviceName = serviceName;
 
-            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(vaultType);
+            var options = new GenesisSecretOptions { Mode = mode };
+            configure?.Invoke(options);
+
+            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(options);
             _blocksSecret.ServiceName = _serviceName;
 
             if (!string.IsNullOrWhiteSpace(_blocksSecret.TraceConnectionString))

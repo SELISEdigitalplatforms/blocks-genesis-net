@@ -1,7 +1,7 @@
 ﻿namespace Blocks.Genesis
 {
-    public interface IVault
+    public interface ISecretProvider
     {
-        Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys);
+        Task<string?> GetAsync(string key);
     }
 }

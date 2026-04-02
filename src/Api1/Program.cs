@@ -3,7 +3,7 @@ using TestDriver;
 
 const string _serviceName = "Service-API-Test_One";
 
-await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
+await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, SecretMode.Azure);
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);

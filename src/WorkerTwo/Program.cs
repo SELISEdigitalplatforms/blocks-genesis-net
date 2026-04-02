@@ -3,7 +3,7 @@ using WorkerTwo;
 
 
 const string _serviceName = "Service-Worker-Test_Two";
-var blocksSecrets = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.OnPrem);
+var blocksSecrets = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, SecretMode.OnPrem);
 
 var messageConfiguration = new MessageConfiguration
 {
