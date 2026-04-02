@@ -122,6 +122,7 @@ namespace Blocks.Genesis
                 if (_serviceBusSender != null)
                 {
                     await _serviceBusSender.SendTracesAsync(tenantBatches);
+                    return;
                 }
 
                 if (_database != null)

@@ -80,6 +80,7 @@ namespace Blocks.Genesis
             if (_serviceBusSender != null)
             {
                 await _serviceBusSender.SendLogsAsync(logDataList);
+                return;
             }
 
             if (_database != null)
