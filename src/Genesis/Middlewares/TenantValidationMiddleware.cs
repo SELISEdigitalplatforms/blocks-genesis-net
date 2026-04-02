@@ -41,7 +41,12 @@ namespace Blocks.Genesis
             {
                 var baseUrl = context.Request.Host.Value;
 
-                tenant = _tenants.GetTenantByApplicationDomain(baseUrl);
+                if (_tenants is not ITenantLookup tenantLookup)
+                {
+                    throw new InvalidOperationException("Tenant lookup service does not support application domain resolution.");
+                }
+
+                tenant = tenantLookup.GetTenantByApplicationDomain(baseUrl);
 
                 if (tenant is null)
                 {

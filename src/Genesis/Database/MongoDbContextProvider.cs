@@ -1,23 +1,82 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
-using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Blocks.Genesis
 {
-    public class MongoDbContextProvider : IDbContextProvider
+    public class MongoDbContextProvider : IDbContextProvider, IDisposable
     {
-        private readonly ConcurrentDictionary<string, IMongoDatabase> _databases = new();
         private readonly ILogger<MongoDbContextProvider> _logger;
         private readonly ITenants _tenants;
         private readonly ActivitySource _activitySource;
-        private readonly ConcurrentDictionary<string, MongoClient> _mongoClients = new();
+        private readonly IMemoryCache _mongoClientCache;
+        private bool _disposed = false;
 
-        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, ActivitySource activitySource)
+        public MongoDbContextProvider(
+            ILogger<MongoDbContextProvider> logger, 
+            ITenants tenants, 
+            ActivitySource activitySource,
+            IMemoryCache memoryCache)
         {
             _logger = logger;
             _tenants = tenants;
             _activitySource = activitySource;
+            _mongoClientCache = memoryCache;
+        }
+
+        // Get or create MongoClient with bounded L1 cache
+        private MongoClient GetOrCreateMongoClient(string connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+                throw new ArgumentNullException(nameof(connectionString), "Connection string cannot be null or empty.");
+
+            // Create cache key from connection string hash (handles uniqueness)
+            var cacheKey = BuildMongoClientCacheKey(connectionString);
+
+            return _mongoClientCache.GetOrCreate(cacheKey, entry =>
+            {
+                // Size: 1 = each client counts as 1 unit
+                entry.Size = 1;
+                
+                // TTL: 30 min absolute, 10 min sliding
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30);
+                entry.SlidingExpiration = TimeSpan.FromMinutes(10);
+
+                // When this client is evicted, dispose it properly
+                entry.RegisterPostEvictionCallback((k, v, reason, state) =>
+                {
+                    if (v is MongoClient client)
+                    {
+                        _logger.LogInformation("Disposing evicted MongoClient. Key: {Key}, Reason: {Reason}", k, reason);
+                        try
+                        {
+                            client.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error disposing evicted MongoClient.");
+                        }
+                    }
+                });
+
+                // Create settings with bounded connection pool
+                var settings = MongoClientSettings.FromConnectionString(connectionString);
+                settings.MaxConnectionPoolSize = 5;     // Limit to 5 per client (not 100)
+                settings.MinConnectionPoolSize = 1;
+                settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
+
+                _logger.LogInformation("Creating new MongoClient. Cache key: {Key}", cacheKey);
+                return new MongoClient(settings);
+            });
+        }
+
+        private static string BuildMongoClientCacheKey(string connectionString)
+        {
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(connectionString));
+            return $"mongo:client:{Convert.ToHexString(hash)}";
         }
 
         public IMongoDatabase GetDatabase(string tenantId)
@@ -25,12 +84,8 @@ namespace Blocks.Genesis
             if (string.IsNullOrWhiteSpace(tenantId))
                 throw new ArgumentNullException(nameof(tenantId), "Tenant ID cannot be null or empty.");
 
-            // Use lazy loading for tenant databases
-            return _databases.GetOrAdd(tenantId, id =>
-            {
-                _logger.LogInformation("Loading database for tenant: {TenantId}", id);
-                return InitializeDatabaseForTenant(id);
-            });
+            _logger.LogInformation("Getting database for tenant: {TenantId}", tenantId);
+            return InitializeDatabaseForTenant(tenantId);
         }
 
         public IMongoDatabase? GetDatabase()
@@ -52,13 +107,13 @@ namespace Blocks.Genesis
             if (string.IsNullOrWhiteSpace(databaseName))
                 throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
 
-            var dbKey = databaseName.ToLower();
-
-            return _databases.GetOrAdd(dbKey, key =>
-            {
-                _logger.LogInformation("Creating database instance for: {DatabaseName}", key);
-                return CreateMongoClient(connectionString).GetDatabase(databaseName);
-            });
+            _logger.LogInformation("Getting database: {DatabaseName}", databaseName);
+            
+            // Get cached MongoClient
+            var client = GetOrCreateMongoClient(connectionString);
+            
+            // Derive IMongoDatabase on-demand (don't cache separately)
+            return client.GetDatabase(databaseName);
         }
 
         public IMongoCollection<T> GetCollection<T>(string collectionName)
@@ -82,13 +137,15 @@ namespace Blocks.Genesis
         {
             try
             {
-                var (dbName, dbConnection) = _tenants.GetTenantDatabaseConnectionString(tenantId);
+                var tenant = _tenants.GetTenantByID(tenantId);
+                var dbName = tenant?.DBName;
+                var dbConnection = tenant?.DbConnectionString;
                 if (string.IsNullOrWhiteSpace(dbConnection) || string.IsNullOrWhiteSpace(dbName))
                 {
                     throw new KeyNotFoundException($"Database information is missing for tenant: {tenantId}");
                 }
 
-                return CreateMongoClient(dbConnection).GetDatabase(dbName);
+                return GetDatabase(dbConnection, dbName);
             }
             catch (Exception ex)
             {
@@ -97,16 +154,11 @@ namespace Blocks.Genesis
             }
         }
 
-        private MongoClient CreateMongoClient(string connectionString)
+        public void Dispose()
         {
-            // Reuse MongoClient instances for the same connection string
-            return _mongoClients.GetOrAdd(connectionString, conn =>
-            {
-                _logger.LogInformation("Creating new MongoClient for connection string.");
-                var settings = MongoClientSettings.FromConnectionString(conn);
-                settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
-                return new MongoClient(settings);
-            });
+            if (_disposed) return;
+
+            _disposed = true;
         }
     }
 }

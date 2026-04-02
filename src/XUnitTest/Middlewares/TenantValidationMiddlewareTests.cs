@@ -11,7 +11,7 @@ public class TenantValidationMiddlewareTests
     [Fact]
     public async Task InvokeAsync_ShouldReturn404_WhenTenantNotFoundByDomain()
     {
-        var tenants = new Mock<ITenants>();
+        var tenants = new Mock<ITenantLookup>();
         var crypto = new Mock<ICryptoService>();
         tenants.Setup(t => t.GetTenantByApplicationDomain("unknown.local")).Returns((Blocks.Genesis.Tenant?)null);
 

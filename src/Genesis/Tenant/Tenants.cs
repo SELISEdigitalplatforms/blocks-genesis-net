@@ -1,207 +1,308 @@
-﻿using Microsoft.Extensions.Logging;
-using MongoDB.Bson;
+﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using StackExchange.Redis;
-using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Blocks.Genesis
 {
-    public class Tenants : ITenants, IDisposable
+    public class Tenants : ITenantLookup, IDisposable
     {
+        private static readonly TimeSpan TenantAbsoluteExpiration = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan TenantSlidingExpiration = TimeSpan.FromMinutes(5);
+
         private readonly ILogger<Tenants> _logger;
-        private readonly IBlocksSecret _blocksSecret;
         private readonly ICacheClient _cacheClient;
-        private readonly IMongoDatabase _database;
-        private readonly string _tenantVersionKey = "tenant::version";
-        private readonly string _tenantUpdateChannel = "tenant::updates";
-        private string _tenantVersion;
+        private readonly IMemoryCache _memoryCache;
+        private readonly string _rootConnectionString;
+        private readonly string _rootDatabaseName;
+        private readonly string _tenantInvalidationChannel = "tenant:invalidate";
+        private readonly string _traceConnectionString;
+
         private bool _isSubscribed = false;
         private bool _disposed = false;
 
-        // Using ConcurrentDictionary for thread-safe access and efficient lookups
-        private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
-
-        public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
+        public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient, IMemoryCache memoryCache)
         {
             _logger = logger;
-            _blocksSecret = blocksSecret;
             _cacheClient = cacheClient;
-
-            _database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RootDatabaseName);
+            _memoryCache = memoryCache;
+            _traceConnectionString = blocksSecret.TraceConnectionString;
+            _rootConnectionString = blocksSecret.DatabaseConnectionString;
+            _rootDatabaseName = blocksSecret.RootDatabaseName;
 
             try
             {
-                InitializeCache();
-                // Subscribe to tenant updates
-                SubscribeToTenantUpdates().ConfigureAwait(true);
+                // Subscribe to tenant invalidation notifications from other pods
+                SubscribeToTenantUpdates();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to initialize tenant cache.");
+                _logger.LogError(ex, "Failed to subscribe to tenant invalidation channel.");
             }
         }
 
+        // L1 ONLY: Bounded in-memory cache (40-50 tenants max per pod)
         public Tenant? GetTenantByID(string tenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return null;
 
-            // Try to get tenant from the in-memory cache
-            if (_tenantCache.TryGetValue(tenantId, out var tenant))
-                return tenant;
-
-
-            // If not found in cache, fetch from database and update cache
-            tenant = GetTenantFromDb(tenantId);
-            if (tenant != null)
+            var cacheKey = GetTenantCacheKey(tenantId);
+            
+            return _memoryCache.GetOrCreate(cacheKey, entry =>
             {
-                _tenantCache[tenant.TenantId] = tenant;
-            }
-
-            return tenant;
+                ApplyTenantCacheOptions(entry);
+                
+                // L2: Try Redis (synchronous)
+                var cachedJson = _cacheClient.GetStringValue($"tenant:{tenantId}");
+                if (!string.IsNullOrEmpty(cachedJson))
+                {
+                    var tenant = System.Text.Json.JsonSerializer.Deserialize<Tenant>(cachedJson);
+                    if (tenant != null) return tenant;
+                }
+                
+                // L3: Try MongoDB (fallback)
+                return GetTenantFromDb(tenantId);
+            });
         }
 
-        public Dictionary<string, (string, string)> GetTenantDatabaseConnectionStrings()
+        Tenant? ITenantLookup.GetTenantByApplicationDomain(string appName)
         {
-            return _tenantCache.ToDictionary(
-                kvp => kvp.Key,
-                kvp => (kvp.Value.DBName, kvp.Value.DbConnectionString));
-        }
+            if (string.IsNullOrWhiteSpace(appName)) return null;
 
-        public (string?, string?) GetTenantDatabaseConnectionString(string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId)) return (null, null);
+            appName = NormalizeTenantDomain(appName);
 
-            var tenant = GetTenantByID(tenantId);
-            return tenant is null ? (null, null) : (tenant.DBName, tenant.DbConnectionString);
-        }
+            var cacheKey = GetTenantDomainCacheKey(appName);
 
-        public JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId)) return null;
+            // L1: return cached tenant directly
+            if (_memoryCache.TryGetValue(cacheKey, out Tenant? cached))
+                return cached;
 
-            var tenant = GetTenantByID(tenantId);
-            return tenant?.JwtTokenParameters;
-        }
-
-        public async Task UpdateTenantVersionAsync()
-        {
             try
             {
-                string newVersion = Guid.NewGuid().ToString("n");
+                var builder = Builders<Tenant>.Filter;
 
-                // Set the new version in Redis
-                bool setSuccess = await _cacheClient.AddStringValueAsync(_tenantVersionKey, newVersion);
-                if (!setSuccess)
+                var domainMatch = builder.Or(
+                    builder.Eq(t => t.ApplicationDomain, appName),
+                    builder.AnyEq(t => t.AllowedDomains, appName));
+
+                var tenant = GetRootDatabase()
+                    .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
+                    .Find(domainMatch)
+                    .FirstOrDefault();
+
+                if (tenant != null)
                 {
-                    _logger.LogWarning("Failed to update tenant version in Redis.");
-                    return;
+                    _memoryCache.Set(cacheKey, tenant, CreateTenantCacheEntryOptions());
+                    TrackTenantDomainCacheKey(tenant.TenantId, cacheKey);
                 }
 
-                // Update local version
-                _tenantVersion = newVersion;
-
-                // Publish the update to notify all instances
-                await _cacheClient.PublishAsync(_tenantUpdateChannel, _tenantVersion);
-
-                _logger.LogInformation("Tenant version updated to {Version} and published to channel.", newVersion);
+                return tenant;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to update tenant version.");
+                _logger.LogError(ex, "Failed to retrieve tenant from DB for Application name: {AppName}", appName);
+                return null;
             }
         }
 
-        private void InitializeCache()
-        {
-            ReloadTenants(checkAll: true);
-        }
-
-        private async Task SubscribeToTenantUpdates()
+        // Subscribe to invalidation events published by tenant-management service
+        private void SubscribeToTenantUpdates()
         {
             if (_isSubscribed) return;
 
             try
             {
-                await _cacheClient.SubscribeAsync(_tenantUpdateChannel, HandleTenantUpdate);
+                _ = _cacheClient.SubscribeAsync(_tenantInvalidationChannel, HandleTenantInvalidation);
                 _isSubscribed = true;
-                _logger.LogInformation("Successfully subscribed to tenant updates channel.");
+                _logger.LogInformation("Subscribed to tenant invalidation channel.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to subscribe to tenant updates channel.");
+                _logger.LogError(ex, "Failed to subscribe to tenant invalidation channel.");
             }
         }
 
-        private void HandleTenantUpdate(RedisChannel channel, RedisValue message)
+        // Refresh only the tenant referenced by the update message, and only if it exists in L1 cache.
+        private void HandleTenantInvalidation(RedisChannel channel, RedisValue message)
         {
             try
             {
-                string newVersion = message.ToString();
+                var tenantId = message.ToString();
+                if (string.IsNullOrEmpty(tenantId)) return;
 
-                // Skip if we're already on this version
-                if (_tenantVersion == newVersion) return;
+                var tenantCacheKey = GetTenantCacheKey(tenantId);
+                var hasTenantCache = _memoryCache.TryGetValue(tenantCacheKey, out _);
+                var trackedDomainKeys = GetTrackedTenantDomainCacheKeys(tenantId);
 
-                _logger.LogInformation("Received tenant update notification. New version: {Version}", newVersion);
-
-                // Update local version
-                _tenantVersion = newVersion;
-
-                // Reload tenant data
-                ReloadTenants();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error handling tenant update notification.");
-            }
-        }
-
-        private void ReloadTenants(bool checkAll = false)
-        {
-            try
-            {
-                var tenants = _database
-                    .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(FilterDefinition<Tenant>.Empty)
-                    .ToList();
-
-                _tenantCache.Clear();
-
-                foreach (var tenant in tenants)
+                if (!hasTenantCache && trackedDomainKeys.Count == 0)
                 {
-                    _tenantCache[tenant.TenantId] = tenant;                   
+                    _logger.LogDebug("Tenant {TenantId} is not in L1 cache. Skipping refresh.", tenantId);
+                    return;
                 }
 
-                // Run the per-tenant processing in a background thread
-                _ = Task.Run(() =>
+                var tenant = GetTenantFromDb(tenantId);
+                if (tenant == null)
                 {
-                    try
-                    {
-                        foreach (var tenant in tenants)
-                        {
-                           // _tenantCache[tenant.TenantId] = tenant;
+                    _memoryCache.Remove(tenantCacheKey);
+                    RemoveTenantDomainEntries(tenantId, trackedDomainKeys);
+                    _logger.LogInformation("Tenant {TenantId} not found during refresh. Removed stale L1 entry.", tenantId);
+                    return;
+                }
 
-                            if (checkAll || tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
-                            {
-                                LmtConfiguration.CreateCollectionForTrace(
-                                    _blocksSecret.TraceConnectionString,
-                                    tenant.TenantId);
-                            }
-                        }
+                if (hasTenantCache)
+                {
+                    _memoryCache.Set(tenantCacheKey, tenant, CreateTenantCacheEntryOptions());
+                }
 
-                     //   _logger.LogInformation("Reloaded {Count} tenants into cache.", tenants.Count);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed while processing tenants in background.");
-                    }
-                });
+                RefreshTrackedTenantDomainEntries(tenantId, trackedDomainKeys, tenant);
+                _logger.LogInformation("Refreshed cached tenant {TenantId} from database.", tenantId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to reload tenants into cache.");
+                _logger.LogError(ex, "Error handling tenant invalidation.");
             }
         }
 
+        private static string GetTenantCacheKey(string tenantId) => $"tenant:{tenantId}";
+
+        private static string GetTenantDomainCacheKey(string appName) => $"tenant:domain:{NormalizeTenantDomain(appName)}";
+
+        private static string GetTenantDomainIndexKey(string tenantId) => $"tenant:domains:{tenantId}";
+
+        private static string NormalizeTenantDomain(string appName)
+        {
+            return appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? appName
+                : $"https://{appName}";
+        }
+
+        private static MemoryCacheEntryOptions CreateTenantCacheEntryOptions()
+        {
+            return new MemoryCacheEntryOptions
+            {
+                Size = 1,
+                AbsoluteExpirationRelativeToNow = TenantAbsoluteExpiration,
+                SlidingExpiration = TenantSlidingExpiration
+            };
+        }
+
+        private static void ApplyTenantCacheOptions(ICacheEntry entry)
+        {
+            entry.Size = 1;
+            entry.AbsoluteExpirationRelativeToNow = TenantAbsoluteExpiration;
+            entry.SlidingExpiration = TenantSlidingExpiration;
+        }
+
+        private void TrackTenantDomainCacheKey(string tenantId, string domainCacheKey)
+        {
+            var indexKey = GetTenantDomainIndexKey(tenantId);
+            var trackedKeys = GetTrackedTenantDomainCacheKeys(tenantId);
+            trackedKeys.Add(domainCacheKey);
+            _memoryCache.Set(indexKey, trackedKeys, CreateTenantCacheEntryOptions());
+        }
+
+        private HashSet<string> GetTrackedTenantDomainCacheKeys(string tenantId)
+        {
+            var indexKey = GetTenantDomainIndexKey(tenantId);
+            if (_memoryCache.TryGetValue(indexKey, out HashSet<string>? trackedKeys) && trackedKeys != null)
+            {
+                return trackedKeys;
+            }
+
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private void RemoveTenantDomainEntries(string tenantId, IEnumerable<string> trackedDomainKeys)
+        {
+            foreach (var trackedDomainKey in trackedDomainKeys)
+            {
+                _memoryCache.Remove(trackedDomainKey);
+            }
+
+            _memoryCache.Remove(GetTenantDomainIndexKey(tenantId));
+        }
+
+        private void RefreshTrackedTenantDomainEntries(string tenantId, HashSet<string> trackedDomainKeys, Tenant tenant)
+        {
+            if (trackedDomainKeys.Count == 0)
+            {
+                return;
+            }
+
+            var currentDomainKeys = GetCurrentTenantDomainCacheKeys(tenant);
+            var remainingTrackedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var trackedDomainKey in trackedDomainKeys)
+            {
+                if (currentDomainKeys.Contains(trackedDomainKey))
+                {
+                    _memoryCache.Set(trackedDomainKey, tenant, CreateTenantCacheEntryOptions());
+                    remainingTrackedKeys.Add(trackedDomainKey);
+                    continue;
+                }
+
+                _memoryCache.Remove(trackedDomainKey);
+            }
+
+            if (remainingTrackedKeys.Count == 0)
+            {
+                _memoryCache.Remove(GetTenantDomainIndexKey(tenantId));
+                return;
+            }
+
+            _memoryCache.Set(GetTenantDomainIndexKey(tenantId), remainingTrackedKeys, CreateTenantCacheEntryOptions());
+        }
+
+        private static HashSet<string> GetCurrentTenantDomainCacheKeys(Tenant tenant)
+        {
+            var cacheKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(tenant.ApplicationDomain))
+            {
+                cacheKeys.Add(GetTenantDomainCacheKey(tenant.ApplicationDomain));
+            }
+
+            if (tenant.AllowedDomains == null)
+            {
+                return cacheKeys;
+            }
+
+            foreach (var allowedDomain in tenant.AllowedDomains)
+            {
+                if (!string.IsNullOrWhiteSpace(allowedDomain))
+                {
+                    cacheKeys.Add(GetTenantDomainCacheKey(allowedDomain));
+                }
+            }
+
+            return cacheKeys;
+        }
+
+        private IMongoDatabase GetRootDatabase()
+        {
+            var cacheKey = $"mongo:client:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_rootConnectionString)))}";
+
+            var client = _memoryCache.GetOrCreate(cacheKey, entry =>
+            {
+                entry.Size = 1;
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30);
+                entry.SlidingExpiration = TimeSpan.FromMinutes(10);
+                entry.RegisterPostEvictionCallback((k, v, reason, state) =>
+                {
+                    if (v is MongoClient mc)
+                        try { mc.Dispose(); } catch { }
+                });
+
+                var settings = MongoClientSettings.FromConnectionString(_rootConnectionString);
+                settings.MaxConnectionPoolSize = 5;
+                settings.MinConnectionPoolSize = 1;
+                return new MongoClient(settings);
+            })!;
+
+            return client.GetDatabase(_rootDatabaseName);
+        }
 
         private Tenant? GetTenantFromDb(string tenantId)
         {
@@ -209,7 +310,7 @@ namespace Blocks.Genesis
 
             try
             {
-                return _database
+                return GetRootDatabase()
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
                     .Find(t => t.ItemId == tenantId || t.TenantId == tenantId)
                     .FirstOrDefault();
@@ -225,46 +326,19 @@ namespace Blocks.Genesis
         {
             if (_disposed) return;
 
-            // Unsubscribe from tenant updates
             if (_isSubscribed)
             {
                 try
                 {
-                    _cacheClient.UnsubscribeAsync(_tenantUpdateChannel).Wait();
+                    _cacheClient.UnsubscribeAsync(_tenantInvalidationChannel).Wait(TimeSpan.FromSeconds(5));
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error unsubscribing from tenant updates channel.");
+                    _logger.LogError(ex, "Error unsubscribing from tenant invalidation channel.");
                 }
             }
 
             _disposed = true;
-        }
-
-        public Tenant? GetTenantByApplicationDomain(string appName)
-        {
-            if (string.IsNullOrWhiteSpace(appName)) return null;
-
-            appName = appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? appName : $"https://{appName}";
-
-            try
-            {
-                var builder = Builders<Tenant>.Filter;
-
-                var domainMatch = builder.Or(
-                    builder.Eq(t => t.ApplicationDomain, appName),
-                    builder.AnyEq(t => t.AllowedDomains, appName));
-
-                return _database
-                    .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(domainMatch)
-                    .FirstOrDefault();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to retrieve tenant from DB for Application name: {AppName}", appName);
-                return null;
-            }
         }
     }
 }

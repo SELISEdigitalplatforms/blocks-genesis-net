@@ -1,5 +1,6 @@
 using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -49,8 +50,24 @@ public class MongoDbContextProviderAdditionalTests : IDisposable
     public void GetCollection_WithTenantId_ShouldReturnCollection()
     {
         var tenants = new Mock<ITenants>();
-        tenants.Setup(t => t.GetTenantDatabaseConnectionString("t1"))
-            .Returns(("test_db", "mongodb://localhost:27017"));
+        tenants.Setup(t => t.GetTenantByID("t1"))
+            .Returns(new Blocks.Genesis.Tenant
+            {
+                TenantId = "t1",
+                DBName = "test_db",
+                DbConnectionString = "mongodb://localhost:27017",
+                ApplicationDomain = "https://t1.local",
+                JwtTokenParameters = new JwtTokenParameters
+                {
+                    Issuer = "issuer",
+                    Subject = "subject",
+                    Audiences = [],
+                    PublicCertificatePath = "path",
+                    PublicCertificatePassword = "password",
+                    PrivateCertificatePassword = "private",
+                    IssueDate = DateTime.UtcNow
+                }
+            });
 
         var provider = CreateProvider(tenants);
 
@@ -64,8 +81,24 @@ public class MongoDbContextProviderAdditionalTests : IDisposable
     public void GetDatabase_NoArg_ShouldReturnDatabase_WhenTenantContextIsSet()
     {
         var tenants = new Mock<ITenants>();
-        tenants.Setup(t => t.GetTenantDatabaseConnectionString("context-tenant"))
-            .Returns(("ctx_db", "mongodb://localhost:27017"));
+        tenants.Setup(t => t.GetTenantByID("context-tenant"))
+            .Returns(new Blocks.Genesis.Tenant
+            {
+                TenantId = "context-tenant",
+                DBName = "ctx_db",
+                DbConnectionString = "mongodb://localhost:27017",
+                ApplicationDomain = "https://context-tenant.local",
+                JwtTokenParameters = new JwtTokenParameters
+                {
+                    Issuer = "issuer",
+                    Subject = "subject",
+                    Audiences = [],
+                    PublicCertificatePath = "path",
+                    PublicCertificatePassword = "password",
+                    PrivateCertificatePassword = "private",
+                    IssueDate = DateTime.UtcNow
+                }
+            });
 
         var ctx = BlocksContext.Create(
             "context-tenant", [], "", false, "", "",
@@ -83,6 +116,7 @@ public class MongoDbContextProviderAdditionalTests : IDisposable
     private static MongoDbContextProvider CreateProvider(Mock<ITenants> tenants)
     {
         var logger = new Mock<ILogger<MongoDbContextProvider>>();
-        return new MongoDbContextProvider(logger.Object, tenants.Object, new System.Diagnostics.ActivitySource("test"));
+        var memoryCache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 100 });
+        return new MongoDbContextProvider(logger.Object, tenants.Object, new System.Diagnostics.ActivitySource("test"), memoryCache);
     }
 }

@@ -112,6 +112,12 @@ namespace Blocks.Genesis
 
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
+            services.AddMemoryCache(options =>
+            {
+                options.SizeLimit = 100;  // Max 100 entries (tenants + mongo clients combined)
+                options.CompactionPercentage = 0.25;  // Evict 25% when cache is full
+            });
+
             services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
             services.AddSingleton<ICacheClient, RedisClient>();
             services.AddSingleton<ITenants, Tenants>();

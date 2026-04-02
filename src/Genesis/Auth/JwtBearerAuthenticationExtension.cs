@@ -26,18 +26,11 @@ namespace Blocks.Genesis
         {
             services.AddHttpClient();
 
-            var serviceProvider = services.BuildServiceProvider();
-            var tenants = serviceProvider.GetRequiredService<ITenants>();
-            var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
-            var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
-
-            BlocksHttpContextAccessor.Init(serviceProvider);
-
-            ConfigureAuthentication(services, tenants, cacheDb, httpClientFactory);
+            ConfigureAuthentication(services);
             ConfigureAuthorization(services);
         }
 
-        private static void ConfigureAuthentication(IServiceCollection services, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
+        private static void ConfigureAuthentication(IServiceCollection services)
         {
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
@@ -46,6 +39,10 @@ namespace Blocks.Genesis
                     {
                         OnMessageReceived = async context =>
                         {
+                            var tenants = context.HttpContext.RequestServices.GetRequiredService<ITenants>();
+                            var cacheDb = context.HttpContext.RequestServices.GetRequiredService<ICacheClient>().CacheDatabase();
+                            var httpClientFactory = context.HttpContext.RequestServices.GetRequiredService<IHttpClientFactory>();
+
                             var tokenResult = TokenHelper.GetToken(context.Request, tenants);
                             SetRequestAccessToken(context.HttpContext, tokenResult.Token);
 
@@ -69,11 +66,12 @@ namespace Blocks.Genesis
                             }
 
                             context.Token = tokenResult.Token;
-                            await ConfigureTokenValidationAsync(context, tenants, cacheDb, httpClientFactory, tenantId);
+                            await ConfigureTokenValidationAsync(context, tenants, httpClientFactory, tenantId);
                         },
 
                         OnTokenValidated = context =>
                         {
+                            var tenants = context.HttpContext.RequestServices.GetRequiredService<ITenants>();
                             var result = TokenHelper.GetToken(context.Request, tenants);
                             if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
                             {
@@ -85,6 +83,9 @@ namespace Blocks.Genesis
 
                         OnAuthenticationFailed = async context =>
                         {
+                            var tenants = context.HttpContext.RequestServices.GetRequiredService<ITenants>();
+                            var httpClientFactory = context.HttpContext.RequestServices.GetRequiredService<IHttpClientFactory>();
+                            
                             var ex = context.Exception;
 
                             if (ex is SecurityTokenExpiredException)
@@ -115,7 +116,6 @@ namespace Blocks.Genesis
         private static async Task ConfigureTokenValidationAsync(
             MessageReceivedContext context,
             ITenants tenants,
-            IDatabase cacheDb,
             IHttpClientFactory httpClientFactory,
             string? tenantId)
         {
@@ -130,6 +130,8 @@ namespace Blocks.Genesis
                 return;
             }
 
+            var cacheDb = context.HttpContext.RequestServices.GetRequiredService<ICacheClient>().CacheDatabase();
+            
             var certificate = await GetCertificateAsync(tenantId, tenants, cacheDb, httpClientFactory);
             if (certificate == null)
             {
@@ -137,7 +139,7 @@ namespace Blocks.Genesis
                 return;
             }
 
-            var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
+            var validationParams = tenants.GetTenantByID(tenantId)?.JwtTokenParameters;
             if (validationParams == null)
             {
                 context.Fail("❌ Validation parameters not found");
@@ -328,7 +330,7 @@ namespace Blocks.Genesis
             string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
 
             var cachedCertificate = await cacheDb.StringGetAsync(cacheKey);
-            var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
+            var validationParams = tenants.GetTenantByID(tenantId)?.JwtTokenParameters;
 
             if (cachedCertificate.HasValue)
                 return CreateCertificate(cachedCertificate, validationParams?.PublicCertificatePassword);
