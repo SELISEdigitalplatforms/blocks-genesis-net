@@ -6,6 +6,7 @@ namespace Blocks.Genesis
 {
     public sealed class RedisClient : ICacheClient, IDisposable
     {
+            private readonly IConnectionMultiplexer _connectionMultiplexer;
         private readonly IDatabase _database;
         private readonly ActivitySource _activitySource;
         private readonly ISubscriber _subscriber;
@@ -21,10 +22,10 @@ namespace Blocks.Genesis
 
         public RedisClient(IBlocksSecret blocksSecret, ActivitySource activitySource)
         {
-            IConnectionMultiplexer connectionMultiplexer = ConnectionMultiplexer.Connect(blocksSecret.CacheConnectionString);
-            _database = connectionMultiplexer.GetDatabase();
+              _connectionMultiplexer = ConnectionMultiplexer.Connect(blocksSecret.CacheConnectionString);
+              _database = _connectionMultiplexer.GetDatabase();
             _activitySource = activitySource;
-            _subscriber = connectionMultiplexer.GetSubscriber();
+              _subscriber = _connectionMultiplexer.GetSubscriber();
         }
 
         public IDatabase CacheDatabase() => _database;
@@ -53,8 +54,9 @@ namespace Blocks.Genesis
             using var activity = SetActivity(key, "AddStringValueWithTTL");
             activity?.SetTag(_valueLength, value?.Length ?? 0);
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
-            _database.StringSet(key, value);
-            var result = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
+            var setResult = _database.StringSet(key, value);
+            var expireResult = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
+            var result = setResult && expireResult;
             activity?.SetTag(_tTLSetSuccess, result);
             return result;
         }
@@ -91,9 +93,9 @@ namespace Blocks.Genesis
             activity?.SetTag(_hashFieldCount, entries.Length);
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
             _database.HashSet(key, entries);
-            var result = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag(_tTLSetSuccess, result);
-            return result;
+            var expireResult = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
+            activity?.SetTag(_tTLSetSuccess, expireResult);
+            return expireResult;
         }
 
         public HashEntry[] GetHashValue(string key)
@@ -130,8 +132,9 @@ namespace Blocks.Genesis
             using var activity = SetActivity(key, "AddStringValueWithTTLAsync");
             activity?.SetTag(_valueLength, value?.Length ?? 0);
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
-            await _database.StringSetAsync(key, value);
-            var result = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
+            var setResult = await _database.StringSetAsync(key, value);
+            var expireResult = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
+            var result = setResult && expireResult;
             activity?.SetTag(_tTLSetSuccess, result);
             return result;
         }
@@ -168,9 +171,9 @@ namespace Blocks.Genesis
             activity?.SetTag(_hashFieldCount, entries.Length);
             activity?.SetTag(_tTLSeconds, keyLifeSpan);
             await _database.HashSetAsync(key, entries);
-            var result = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag(_tTLSetSuccess, result);
-            return result;
+            var expireResult = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
+            activity?.SetTag(_tTLSetSuccess, expireResult);
+            return expireResult;
         }
 
         public async Task<HashEntry[]> GetHashValueAsync(string key)
@@ -293,6 +296,7 @@ namespace Blocks.Genesis
                 _subscriber.Unsubscribe(channel);
             }
             _subscriptions.Clear();
+            _connectionMultiplexer?.Dispose();
             _disposed = true;
         }
 

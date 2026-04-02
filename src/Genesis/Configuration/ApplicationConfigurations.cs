@@ -1,6 +1,4 @@
-﻿using Blocks.Genesis.Health;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -144,14 +142,12 @@ namespace Blocks.Genesis
             ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
             services.AddHttpContextAccessor();
-            services.AddHealthChecks();
 
             if (_blocksSwaggerOptions != null)
                 services.AddBlocksSwagger(_blocksSwaggerOptions);
 
             services.AddSingleton<ICryptoService, CryptoService>();
             services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();
-            services.AddHostedService<GenesisHealthPingBackgroundService>();
         }
 
         public static void ConfigureApi(IServiceCollection services)
@@ -184,7 +180,7 @@ namespace Blocks.Genesis
         /// <param name="afterControllerMapping">Optional hook to run additional setup after controller endpoint mapping.</param>
         /// <remarks>
         /// Sequence:
-        /// HSTS -> CORS -> HealthChecks -> Swagger -> Routing -> API branch middleware
+        /// HSTS -> CORS -> Ping endpoint -> Swagger -> Routing -> API branch middleware
         /// -> beforeControllerMapping -> MapControllers -> afterControllerMapping -> Antiforgery.
         ///
         /// Example:
@@ -218,15 +214,7 @@ namespace Blocks.Genesis
                     .AllowCredentials()
                     .SetPreflightMaxAge(TimeSpan.FromDays(365)));
 
-            app.UseHealthChecks("/ping", new HealthCheckOptions
-            {
-                Predicate = _ => true,
-                ResponseWriter = async (context, _) =>
-                {
-                    context.Response.ContentType = "application/json";
-                    await context.Response.WriteAsJsonAsync(new { message = $"pong from {_serviceName}" });
-                }
-            });
+            app.MapGet("/ping", () => Results.Json(new { message = $"pong from {_serviceName}" }));
 
             if (_blocksSwaggerOptions != null)
             {
