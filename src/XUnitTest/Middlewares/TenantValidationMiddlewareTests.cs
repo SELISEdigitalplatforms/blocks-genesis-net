@@ -90,10 +90,14 @@ public class TenantValidationMiddlewareTests
 
         using var activity = new Activity("tenant-validation").Start();
         await middleware.InvokeAsync(context);
-
-        Assert.True(nextCalled);
-        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
-        Assert.Null(BlocksContext.GetContext());
+    Assert.True(nextCalled);
+    Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+    var contextVal = BlocksContext.GetContext();
+    Assert.NotNull(contextVal);
+    Assert.Equal(string.Empty, contextVal.TenantId);
+    Assert.Empty(contextVal.Roles);
+    Assert.Equal(string.Empty, contextVal.UserId);
+    Assert.False(contextVal.IsAuthenticated);
     }
 
     [Fact]
@@ -135,6 +139,8 @@ public class TenantValidationMiddlewareTests
         context.Request.Host = new HostString(host);
         context.Request.Method = HttpMethods.Get;
         context.Response.Body = new MemoryStream();
+        var endpoint = new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(), "TestController");
+        context.SetEndpoint(endpoint);
         return context;
     }
 
