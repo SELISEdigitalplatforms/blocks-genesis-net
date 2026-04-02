@@ -95,11 +95,16 @@ public class AzureMessageWorkerScaffoldTests
 
         await InvokePrivateAsync(worker, "MessageHandler", args);
 
-        Assert.True(started);
-        Assert.Null(BlocksContext.GetContext());
+    Assert.True(started);
+    var context = BlocksContext.GetContext();
+    Assert.NotNull(context);
+    Assert.Equal(string.Empty, context.TenantId);
+    Assert.Empty(context.Roles);
+    Assert.Equal(string.Empty, context.UserId);
+    Assert.False(context.IsAuthenticated);
 
-        var renewals = GetField<ConcurrentDictionary<string, CancellationTokenSource>>(worker, "_activeMessageRenewals");
-        Assert.DoesNotContain("msg-1", renewals.Keys);
+    var renewals = GetField<ConcurrentDictionary<string, CancellationTokenSource>>(worker, "_activeMessageRenewals");
+    Assert.DoesNotContain("msg-1", renewals.Keys);
     }
 
     [Fact]
@@ -126,7 +131,12 @@ public class AzureMessageWorkerScaffoldTests
         var exception = await Record.ExceptionAsync(() => InvokePrivateAsync(worker, "MessageHandler", args));
 
         Assert.Null(exception);
-        Assert.Null(BlocksContext.GetContext());
+        var context = BlocksContext.GetContext();
+        Assert.NotNull(context);
+        Assert.Equal(string.Empty, context.TenantId);
+        Assert.Empty(context.Roles);
+        Assert.Equal(string.Empty, context.UserId);
+        Assert.False(context.IsAuthenticated);
     }
 
     [Fact]

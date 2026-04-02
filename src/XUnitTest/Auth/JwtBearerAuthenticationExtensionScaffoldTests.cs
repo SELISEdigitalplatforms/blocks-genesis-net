@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Net.Http;
 
 namespace XUnitTest.Auth;
 
@@ -53,7 +54,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var method = type!.GetMethod("TryFallbackAsync", BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
 
-        var resultTask = (Task<bool>)method!.Invoke(null, [context, new Moq.Mock<ITenants>().Object, string.Empty, null])!;
+        var resultTask = (Task<bool>)method!.Invoke(null, [context, new Moq.Mock<ITenants>().Object, string.Empty, null, new Moq.Mock<IHttpClientFactory>().Object, null])!;
         var result = await resultTask;
 
         Assert.False(result);

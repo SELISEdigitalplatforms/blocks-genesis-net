@@ -205,9 +205,14 @@ public class RabbitMessageWorkerScaffoldTests
 
         await InvokePrivateAsync(worker, "HandleMessageAsync", new object[] { new object(), ea });
 
-        Assert.Equal("ok", WorkerConsumerProbe.LastValue);
-        channel.Verify(x => x.BasicAckAsync(42, false, It.IsAny<CancellationToken>()), Times.Once);
-        Assert.Null(BlocksContext.GetContext());
+    Assert.Equal("ok", WorkerConsumerProbe.LastValue);
+    channel.Verify(x => x.BasicAckAsync(42, false, It.IsAny<CancellationToken>()), Times.Once);
+    var context = BlocksContext.GetContext();
+    Assert.NotNull(context);
+    Assert.Equal(string.Empty, context.TenantId);
+    Assert.Empty(context.Roles);
+    Assert.Equal(string.Empty, context.UserId);
+    Assert.False(context.IsAuthenticated);
     }
 
     [Fact]
@@ -227,9 +232,14 @@ public class RabbitMessageWorkerScaffoldTests
 
         var exception = await Record.ExceptionAsync(() => InvokePrivateAsync(worker, "HandleMessageAsync", new object[] { new object(), ea }));
 
-        Assert.Null(exception);
-        channel.Verify(x => x.BasicAckAsync(7, false, It.IsAny<CancellationToken>()), Times.Once);
-        Assert.Null(BlocksContext.GetContext());
+    Assert.Null(exception);
+    channel.Verify(x => x.BasicAckAsync(7, false, It.IsAny<CancellationToken>()), Times.Once);
+    var context = BlocksContext.GetContext();
+    Assert.NotNull(context);
+    Assert.Equal(string.Empty, context.TenantId);
+    Assert.Empty(context.Roles);
+    Assert.Equal(string.Empty, context.UserId);
+    Assert.False(context.IsAuthenticated);
     }
 
     [Fact]
