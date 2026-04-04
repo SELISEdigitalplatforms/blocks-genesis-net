@@ -4,152 +4,127 @@ namespace Blocks.Genesis
 {
     public static class ConfigerAzureServiceBus
     {
-        private static ServiceBusAdministrationClient _adminClient;
-        private static MessageConfiguration _messageConfiguration;
-
         public static async Task ConfigerQueueAndTopicAsync(MessageConfiguration messageConfiguration)
         {
+            ArgumentNullException.ThrowIfNull(messageConfiguration);
+
             try
             {
                 if (string.IsNullOrWhiteSpace(messageConfiguration.Connection))
                 {
-                    Console.WriteLine("Error in creation of message queues/topics");
-                    return;
+                    throw new InvalidOperationException("Message connection string is required for Azure Service Bus provisioning.");
                 }
-                _adminClient = new ServiceBusAdministrationClient(messageConfiguration.Connection);
-                _messageConfiguration = messageConfiguration;
 
-                var queueCreationTask = CreateQueuesAsync();
-                var topicCreationTask = CreateTopicAsync();
+                var adminClient = new ServiceBusAdministrationClient(messageConfiguration.Connection);
+
+                var queueCreationTask = CreateQueuesAsync(adminClient, messageConfiguration);
+                var topicCreationTask = CreateTopicAsync(adminClient, messageConfiguration);
                 await Task.WhenAll(queueCreationTask, topicCreationTask);
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine(ex);
                 throw;
             }
         }
 
-        static async Task CreateQueuesAsync()
+        private static async Task CreateQueuesAsync(ServiceBusAdministrationClient adminClient, MessageConfiguration messageConfiguration)
         {
-            try
+            var tasks = new List<Task>();
+
+            foreach (var queueName in messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? new())
             {
-                var tasks = new List<Task>();   
-                
-                foreach (var queueName in _messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? new())
+                var isExist = await CheckQueueExistsAsync(adminClient, queueName);
+                if (isExist) continue;
+
+                var createQueueOptions = new CreateQueueOptions(queueName)
                 {
-
-                    var isExist = await CheckQueueExistsAsync(queueName);
-                    if (isExist) continue;
-
-                    var createQueueOptions = new CreateQueueOptions(queueName)
-                    {
-                        MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxSizeInMegabytes ?? 1024,
-                        MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxDeliveryCount ?? 2,
-                        DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.QueueDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
-                        LockDuration = TimeSpan.FromMinutes(5)
-                    };
-
-                    tasks.Add(_adminClient.CreateQueueAsync(createQueueOptions));
-                }
-
-                await Task.WhenAll(tasks);
-
-            }
-            catch (Exception ex)
-            {
-
-                Console.WriteLine(ex);
-                throw;
-            }
-        }
-
-        async static Task<bool> CheckQueueExistsAsync(string queue)
-        {
-            return await _adminClient.QueueExistsAsync(queue);
-        }
-
-        static async Task CreateTopicAsync()
-        {
-            try
-            {
-                var tasks = new List<Task>();
-
-                foreach (var topicName in _messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? [])
-                {
-
-                    var isExist = await CheckTopicExistsAsync(topicName);
-                    if (isExist) continue;
-
-                    var createTopicOptions = new CreateTopicOptions(topicName)
-                    {
-                        MaxSizeInMegabytes = _messageConfiguration?.AzureServiceBusConfiguration?.TopicMaxSizeInMegabytes ?? 1024,
-                        DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicDefaultMessageTimeToLive ?? TimeSpan.FromDays(30)
-                    };
-
-                    tasks.Add(_adminClient.CreateTopicAsync(createTopicOptions)); 
-                }
-
-                await Task.WhenAll(tasks);
-
-                var subTasks = _messageConfiguration?.AzureServiceBusConfiguration?.Topics.Select(topicName => CreateTopicSubscriptionAsync(topicName, null));
-
-                await Task.WhenAll(subTasks);
-
-            }
-            catch (Exception ex)
-            {
-
-                Console.WriteLine(ex);
-                throw;
-            }
-        }
-
-        async static Task<bool> CheckTopicExistsAsync(string topicName)
-        {
-            return await _adminClient.TopicExistsAsync(topicName);
-        }
-
-        static async Task CreateTopicSubscriptionAsync(string topicName, string subscriptionName = "", string subscriptionFilter = "", string ruleOptionName = "BlocksRule")
-        {
-            try
-            {
-                subscriptionName = string.IsNullOrWhiteSpace(subscriptionName) ? _messageConfiguration.GetSubscriptionName(topicName) : subscriptionName;
-                var isExist = await CheckSubscriptionExistsAsync(topicName, subscriptionName);
-                if (isExist) return;
-
-                var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, subscriptionName)
-                {
-                    MaxDeliveryCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 2,
-                    DefaultMessageTimeToLive = _messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
+                    MaxSizeInMegabytes = messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxSizeInMegabytes ?? 1024,
+                    MaxDeliveryCount = messageConfiguration?.AzureServiceBusConfiguration?.QueueMaxDeliveryCount ?? 2,
+                    DefaultMessageTimeToLive = messageConfiguration?.AzureServiceBusConfiguration?.QueueDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
+                    RequiresSession = messageConfiguration?.AzureServiceBusConfiguration?.EnableSessions ?? false,
                     LockDuration = TimeSpan.FromMinutes(5)
                 };
 
-                if(!string.IsNullOrWhiteSpace(subscriptionFilter))
-                {
-                    var correlationRule = new CreateRuleOptions(ruleOptionName, new CorrelationRuleFilter
-                    {
-                        CorrelationId = subscriptionFilter
-                    });
-
-                    await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions, correlationRule);     
-                }
-                else
-                {
-                    await _adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions);
-                }
+                tasks.Add(adminClient.CreateQueueAsync(createQueueOptions));
             }
-            catch (Exception ex)
-            {
 
-                Console.WriteLine(ex);
-                throw;
+            await Task.WhenAll(tasks);
+        }
+
+        private static async Task<bool> CheckQueueExistsAsync(ServiceBusAdministrationClient adminClient, string queue)
+        {
+            return await adminClient.QueueExistsAsync(queue);
+        }
+
+        private static async Task CreateTopicAsync(ServiceBusAdministrationClient adminClient, MessageConfiguration messageConfiguration)
+        {
+            var tasks = new List<Task>();
+
+            foreach (var topicName in messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? [])
+            {
+                var isExist = await CheckTopicExistsAsync(adminClient, topicName);
+                if (isExist) continue;
+
+                var createTopicOptions = new CreateTopicOptions(topicName)
+                {
+                    MaxSizeInMegabytes = messageConfiguration?.AzureServiceBusConfiguration?.TopicMaxSizeInMegabytes ?? 1024,
+                    DefaultMessageTimeToLive = messageConfiguration?.AzureServiceBusConfiguration?.TopicDefaultMessageTimeToLive ?? TimeSpan.FromDays(30)
+                };
+
+                tasks.Add(adminClient.CreateTopicAsync(createTopicOptions));
+            }
+
+            await Task.WhenAll(tasks);
+
+            var subTasks = (messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? [])
+                .Select(topicName => CreateTopicSubscriptionAsync(adminClient, messageConfiguration, topicName));
+
+            await Task.WhenAll(subTasks);
+        }
+
+        private static async Task<bool> CheckTopicExistsAsync(ServiceBusAdministrationClient adminClient, string topicName)
+        {
+            return await adminClient.TopicExistsAsync(topicName);
+        }
+
+        private static async Task CreateTopicSubscriptionAsync(
+            ServiceBusAdministrationClient adminClient,
+            MessageConfiguration messageConfiguration,
+            string topicName,
+            string subscriptionName = "",
+            string subscriptionFilter = "",
+            string ruleOptionName = "BlocksRule")
+        {
+            subscriptionName = string.IsNullOrWhiteSpace(subscriptionName) ? messageConfiguration.GetSubscriptionName(topicName) : subscriptionName;
+            var isExist = await CheckSubscriptionExistsAsync(adminClient, topicName, subscriptionName);
+            if (isExist) return;
+
+            var createTopicSubscriptionOptions = new CreateSubscriptionOptions(topicName, subscriptionName)
+            {
+                MaxDeliveryCount = messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionMaxDeliveryCount ?? 2,
+                DefaultMessageTimeToLive = messageConfiguration?.AzureServiceBusConfiguration?.TopicSubscriptionDefaultMessageTimeToLive ?? TimeSpan.FromDays(7),
+                RequiresSession = messageConfiguration?.AzureServiceBusConfiguration?.EnableSessions ?? false,
+                LockDuration = TimeSpan.FromMinutes(5)
+            };
+
+            if (!string.IsNullOrWhiteSpace(subscriptionFilter))
+            {
+                var correlationRule = new CreateRuleOptions(ruleOptionName, new CorrelationRuleFilter
+                {
+                    CorrelationId = subscriptionFilter
+                });
+
+                await adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions, correlationRule);
+            }
+            else
+            {
+                await adminClient.CreateSubscriptionAsync(createTopicSubscriptionOptions);
             }
         }
 
-        async static Task<bool> CheckSubscriptionExistsAsync(string topicName, string subscriptionName)
+        private static async Task<bool> CheckSubscriptionExistsAsync(ServiceBusAdministrationClient adminClient, string topicName, string subscriptionName)
         {
-            return await _adminClient.SubscriptionExistsAsync(topicName, subscriptionName);
+            return await adminClient.SubscriptionExistsAsync(topicName, subscriptionName);
         }
     }
 }

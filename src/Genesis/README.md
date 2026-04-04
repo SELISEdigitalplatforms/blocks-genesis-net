@@ -77,8 +77,8 @@ builder.ConfigureServices((context, services) =>
             Topics = new List<string> { "my-topic" }
         }
     };
-    
-    ApplicationConfigurations.ConfigureServices(services, messageConfig);
+
+    ApplicationConfigurations.ConfigureWorker(services, messageConfig);
     
     // Register worker consumers
     services.AddSingleton<IHostedService, MyWorkerService>();

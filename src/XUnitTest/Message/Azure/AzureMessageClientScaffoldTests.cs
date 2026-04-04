@@ -128,7 +128,7 @@ public class AzureMessageClientScaffoldTests
             ConsumerName = "orders.queue",
             Payload = new TestPayload { Value = "later" },
             Context = "{\"ctx\":\"v\"}",
-            SccheduledEnqueueTimeUtc = scheduledAt
+            ScheduledEnqueueTimeUtc = scheduledAt
         });
 
         senderMock.Verify(x => x.ScheduleMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);

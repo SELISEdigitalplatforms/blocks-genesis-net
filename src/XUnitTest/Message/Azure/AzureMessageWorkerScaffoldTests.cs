@@ -259,7 +259,37 @@ public class AzureMessageWorkerScaffoldTests
 
     private static async Task InvokePrivateAsync(object instance, string methodName, params object[] args)
     {
-        var method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        var argTypes = args.Select(a => a?.GetType()).ToArray();
+        var method = instance.GetType()
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .FirstOrDefault(m =>
+            {
+                if (!string.Equals(m.Name, methodName, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                var parameters = m.GetParameters();
+                if (parameters.Length != argTypes.Length)
+                {
+                    return false;
+                }
+
+                for (var i = 0; i < parameters.Length; i++)
+                {
+                    if (argTypes[i] == null)
+                    {
+                        continue;
+                    }
+
+                    if (!parameters[i].ParameterType.IsAssignableFrom(argTypes[i]!))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
         Assert.NotNull(method);
         var task = (Task)method!.Invoke(instance, args)!;
         await task;

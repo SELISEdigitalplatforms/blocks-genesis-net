@@ -11,6 +11,7 @@ namespace Blocks.Genesis
         private readonly ServiceBusClient _client;
         private readonly ConcurrentDictionary<string, ServiceBusSender> _senders;
         private readonly ActivitySource _activitySource;
+        private readonly bool _enableSessions;
 
         public AzureMessageClient(
             MessageConfiguration messageConfiguration,
@@ -19,6 +20,7 @@ namespace Blocks.Genesis
             _client = new ServiceBusClient(messageConfiguration.Connection);
             _senders = new ConcurrentDictionary<string, ServiceBusSender>();
             _activitySource = activitySource;
+            _enableSessions = messageConfiguration?.AzureServiceBusConfiguration?.EnableSessions ?? false;
 
             InitializeSenders(messageConfiguration);
         }
@@ -81,9 +83,15 @@ namespace Blocks.Genesis
                     ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary())
                 }
             };
-            if (consumerMessage.SccheduledEnqueueTimeUtc is not null)
+
+            if (_enableSessions)
             {
-                await sender.ScheduleMessageAsync(message, consumerMessage.SccheduledEnqueueTimeUtc.Value);
+                message.SessionId = string.IsNullOrWhiteSpace(securityContext?.TenantId) ? "default" : securityContext.TenantId;
+            }
+
+            if (consumerMessage.ScheduledEnqueueTimeUtc is not null)
+            {
+                await sender.ScheduleMessageAsync(message, consumerMessage.ScheduledEnqueueTimeUtc.Value);
             }
             else
             {

@@ -192,6 +192,7 @@ public class RabbitMessageWorkerScaffoldTests
         var logger = new Mock<ILogger<RabbitMessageWorker>>();
         var rabbitService = new Mock<IRabbitMqService>();
         var channel = new Mock<IChannel>();
+        channel.SetupGet(x => x.IsOpen).Returns(true);
         channel
             .Setup(x => x.BasicAckAsync(It.IsAny<ulong>(), false, It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
@@ -221,8 +222,9 @@ public class RabbitMessageWorkerScaffoldTests
         var logger = new Mock<ILogger<RabbitMessageWorker>>();
         var rabbitService = new Mock<IRabbitMqService>();
         var channel = new Mock<IChannel>();
+        channel.SetupGet(x => x.IsOpen).Returns(true);
         channel
-            .Setup(x => x.BasicAckAsync(It.IsAny<ulong>(), false, It.IsAny<CancellationToken>()))
+            .Setup(x => x.BasicNackAsync(It.IsAny<ulong>(), false, true, It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
         var worker = CreateWorker(logger.Object, rabbitService.Object, CreateConsumer(), CreateConfiguration("orders.queue"));
@@ -233,7 +235,7 @@ public class RabbitMessageWorkerScaffoldTests
         var exception = await Record.ExceptionAsync(() => InvokePrivateAsync(worker, "HandleMessageAsync", new object[] { new object(), ea }));
 
     Assert.Null(exception);
-    channel.Verify(x => x.BasicAckAsync(7, false, It.IsAny<CancellationToken>()), Times.Once);
+    channel.Verify(x => x.BasicNackAsync(7, false, true, It.IsAny<CancellationToken>()), Times.Once);
     var context = BlocksContext.GetContext();
     Assert.NotNull(context);
     Assert.Equal(string.Empty, context.TenantId);

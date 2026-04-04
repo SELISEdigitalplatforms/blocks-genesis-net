@@ -75,6 +75,8 @@
 
         public int TopicSubscriptionMaxDeliveryCount { get; set; } = 2;
         public TimeSpan TopicSubscriptionDefaultMessageTimeToLive { get; set; } = TimeSpan.FromDays(7);
+        public bool EnableSessions { get; set; } = false;
+        public int MaxConcurrentSessions { get; set; } = 8;
         public int MaxConcurrentCalls { get; set; } = 5;
         public int MaxMessageProcessingTimeInMinutes { get; set; } = 60;
         public int MessageLockRenewalIntervalSeconds { get; set; } = 270;
@@ -91,9 +93,29 @@
         public List<ConsumerSubscription> ConsumerSubscriptions { get; set; } = new();
 
         /// <summary>
+        /// Gets or sets whether messages should be serialized per tenant while allowing cross-tenant parallelism.
+        /// </summary>
+        public bool EnableTenantIsolation { get; set; } = false;
+
+        /// <summary>
         /// Gets or sets the default TTL (Time-To-Live) in seconds for RabbitMQ messages.
         /// </summary>
         public int MessageTtlSeconds { get; set; }
+
+        /// <summary>
+        /// Gets or sets maximum retry attempts before message is sent to dead-letter zone (when DLX is configured).
+        /// </summary>
+        public int MaxRetryCount { get; set; } = 3;
+
+        /// <summary>
+        /// Gets or sets the dead-letter exchange name for failed messages.
+        /// </summary>
+        public string DeadLetterExchange { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the dead-letter routing key used when DeadLetterExchange is configured.
+        /// </summary>
+        public string DeadLetterRoutingKey { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -104,17 +126,17 @@
         public string QueueName { get; }
         public string ExchangeName { get; }
         public ushort PrefetchCount { get; }
+        public int MaxWorkerConcurrency { get; }
         public string ExchangeType { get; }
         public string RoutingKey { get; }
         public bool ShouldBypassAuthorization { get; }
         public bool Durable { get; }
-        public bool ParallelProcessing { get; }
 
         public ConsumerSubscription(
             string queueName,
             string exchangeName,
             ushort prefetchCount,
-            bool parallelProcessing = false,
+            int maxWorkerConcurrency = 8,
             string exchangeType = "fanout",
             string routingKey = "",
             bool shouldBypassAuthorization = false,
@@ -123,6 +145,7 @@
             QueueName = queueName;
             ExchangeName = exchangeName;
             PrefetchCount = prefetchCount;
+            MaxWorkerConcurrency = maxWorkerConcurrency > 0 ? maxWorkerConcurrency : 8;
             ExchangeType = exchangeType;
             RoutingKey = routingKey;
             ShouldBypassAuthorization = shouldBypassAuthorization;
@@ -132,8 +155,11 @@
         /// <summary>
         /// Creates a subscription that binds directly to a queue.
         /// </summary>
-        public static ConsumerSubscription BindToQueue(string queueName, ushort prefetchCount = 5) =>
-            new(queueName, string.Empty, prefetchCount);
+        public static ConsumerSubscription BindToQueue(
+            string queueName,
+            ushort prefetchCount = 5,
+            int maxWorkerConcurrency = 8) =>
+            new(queueName, string.Empty, prefetchCount, maxWorkerConcurrency);
 
         /// <summary>
         /// Creates a subscription that binds a queue via an exchange.
@@ -142,8 +168,8 @@
             string queueName,
             string exchangeName,
             ushort prefetchCount = 5,
-            bool parallelProcessing = false) =>
-            new(queueName, exchangeName, prefetchCount, parallelProcessing);
+            int maxWorkerConcurrency = 8) =>
+            new(queueName, exchangeName, prefetchCount, maxWorkerConcurrency);
 
         /// <summary>
         /// Creates a detailed subscription binding a queue to an exchange with routing information.
@@ -154,9 +180,9 @@
             ushort prefetchCount,
             string exchangeType,
             string routingKey,
-            bool parallelProcessing = false,
             bool shouldBypassAuthorization = false,
-            bool durable = true) =>
-            new(queueName, exchangeName, prefetchCount, parallelProcessing, exchangeType, routingKey, shouldBypassAuthorization, durable);
+            bool durable = true,
+            int maxWorkerConcurrency = 8) =>
+            new(queueName, exchangeName, prefetchCount, maxWorkerConcurrency, exchangeType, routingKey, shouldBypassAuthorization, durable);
     }
 }

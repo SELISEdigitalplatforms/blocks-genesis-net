@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -16,6 +17,12 @@ public sealed class RabbitMessageWorker : BackgroundService
     private readonly IRabbitMqService _rabbitMqService;
     private readonly Consumer _consumer;
     private readonly ActivitySource _activitySource;
+    private readonly bool _enableTenantIsolation;
+    private readonly ConcurrentDictionary<string, int> _queueConcurrencyLimits = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _queueGates = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _tenantGates = new();
+    private readonly ConcurrentDictionary<string, string> _consumerTagToQueue = new();
+    private readonly SemaphoreSlim _ackGate = new(1, 1);
 
     private IChannel? _channel;
 
@@ -31,6 +38,7 @@ public sealed class RabbitMessageWorker : BackgroundService
         _rabbitMqService = rabbitMqService;
         _consumer = consumer;
         _activitySource = activitySource;
+        _enableTenantIsolation = _messageConfiguration?.RabbitMqConfiguration?.EnableTenantIsolation ?? false;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -60,16 +68,60 @@ public sealed class RabbitMessageWorker : BackgroundService
 
     private async Task HandleMessageAsync(object sender, BasicDeliverEventArgs ea)
     {
-        var subscription = _messageConfiguration.RabbitMqConfiguration.ConsumerSubscriptions
-            .FirstOrDefault(s => s.QueueName == ea.RoutingKey);
+        var queueName = ResolveQueueName(ea);
+        var maxConcurrency = _queueConcurrencyLimits.TryGetValue(queueName, out var configuredConcurrency)
+            ? Math.Max(1, configuredConcurrency)
+            : 1;
 
-        if (subscription?.ParallelProcessing ?? false)
+        if (maxConcurrency <= 1)
         {
-            _ = Task.Run(() => ProcessMessageInternalAsync(ea));
+            await ProcessMessageInternalAsync(ea);
+            return;
+        }
+
+        if (_enableTenantIsolation)
+        {
+            var tenantId = GetHeader(ea.BasicProperties, "TenantId");
+            var tenantKey = string.IsNullOrWhiteSpace(tenantId) ? "__unknown_tenant__" : tenantId;
+
+            var queueGate = _queueGates.GetOrAdd(queueName, _ => new SemaphoreSlim(maxConcurrency, maxConcurrency));
+            var tenantGate = _tenantGates.GetOrAdd(tenantKey, _ => new SemaphoreSlim(1, 1));
+
+            await queueGate.WaitAsync();
+            await tenantGate.WaitAsync();
+
+            await ProcessMessageWithGatesAsync(ea, queueGate, tenantGate);
         }
         else
         {
+            var gate = _queueGates.GetOrAdd(queueName, _ => new SemaphoreSlim(maxConcurrency, maxConcurrency));
+            await gate.WaitAsync();
+            await ProcessMessageWithGateAsync(ea, gate);
+        }
+    }
+
+    private async Task ProcessMessageWithGateAsync(BasicDeliverEventArgs ea, SemaphoreSlim gate)
+    {
+        try
+        {
             await ProcessMessageInternalAsync(ea);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task ProcessMessageWithGatesAsync(BasicDeliverEventArgs ea, SemaphoreSlim queueGate, SemaphoreSlim tenantGate)
+    {
+        try
+        {
+            await ProcessMessageInternalAsync(ea);
+        }
+        finally
+        {
+            tenantGate.Release();
+            queueGate.Release();
         }
     }
 
@@ -77,8 +129,11 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext, out var baggage);
 
+        var processedSuccessfully = false;
+
         BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
-        foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}"))
+        var baggageItems = JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}") ?? new Dictionary<string, string>();
+        foreach (var kvp in baggageItems)
         {
             Baggage.SetBaggage(kvp.Key, kvp.Value);
         }
@@ -112,6 +167,7 @@ public sealed class RabbitMessageWorker : BackgroundService
             if (message != null)
             {
                 await _consumer.ProcessMessageAsync(message.Type, message.Body);
+                processedSuccessfully = true;
                 activity?.SetTag("response", "Successfully Completed");
                 activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
                 _logger.LogInformation("Message processed successfully.");
@@ -125,23 +181,135 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
         finally
         {
-            await _channel!.BasicAckAsync(ea.DeliveryTag, multiple: false);
-            activity?.Stop();
-        }
+            if (_channel?.IsOpen == true)
+            {
+                var deliveryCount = GetDeliveryCount(ea.BasicProperties);
+                var maxRetryCount = _messageConfiguration?.RabbitMqConfiguration?.MaxRetryCount ?? 3;
 
-        BlocksContext.ClearContext();
+                await _ackGate.WaitAsync();
+                try
+                {
+                    if (processedSuccessfully)
+                    {
+                        _logger.LogInformation("Ack message {DeliveryTag}. Reason: processed successfully.", ea.DeliveryTag);
+                        await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
+                    }
+                    else
+                    {
+                        var shouldSendToDeadZone = maxRetryCount > 0 && deliveryCount >= maxRetryCount;
+                        if (shouldSendToDeadZone)
+                        {
+                            var deadLetterExchange = _messageConfiguration?.RabbitMqConfiguration?.DeadLetterExchange;
+                            if (!string.IsNullOrWhiteSpace(deadLetterExchange))
+                            {
+                                // requeue:false lets broker route to DLX/dead zone when configured.
+                                _logger.LogWarning("Nack message {DeliveryTag} with requeue=false. Reason: retry limit reached ({DeliveryCount}/{MaxRetryCount}); dead-zone route active via exchange {DeadLetterExchange}.",
+                                    ea.DeliveryTag,
+                                    deliveryCount,
+                                    maxRetryCount,
+                                    deadLetterExchange);
+                                await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Ack message {DeliveryTag}. Reason: retry limit reached ({DeliveryCount}/{MaxRetryCount}) and dead-zone is not configured; fallback ack to avoid infinite retry loop.",
+                                    ea.DeliveryTag,
+                                    deliveryCount,
+                                    maxRetryCount);
+                                await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Nack message {DeliveryTag} with requeue=true. Reason: transient failure, retry attempt {DeliveryCount}/{MaxRetryCount}.",
+                                ea.DeliveryTag,
+                                deliveryCount,
+                                maxRetryCount);
+                            await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true);
+                        }
+                    }
+                }
+                finally
+                {
+                    _ackGate.Release();
+                }
+            }
+
+            activity?.Stop();
+            BlocksContext.ClearContext();
+        }
     }
 
     private async Task StartConsumingAsync(AsyncEventingBasicConsumer consumer)
     {
         foreach (var subscription in _messageConfiguration?.RabbitMqConfiguration?.ConsumerSubscriptions ?? new())
         {
-            await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
-            _logger.LogInformation("Started consuming queue: {QueueName}, Parallel: {Parallel}, MaxConcurrency: {MaxConcurrency}",
-            subscription.QueueName,
-            subscription.ParallelProcessing,
-            subscription.PrefetchCount);
+            _queueConcurrencyLimits[subscription.QueueName] = Math.Max(1, subscription.MaxWorkerConcurrency);
+            var consumerTag = await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
+            _consumerTagToQueue[consumerTag] = subscription.QueueName;
+            _logger.LogInformation("Started consuming queue: {QueueName}, PrefetchCount: {PrefetchCount}, MaxWorkerConcurrency: {MaxWorkerConcurrency}, TenantIsolation: {TenantIsolation}",
+                subscription.QueueName,
+                subscription.PrefetchCount,
+                subscription.MaxWorkerConcurrency,
+                _enableTenantIsolation);
         }
+    }
+
+    private string ResolveQueueName(BasicDeliverEventArgs ea)
+    {
+        if (!string.IsNullOrWhiteSpace(ea.ConsumerTag) && _consumerTagToQueue.TryGetValue(ea.ConsumerTag, out var queueName))
+        {
+            return queueName;
+        }
+
+        // Fallback for tests and edge cases where consumer tag mapping is unavailable.
+        return ea.RoutingKey;
+    }
+
+    private static int GetDeliveryCount(IReadOnlyBasicProperties properties)
+    {
+        if (properties.Headers == null)
+        {
+            return 0;
+        }
+
+        if (properties.Headers.TryGetValue("x-delivery-count", out var deliveryCountValue))
+        {
+            return ToInt(deliveryCountValue);
+        }
+
+        if (properties.Headers.TryGetValue("x-death", out var deathValue) && deathValue is IList<object> deaths && deaths.Count > 0)
+        {
+            var total = 0;
+            foreach (var death in deaths)
+            {
+                if (death is IDictionary<string, object> deathDict && deathDict.TryGetValue("count", out var countValue))
+                {
+                    total += ToInt(countValue);
+                }
+            }
+
+            return total;
+        }
+
+        return 0;
+    }
+
+    private static int ToInt(object? value)
+    {
+        return value switch
+        {
+            byte b => b,
+            sbyte sb => sb,
+            short s => s,
+            ushort us => us,
+            int i => i,
+            uint ui => (int)ui,
+            long l => (int)l,
+            ulong ul => (int)ul,
+            string str when int.TryParse(str, out var parsed) => parsed,
+            _ => 0
+        };
     }
 
     private static void ExtractHeaders(IReadOnlyBasicProperties properties, out string? tenantId, out string? traceId, out string? spanId, out string? securityContext, out string baggage)
@@ -157,7 +325,13 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         if (properties.Headers != null && properties.Headers.TryGetValue(key, out var value))
         {
-            return Encoding.UTF8.GetString((byte[])value);
+            return value switch
+            {
+                byte[] bytes => Encoding.UTF8.GetString(bytes),
+                ReadOnlyMemory<byte> memory => Encoding.UTF8.GetString(memory.Span),
+                string str => str,
+                _ => value?.ToString()
+            };
         }
         return null;
     }

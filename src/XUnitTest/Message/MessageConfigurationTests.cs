@@ -70,7 +70,7 @@ public class MessageConfigurationTests
     public void ConsumerSubscription_FactoryMethods_ShouldPopulateExpectedProperties()
     {
         var queueBinding = ConsumerSubscription.BindToQueue("inbox", 7);
-        var exchangeBinding = ConsumerSubscription.BindToQueueViaExchange("inbox", "events", 9, "topic", "order.created", true, true, false);
+        var exchangeBinding = ConsumerSubscription.BindToQueueViaExchange("inbox", "events", 9, "topic", "order.created", true, false);
 
         Assert.Equal("inbox", queueBinding.QueueName);
         Assert.Equal(string.Empty, queueBinding.ExchangeName);

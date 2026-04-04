@@ -77,12 +77,28 @@ namespace Blocks.Genesis
 
         private async Task DeclareQueueAsync(ConsumerSubscription subscription)
         {
+            Dictionary<string, object>? arguments = null;
+            var deadLetterExchange = _config?.RabbitMqConfiguration?.DeadLetterExchange;
+            if (!string.IsNullOrWhiteSpace(deadLetterExchange))
+            {
+                arguments = new Dictionary<string, object>
+                {
+                    ["x-dead-letter-exchange"] = deadLetterExchange
+                };
+
+                var deadLetterRoutingKey = _config?.RabbitMqConfiguration?.DeadLetterRoutingKey;
+                if (!string.IsNullOrWhiteSpace(deadLetterRoutingKey))
+                {
+                    arguments["x-dead-letter-routing-key"] = deadLetterRoutingKey;
+                }
+            }
+
             await _channel!.QueueDeclareAsync(
                 queue: subscription.QueueName,
                 durable: subscription.Durable,
                 exclusive: false,
                 autoDelete: false,
-                arguments: null);
+                arguments: arguments);
         }
 
         private async Task DeclareExchangeAsync(ConsumerSubscription subscription)

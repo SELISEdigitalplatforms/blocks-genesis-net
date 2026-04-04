@@ -12,6 +12,7 @@ namespace Blocks.Genesis
     {
         private readonly ILogger<AzureMessageWorker> _logger;
         private readonly List<ServiceBusProcessor> _processors = new List<ServiceBusProcessor>();
+        private readonly List<ServiceBusSessionProcessor> _sessionProcessors = new List<ServiceBusSessionProcessor>();
         private readonly MessageConfiguration _messageConfiguration;
         private readonly ActivitySource _activitySource;
         private ServiceBusClient _serviceBusClient;
@@ -74,6 +75,22 @@ namespace Blocks.Genesis
                 }
             }
 
+            foreach (var sessionProcessor in _sessionProcessors)
+            {
+                try
+                {
+                    await sessionProcessor.StopProcessingAsync(cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error stopping session processor");
+                }
+                finally
+                {
+                    await sessionProcessor.DisposeAsync();
+                }
+            }
+
             await base.StopAsync(cancellationToken);
             _logger.LogInformation("Worker stopped at: {Time}", DateTimeOffset.Now);
         }
@@ -108,16 +125,33 @@ namespace Blocks.Genesis
         {
             foreach (var queueName in _messageConfiguration?.AzureServiceBusConfiguration?.Queues ?? new())
             {
-                var processor = _serviceBusClient.CreateProcessor(queueName, new ServiceBusProcessorOptions
+                if (_messageConfiguration?.AzureServiceBusConfiguration?.EnableSessions ?? false)
                 {
-                    PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueuePrefetchCount ?? 10,
-                    AutoCompleteMessages = false,
-                    MaxConcurrentCalls = _messageConfiguration?.AzureServiceBusConfiguration?.MaxConcurrentCalls ?? 5
-                });
-                processor.ProcessMessageAsync += MessageHandler;
-                processor.ProcessErrorAsync += ErrorHandler;
-                _processors.Add(processor);
-                await processor.StartProcessingAsync(stoppingToken);
+                    var sessionProcessor = _serviceBusClient.CreateSessionProcessor(queueName, new ServiceBusSessionProcessorOptions
+                    {
+                        PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueuePrefetchCount ?? 10,
+                        AutoCompleteMessages = false,
+                        MaxConcurrentSessions = _messageConfiguration?.AzureServiceBusConfiguration?.MaxConcurrentSessions ?? 8,
+                        MaxConcurrentCallsPerSession = 1
+                    });
+                    sessionProcessor.ProcessMessageAsync += SessionMessageHandler;
+                    sessionProcessor.ProcessErrorAsync += ErrorHandler;
+                    _sessionProcessors.Add(sessionProcessor);
+                    await sessionProcessor.StartProcessingAsync(stoppingToken);
+                }
+                else
+                {
+                    var processor = _serviceBusClient.CreateProcessor(queueName, new ServiceBusProcessorOptions
+                    {
+                        PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.QueuePrefetchCount ?? 10,
+                        AutoCompleteMessages = false,
+                        MaxConcurrentCalls = _messageConfiguration?.AzureServiceBusConfiguration?.MaxConcurrentCalls ?? 5
+                    });
+                    processor.ProcessMessageAsync += MessageHandler;
+                    processor.ProcessErrorAsync += ErrorHandler;
+                    _processors.Add(processor);
+                    await processor.StartProcessingAsync(stoppingToken);
+                }
             }
         }
 
@@ -125,16 +159,140 @@ namespace Blocks.Genesis
         {
             foreach (var topicName in _messageConfiguration?.AzureServiceBusConfiguration?.Topics ?? new())
             {
-                var processor = _serviceBusClient.CreateProcessor(topicName, _messageConfiguration?.GetSubscriptionName(topicName), new ServiceBusProcessorOptions
+                if (_messageConfiguration?.AzureServiceBusConfiguration?.EnableSessions ?? false)
                 {
-                    PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicPrefetchCount ?? 10,
-                    AutoCompleteMessages = false,
-                    MaxConcurrentCalls = _messageConfiguration?.AzureServiceBusConfiguration?.MaxConcurrentCalls ?? 5
-                });
-                processor.ProcessMessageAsync += MessageHandler;
-                processor.ProcessErrorAsync += ErrorHandler;
-                _processors.Add(processor);
-                await processor.StartProcessingAsync(stoppingToken);
+                    var sessionProcessor = _serviceBusClient.CreateSessionProcessor(topicName, _messageConfiguration?.GetSubscriptionName(topicName), new ServiceBusSessionProcessorOptions
+                    {
+                        PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicPrefetchCount ?? 10,
+                        AutoCompleteMessages = false,
+                        MaxConcurrentSessions = _messageConfiguration?.AzureServiceBusConfiguration?.MaxConcurrentSessions ?? 8,
+                        MaxConcurrentCallsPerSession = 1
+                    });
+                    sessionProcessor.ProcessMessageAsync += SessionMessageHandler;
+                    sessionProcessor.ProcessErrorAsync += ErrorHandler;
+                    _sessionProcessors.Add(sessionProcessor);
+                    await sessionProcessor.StartProcessingAsync(stoppingToken);
+                }
+                else
+                {
+                    var processor = _serviceBusClient.CreateProcessor(topicName, _messageConfiguration?.GetSubscriptionName(topicName), new ServiceBusProcessorOptions
+                    {
+                        PrefetchCount = _messageConfiguration?.AzureServiceBusConfiguration?.TopicPrefetchCount ?? 10,
+                        AutoCompleteMessages = false,
+                        MaxConcurrentCalls = _messageConfiguration?.AzureServiceBusConfiguration?.MaxConcurrentCalls ?? 5
+                    });
+                    processor.ProcessMessageAsync += MessageHandler;
+                    processor.ProcessErrorAsync += ErrorHandler;
+                    _processors.Add(processor);
+                    await processor.StartProcessingAsync(stoppingToken);
+                }
+            }
+        }
+
+        private async Task SessionMessageHandler(ProcessSessionMessageEventArgs args)
+        {
+            var traceId = args.Message.ApplicationProperties.TryGetValue("TraceId", out var traceIdObj) ? traceIdObj.ToString() : "";
+            var spanId = args.Message.ApplicationProperties.TryGetValue("SpanId", out var spanIdObj) ? spanIdObj.ToString() : "";
+            var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
+            var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
+            var baggageString = args.Message.ApplicationProperties.TryGetValue("Baggage", out var baggageObj) ? baggageObj.ToString() : "";
+
+            string messageId = args.Message.MessageId;
+            var cancellationTokenSource = new CancellationTokenSource();
+            var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationTokenSource.Token);
+            _activeMessageRenewals.TryAdd(messageId, cancellationTokenSource);
+
+            _ = StartAutoRenewalTask(args, linkedTokenSource.Token);
+
+            _logger.LogInformation("Received session message: {MessageBody} at: {ReceivedAt}", args.Message.Body.ToString(), DateTimeOffset.Now);
+
+            var processedSuccessfully = false;
+
+            try
+            {
+                BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
+
+                foreach (var kvp in DeserializeBaggage(baggageString))
+                {
+                    Baggage.SetBaggage(kvp.Key, kvp.Value);
+                }
+                Baggage.SetBaggage("TenantId", tenantId);
+
+                var parentActivityContext = new ActivityContext(
+                    ActivityTraceId.CreateFromString(traceId),
+                    spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
+                    ActivityTraceFlags.Recorded,
+                    traceState: null,
+                    isRemote: true
+                );
+
+                using var activity = _activitySource.StartActivity("process.messaging.azure.service.bus", ActivityKind.Consumer, parentActivityContext);
+
+                activity?.SetTag("SecurityContext", securityContextString);
+                activity?.SetTag("messageId", messageId);
+                activity?.SetTag("sessionId", args.Message.SessionId);
+
+                string body = args.Message.Body.ToString();
+
+                _logger.LogInformation("Session message received: {Body}", body);
+
+                activity?.SetTag("messaging.system", "azure.servicebus");
+                activity?.SetTag("message.body", body);
+                activity?.SetTag("usage", true);
+
+                try
+                {
+                    var processingStopwatch = Stopwatch.StartNew();
+                    _logger.LogInformation("Started processing message {MessageId} at: {StartTime}", messageId, DateTimeOffset.Now);
+
+                    var message = JsonSerializer.Deserialize<Message>(body);
+                    await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
+
+                    processedSuccessfully = true;
+
+                    processingStopwatch.Stop();
+                    _logger.LogInformation("Completed processing message {MessageId} in {ProcessingTime}ms", messageId, processingStopwatch.ElapsedMilliseconds);
+
+                    activity?.SetTag("response", "Successfully Completed");
+                    activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing message {MessageId}: {ErrorMessage}", messageId, ex.Message);
+                    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    activity?.SetTag("error", ex.Message);
+                }
+                finally
+                {
+                    await cancellationTokenSource.CancelAsync();
+                    linkedTokenSource.Dispose();
+                    _activeMessageRenewals.TryRemove(messageId, out _);
+
+                    if (processedSuccessfully)
+                    {
+                        _logger.LogInformation("Complete message {MessageId}. Reason: processed successfully.", messageId);
+                        await args.CompleteMessageAsync(args.Message);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Abandon message {MessageId}. Reason: processing failed; broker retry policy will decide next delivery.", messageId);
+                        await args.AbandonMessageAsync(args.Message);
+                    }
+
+                    activity?.Stop();
+                    _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error processing session message {MessageId}: {ErrorMessage}", messageId, ex.Message);
+                await cancellationTokenSource.CancelAsync();
+                linkedTokenSource.Dispose();
+                _activeMessageRenewals.TryRemove(messageId, out _);
+            }
+            finally
+            {
+                BlocksContext.ClearContext();
             }
         }
 
@@ -146,14 +304,6 @@ namespace Blocks.Genesis
             var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
             var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
             var baggageString = args.Message.ApplicationProperties.TryGetValue("Baggage", out var baggageObj) ? baggageObj.ToString() : "";
-
-            BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
-
-            foreach (var kvp in DeserializeBaggage(baggageString))
-            {
-                Baggage.SetBaggage(kvp.Key, kvp.Value);
-            }
-            Baggage.SetBaggage("TenantId", tenantId);
 
             string messageId = args.Message.MessageId;
             var cancellationTokenSource = new CancellationTokenSource();
@@ -170,8 +320,18 @@ namespace Blocks.Genesis
 
             _logger.LogInformation("Received message: {MessageBody} at: {ReceivedAt}", args.Message.Body.ToString(), DateTimeOffset.Now);
 
+            var processedSuccessfully = false;
+
             try
             {
+                BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
+
+                foreach (var kvp in DeserializeBaggage(baggageString))
+                {
+                    Baggage.SetBaggage(kvp.Key, kvp.Value);
+                }
+                Baggage.SetBaggage("TenantId", tenantId);
+
                 var parentActivityContext = new ActivityContext(
                     ActivityTraceId.CreateFromString(traceId),
                     spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
@@ -203,6 +363,8 @@ namespace Blocks.Genesis
                     var message = JsonSerializer.Deserialize<Message>(body);
                     await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
 
+                    processedSuccessfully = true;
+
                     processingStopwatch.Stop();
                     _logger.LogInformation("Completed processing message {MessageId} in {ProcessingTime}ms", messageId, processingStopwatch.ElapsedMilliseconds);
 
@@ -220,7 +382,18 @@ namespace Blocks.Genesis
                     await cancellationTokenSource.CancelAsync();
                     linkedTokenSource.Dispose();
                     _activeMessageRenewals.TryRemove(messageId, out _);
-                    await args.CompleteMessageAsync(args.Message);
+
+                    if (processedSuccessfully)
+                    {
+                        _logger.LogInformation("Complete message {MessageId}. Reason: processed successfully.", messageId);
+                        await args.CompleteMessageAsync(args.Message);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Abandon message {MessageId}. Reason: processing failed; broker retry policy will decide next delivery.", messageId);
+                        await args.AbandonMessageAsync(args.Message);
+                    }
+
                     activity?.Stop();
                     _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
                 }
@@ -232,8 +405,10 @@ namespace Blocks.Genesis
                 linkedTokenSource.Dispose();
                 _activeMessageRenewals.TryRemove(messageId, out _);
             }
-
-            BlocksContext.ClearContext();
+            finally
+            {
+                BlocksContext.ClearContext();
+            }
         }
 
         private static Dictionary<string, string> DeserializeBaggage(string? baggageString)
@@ -294,6 +469,55 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in auto-renewal task for message {MessageId}", messageId);
+            }
+        }
+
+        private async Task StartAutoRenewalTask(ProcessSessionMessageEventArgs args, CancellationToken cancellationToken)
+        {
+            ServiceBusReceivedMessage message = args.Message;
+            string messageId = message.MessageId;
+            DateTime processingStartTime = DateTime.UtcNow;
+            int renewalCount = 0;
+            TimeSpan renewalInterval = TimeSpan.FromSeconds(_messageConfiguration?.AzureServiceBusConfiguration?.MessageLockRenewalIntervalSeconds ?? 270);
+
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    await Task.Delay(renewalInterval, cancellationToken);
+
+                    TimeSpan processingTime = DateTime.UtcNow - processingStartTime;
+                    TimeSpan maxProcessingTime = TimeSpan.FromMinutes(_messageConfiguration?.AzureServiceBusConfiguration?.MaxMessageProcessingTimeInMinutes ?? 60);
+                    if (processingTime > maxProcessingTime)
+                    {
+                        _logger.LogWarning("Session message {MessageId} exceeded maximum processing time of {MaxProcessingTimeMinutes} minutes. " +
+                                           "Stopping auto-renewal after {RenewalCount} renewals.", messageId, maxProcessingTime.TotalMinutes, renewalCount);
+                        break;
+                    }
+
+                    try
+                    {
+                        await args.RenewSessionLockAsync(cancellationToken);
+                        renewalCount++;
+                        _logger.LogInformation("Renewed session lock for message {MessageId} (renewal #{RenewalCount}, processing time: {ProcessingTimeSeconds:F1}s)",
+                                                messageId, renewalCount, processingTime.TotalSeconds);
+                    }
+                    catch (Exception ex) when (ex is ServiceBusException or OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex, "Failed to renew session lock for message {MessageId}: {ErrorMessage}", messageId, ex.Message);
+                        break;
+                    }
+                }
+
+                _logger.LogInformation("Session auto-renewal for message {MessageId} completed after {RenewalCount} renewals", messageId, renewalCount);
+            }
+            catch (OperationCanceledException ex)
+            {
+                _logger.LogInformation(ex, "Session auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals", messageId, renewalCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in session auto-renewal task for message {MessageId}", messageId);
             }
         }
 

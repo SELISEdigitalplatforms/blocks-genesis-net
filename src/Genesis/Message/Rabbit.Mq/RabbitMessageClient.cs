@@ -12,6 +12,7 @@ namespace Blocks.Genesis
         private readonly IRabbitMqService _rabbitMqService;
         private readonly MessageConfiguration _messageConfiguration;
         private readonly ActivitySource _activitySource;
+        private readonly bool _enableTenantIsolation;
 
         private IChannel? _channel;
         private Task? _initializationTask;
@@ -27,6 +28,7 @@ namespace Blocks.Genesis
             _rabbitMqService = rabbitMqService;
             _messageConfiguration = messageConfiguration;
             _activitySource = activitySource;
+            _enableTenantIsolation = _messageConfiguration?.RabbitMqConfiguration?.EnableTenantIsolation ?? false;
         }
 
         private async Task EnsureInitializedAsync()
@@ -79,6 +81,12 @@ namespace Blocks.Genesis
             await EnsureInitializedAsync();
 
             var securityContext = BlocksContext.GetContext();
+            var tenantId = securityContext?.TenantId;
+
+            if (_enableTenantIsolation && string.IsNullOrWhiteSpace(tenantId))
+            {
+                tenantId = "default";
+            }
 
             using var activity = _activitySource.StartActivity("messaging.rabbitmq.send", ActivityKind.Producer, Activity.Current?.Context ?? default);
 
@@ -87,6 +95,8 @@ namespace Blocks.Genesis
             activity?.SetTag("messaging.destination.name", consumerMessage.ConsumerName);
             activity?.SetTag("messaging.destination.kind", isExchange ? "exchange" : "queue");
             activity?.SetTag("messaging.rabbitmq.routing_key", consumerMessage.RoutingKey ?? string.Empty);
+            activity?.SetTag("tenant.isolation.enabled", _enableTenantIsolation);
+            activity?.SetTag("tenant.id", tenantId ?? string.Empty);
 
             try
             {
@@ -106,7 +116,7 @@ namespace Blocks.Genesis
                     DeliveryMode = DeliveryModes.Persistent,
                     Headers = new Dictionary<string, object>
                     {
-                        ["TenantId"] = securityContext?.TenantId ?? string.Empty,
+                        ["TenantId"] = tenantId ?? string.Empty,
                         ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty,
                         ["SpanId"] = activity?.SpanId.ToString() ?? string.Empty,
                         ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
@@ -137,6 +147,7 @@ namespace Blocks.Genesis
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send message to {ConsumerName}", consumerMessage.ConsumerName);
+                throw;
             }
         }
 
