@@ -2,8 +2,6 @@
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using StackExchange.Redis;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace Blocks.Genesis
 {
@@ -17,8 +15,8 @@ namespace Blocks.Genesis
         private readonly IMemoryCache _memoryCache;
         private readonly string _rootConnectionString;
         private readonly string _rootDatabaseName;
+        private readonly MongoClient? _rootMongoClient;
         private readonly string _tenantInvalidationChannel = "tenant:invalidate";
-        private readonly string _traceConnectionString;
 
         private bool _isSubscribed = false;
         private bool _disposed = false;
@@ -28,9 +26,13 @@ namespace Blocks.Genesis
             _logger = logger;
             _cacheClient = cacheClient;
             _memoryCache = memoryCache;
-            _traceConnectionString = blocksSecret.TraceConnectionString;
             _rootConnectionString = blocksSecret.DatabaseConnectionString;
             _rootDatabaseName = blocksSecret.RootDatabaseName;
+
+            var settings = MongoClientSettings.FromConnectionString(_rootConnectionString);
+            settings.MaxConnectionPoolSize = 5;
+            settings.MinConnectionPoolSize = 1;
+            _rootMongoClient = new MongoClient(settings);
 
             try
             {
@@ -116,7 +118,6 @@ namespace Blocks.Genesis
             {
                 _ = _cacheClient.SubscribeAsync(_tenantInvalidationChannel, HandleTenantInvalidation);
                 _isSubscribed = true;
-                _logger.LogInformation("Subscribed to tenant invalidation channel.");
             }
             catch (Exception ex)
             {
@@ -138,7 +139,6 @@ namespace Blocks.Genesis
 
                 if (!hasTenantCache && trackedDomainKeys.Count == 0)
                 {
-                    _logger.LogDebug("Tenant {TenantId} is not in L1 cache. Skipping refresh.", tenantId);
                     return;
                 }
 
@@ -147,7 +147,6 @@ namespace Blocks.Genesis
                 {
                     _memoryCache.Remove(tenantCacheKey);
                     RemoveTenantDomainEntries(tenantId, trackedDomainKeys);
-                    _logger.LogInformation("Tenant {TenantId} not found during refresh. Removed stale L1 entry.", tenantId);
                     return;
                 }
 
@@ -157,7 +156,6 @@ namespace Blocks.Genesis
                 }
 
                 RefreshTrackedTenantDomainEntries(tenantId, trackedDomainKeys, tenant);
-                _logger.LogInformation("Refreshed cached tenant {TenantId} from database.", tenantId);
             }
             catch (Exception ex)
             {
@@ -282,26 +280,15 @@ namespace Blocks.Genesis
 
         private IMongoDatabase GetRootDatabase()
         {
-            var cacheKey = $"mongo:client:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_rootConnectionString)))}";
-
-            var client = _memoryCache.GetOrCreate(cacheKey, entry =>
+            if (_rootMongoClient != null)
             {
-                entry.Size = 1;
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30);
-                entry.SlidingExpiration = TimeSpan.FromMinutes(10);
-                entry.RegisterPostEvictionCallback((k, v, reason, state) =>
-                {
-                    if (v is MongoClient mc)
-                        try { mc.Dispose(); } catch { }
-                });
+                return _rootMongoClient.GetDatabase(_rootDatabaseName);
+            }
 
-                var settings = MongoClientSettings.FromConnectionString(_rootConnectionString);
-                settings.MaxConnectionPoolSize = 5;
-                settings.MinConnectionPoolSize = 1;
-                return new MongoClient(settings);
-            })!;
-
-            return client.GetDatabase(_rootDatabaseName);
+            var settings = MongoClientSettings.FromConnectionString(_rootConnectionString);
+            settings.MaxConnectionPoolSize = 5;
+            settings.MinConnectionPoolSize = 1;
+            return new MongoClient(settings).GetDatabase(_rootDatabaseName);
         }
 
         private Tenant? GetTenantFromDb(string tenantId)
@@ -336,6 +323,15 @@ namespace Blocks.Genesis
                 {
                     _logger.LogError(ex, "Error unsubscribing from tenant invalidation channel.");
                 }
+            }
+
+            try
+            {
+                _rootMongoClient?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing root MongoClient.");
             }
 
             _disposed = true;

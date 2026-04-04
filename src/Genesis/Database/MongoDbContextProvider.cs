@@ -50,7 +50,6 @@ namespace Blocks.Genesis
                 {
                     if (v is MongoClient client)
                     {
-                        _logger.LogInformation("Disposing evicted MongoClient. Key: {Key}, Reason: {Reason}", k, reason);
                         try
                         {
                             client.Dispose();
@@ -67,8 +66,6 @@ namespace Blocks.Genesis
                 settings.MaxConnectionPoolSize = 5;     // Limit to 5 per client (not 100)
                 settings.MinConnectionPoolSize = 1;
                 settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
-
-                _logger.LogInformation("Creating new MongoClient. Cache key: {Key}", cacheKey);
                 return new MongoClient(settings);
             });
         }
@@ -84,7 +81,6 @@ namespace Blocks.Genesis
             if (string.IsNullOrWhiteSpace(tenantId))
                 throw new ArgumentNullException(nameof(tenantId), "Tenant ID cannot be null or empty.");
 
-            _logger.LogInformation("Getting database for tenant: {TenantId}", tenantId);
             return InitializeDatabaseForTenant(tenantId);
         }
 
@@ -107,8 +103,6 @@ namespace Blocks.Genesis
             if (string.IsNullOrWhiteSpace(databaseName))
                 throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
 
-            _logger.LogInformation("Getting database: {DatabaseName}", databaseName);
-            
             // Get cached MongoClient
             var client = GetOrCreateMongoClient(connectionString);
             

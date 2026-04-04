@@ -169,6 +169,91 @@ var config = new MessageConfiguration
 };
 ```
 
+#### RabbitMQ Retry and Dead Zone Modes
+
+Use these two RabbitMQ patterns depending on your deployment topology.
+
+```csharp
+// Mode A: Dead zone enabled (recommended)
+var configWithDeadZone = new MessageConfiguration
+{
+    RabbitMqConfiguration = new RabbitMqConfiguration
+    {
+        EnableTenantIsolation = true,
+        MaxRetryCount = 3,
+        DeadLetterExchange = "dead-zone.exchange",
+        DeadLetterRoutingKey = "dead-zone.routing",
+        ConsumerSubscriptions =
+        [
+            ConsumerSubscription.BindToQueue(
+                queueName: "orders.queue",
+                prefetchCount: 20,
+                maxWorkerConcurrency: 8)
+        ]
+    }
+};
+```
+
+```csharp
+// Mode B: No dead zone configured (fallback ack at retry limit)
+var configWithFallbackAck = new MessageConfiguration
+{
+    RabbitMqConfiguration = new RabbitMqConfiguration
+    {
+        EnableTenantIsolation = true,
+        MaxRetryCount = 3,
+        ConsumerSubscriptions =
+        [
+            ConsumerSubscription.BindToQueue(
+                queueName: "orders.queue",
+                prefetchCount: 20,
+                maxWorkerConcurrency: 8)
+        ]
+    }
+};
+```
+
+Behavior summary:
+
+- Success: ack
+- Failure below retry limit: nack with requeue
+- Failure at retry limit + dead zone configured: nack without requeue (broker routes to dead zone)
+- Failure at retry limit + no dead zone: ack fallback (prevents infinite retry loop)
+
+#### Messaging Semantics and Operating Modes
+
+Blocks Genesis provides consistent delivery semantics across both brokers:
+
+- Success: acknowledge completion (`Complete` in Azure Service Bus, `Ack` in RabbitMQ)
+- Failure below retry threshold: retry (`Abandon` / `Nack requeue=true`)
+- Failure at retry threshold: route to dead zone when configured
+- Failure at retry threshold without dead zone configuration: fallback acknowledge to prevent infinite poison-message loops
+
+Azure Service Bus:
+
+- Supports two runtime modes:
+    - `EnableSessions = false`: non-session processing (`MaxConcurrentCalls`)
+    - `EnableSessions = true`: session processing (`MaxConcurrentSessions`, `MaxConcurrentCallsPerSession = 1`)
+- `SessionId` is applied by the client only when session mode is enabled.
+- Session and non-session processors both emit explicit reasoned logs for completion and retry decisions.
+
+RabbitMQ:
+
+- Uses independent controls for transport and execution:
+    - `PrefetchCount`: broker-side in-flight window
+    - `MaxWorkerConcurrency`: application-side processing concurrency
+- Supports optional tenant-aware execution mode via `EnableTenantIsolation`:
+    - serial processing per tenant
+    - parallel processing across tenants
+- Supports bounded retry policy via `MaxRetryCount`.
+- Supports dead-zone routing via `DeadLetterExchange` and `DeadLetterRoutingKey`.
+- Emits explicit reasoned logs for `Ack`, retry requeue, dead-zone routing, and fallback acknowledge decisions.
+
+Operational requirements:
+
+- RabbitMQ dead-zone routing requires DLX queue arguments at declaration time (configured through `RabbitMqConfiguration`).
+- Azure session mode requires session-enabled queue/subscription entities.
+
 ### 5. Global Exception Handling
 
 RFC7807-compliant error responses with trace context:

@@ -79,7 +79,7 @@ public class MongoDBTraceExporterScaffoldTests
     }
 
     [Fact]
-    public void OnEnd_ShouldFallbackToMiscellaneous_WhenTenantBaggageMissing()
+    public void OnEnd_ShouldSkip_WhenTenantBaggageMissing()
     {
         var exporter = CreateExporterForOnEndTests("svc", batchSize: 1000);
 
@@ -92,8 +92,7 @@ public class MongoDBTraceExporterScaffoldTests
         exporter.OnEnd(activity);
 
         var batch = GetBatch(exporter);
-        Assert.True(batch.TryPeek(out var data));
-        Assert.Equal(BlocksConstants.Miscellaneous, data!.TenantId);
+        Assert.Empty(batch);
     }
 
     [Fact]
@@ -253,6 +252,7 @@ public class MongoDBTraceExporterScaffoldTests
         SetField(exporter, "_serviceName", serviceName);
         SetField(exporter, "_batch", new ConcurrentQueue<TraceData>());
         SetField(exporter, "_batchSize", batchSize);
+        SetField(exporter, "_maxQueueSize", 10000);
         SetField(exporter, "_semaphore", new SemaphoreSlim(1, 1));
 
         return exporter;

@@ -55,8 +55,6 @@ public sealed class RabbitMessageWorker : BackgroundService
         consumer.ReceivedAsync += HandleMessageAsync;
 
         await StartConsumingAsync(consumer);
-
-        _logger.LogInformation("RabbitMQ consumer is running and awaiting messages.");
     }
 
     private async Task InitializeRabbitMqAsync()
@@ -157,7 +155,6 @@ public sealed class RabbitMessageWorker : BackgroundService
 
 
         var body = ea.Body.ToArray();
-        _logger.LogInformation("Received message: {Body}", Encoding.UTF8.GetString(body));
         activity?.SetTag("message.body", Encoding.UTF8.GetString(body));
 
         try
@@ -170,7 +167,6 @@ public sealed class RabbitMessageWorker : BackgroundService
                 processedSuccessfully = true;
                 activity?.SetTag("response", "Successfully Completed");
                 activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
-                _logger.LogInformation("Message processed successfully.");
             }
         }
         catch (Exception ex)
@@ -191,7 +187,6 @@ public sealed class RabbitMessageWorker : BackgroundService
                 {
                     if (processedSuccessfully)
                     {
-                        _logger.LogInformation("Ack message {DeliveryTag}. Reason: processed successfully.", ea.DeliveryTag);
                         await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
                     }
                     else
@@ -247,11 +242,6 @@ public sealed class RabbitMessageWorker : BackgroundService
             _queueConcurrencyLimits[subscription.QueueName] = Math.Max(1, subscription.MaxWorkerConcurrency);
             var consumerTag = await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
             _consumerTagToQueue[consumerTag] = subscription.QueueName;
-            _logger.LogInformation("Started consuming queue: {QueueName}, PrefetchCount: {PrefetchCount}, MaxWorkerConcurrency: {MaxWorkerConcurrency}, TenantIsolation: {TenantIsolation}",
-                subscription.QueueName,
-                subscription.PrefetchCount,
-                subscription.MaxWorkerConcurrency,
-                _enableTenantIsolation);
         }
     }
 
@@ -345,6 +335,5 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
 
         await base.StopAsync(cancellationToken);
-        _logger.LogInformation("RabbitMessageWorker has been stopped at {Time}", DateTimeOffset.Now);
     }
 }

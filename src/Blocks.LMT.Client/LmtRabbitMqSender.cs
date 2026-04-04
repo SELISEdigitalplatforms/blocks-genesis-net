@@ -74,7 +74,10 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceWarning($"Exception sending logs to RabbitMQ. Retry {currentRetry}/{_maxRetries}: {ex}");
+                    if (currentRetry == _maxRetries)
+                    {
+                        Trace.TraceWarning($"Failed sending logs to RabbitMQ after {currentRetry + 1} attempts. Error: {ex.Message}");
+                    }
                 }
 
                 currentRetry++;
@@ -126,7 +129,10 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceWarning($"Exception sending traces to RabbitMQ. Retry {currentRetry}/{_maxRetries}: {ex}");
+                    if (currentRetry == _maxRetries)
+                    {
+                        Trace.TraceWarning($"Failed sending traces to RabbitMQ after {currentRetry + 1} attempts. Error: {ex.Message}");
+                    }
                 }
 
                 currentRetry++;
@@ -220,8 +226,6 @@ namespace SeliseBlocks.LMT.Client
                         ["type"] = type
                     }
                 };
-
-                Trace.TraceInformation($"Publishing RabbitMQ message to exchange '{exchangeName}' with routing key '{routingKey}' and message id '{messageId}'");
 
                 await _channel.BasicPublishAsync(
                     exchange: exchangeName,

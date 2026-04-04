@@ -1,8 +1,8 @@
 ﻿using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using System.Diagnostics;
-using System.Text.Json;
 using System.Text;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -67,9 +67,8 @@ namespace Blocks.Genesis
 
             _channel.BasicReturnAsync += async (sender, ea) =>
             {
-                var body = Encoding.UTF8.GetString(ea.Body.ToArray());
-                _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, Body={Body}",
-                    ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, body);
+                _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}",
+                    ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length);
                 await Task.CompletedTask;
             };
         }
@@ -140,9 +139,6 @@ namespace Blocks.Genesis
                     mandatory: true,
                     basicProperties: properties,
                     body: body);
-
-                _logger.LogDebug("Message sent to {ConsumerName} with routing key {RoutingKey}",
-                    consumerMessage.ConsumerName, consumerMessage.RoutingKey ?? string.Empty);
             }
             catch (Exception ex)
             {

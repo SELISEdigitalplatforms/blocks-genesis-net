@@ -212,7 +212,6 @@ namespace Blocks.Genesis
             var logger = GetAuthLogger(httpContext);
             if (ex == null)
             {
-                logger.LogInformation("Auth event {EventName}: {Message}", eventName, message);
                 return;
             }
 
@@ -307,8 +306,6 @@ namespace Blocks.Genesis
                 context.Principal = validatedPrincipal;
                 context.HttpContext.User = validatedPrincipal;
                 context.Success();
-
-                GetAuthLogger(context.HttpContext).LogInformation("Fallback token validation succeeded");
                 return true;
             }
             catch (Exception ex)

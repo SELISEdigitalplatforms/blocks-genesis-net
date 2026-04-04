@@ -9,7 +9,6 @@
         public const string BlocksGrpcKey = "x-blocks-service-key";
         public const string AuthorizationHeaderName = "Authorization";
         public const string Bearer = "Bearer ";
-        public const string Miscellaneous = "miscellaneous";
         internal const string KeyVault = "KeyVault";
 
         public static string BlocksProjectKey { get; private set; } = string.Empty;

@@ -42,7 +42,6 @@ namespace Blocks.Genesis
                 }
 
                 _serviceBusClient = new ServiceBusClient(_messageConfiguration.Connection);
-                _logger.LogInformation("Service Bus Client initialized at: {Time}", DateTimeOffset.Now);
             }
             catch (Exception ex)
             {
@@ -92,7 +91,6 @@ namespace Blocks.Genesis
             }
 
             await base.StopAsync(cancellationToken);
-            _logger.LogInformation("Worker stopped at: {Time}", DateTimeOffset.Now);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -204,8 +202,6 @@ namespace Blocks.Genesis
 
             _ = StartAutoRenewalTask(args, linkedTokenSource.Token);
 
-            _logger.LogInformation("Received session message: {MessageBody} at: {ReceivedAt}", args.Message.Body.ToString(), DateTimeOffset.Now);
-
             var processedSuccessfully = false;
 
             try
@@ -234,8 +230,6 @@ namespace Blocks.Genesis
 
                 string body = args.Message.Body.ToString();
 
-                _logger.LogInformation("Session message received: {Body}", body);
-
                 activity?.SetTag("messaging.system", "azure.servicebus");
                 activity?.SetTag("message.body", body);
                 activity?.SetTag("usage", true);
@@ -243,7 +237,6 @@ namespace Blocks.Genesis
                 try
                 {
                     var processingStopwatch = Stopwatch.StartNew();
-                    _logger.LogInformation("Started processing message {MessageId} at: {StartTime}", messageId, DateTimeOffset.Now);
 
                     var message = JsonSerializer.Deserialize<Message>(body);
                     await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
@@ -251,7 +244,6 @@ namespace Blocks.Genesis
                     processedSuccessfully = true;
 
                     processingStopwatch.Stop();
-                    _logger.LogInformation("Completed processing message {MessageId} in {ProcessingTime}ms", messageId, processingStopwatch.ElapsedMilliseconds);
 
                     activity?.SetTag("response", "Successfully Completed");
                     activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
@@ -270,7 +262,6 @@ namespace Blocks.Genesis
 
                     if (processedSuccessfully)
                     {
-                        _logger.LogInformation("Complete message {MessageId}. Reason: processed successfully.", messageId);
                         await args.CompleteMessageAsync(args.Message);
                     }
                     else
@@ -280,7 +271,6 @@ namespace Blocks.Genesis
                     }
 
                     activity?.Stop();
-                    _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
                 }
             }
             catch (Exception ex)
@@ -318,8 +308,6 @@ namespace Blocks.Genesis
                 CancellationTokenSource = cancellationTokenSource
             });
 
-            _logger.LogInformation("Received message: {MessageBody} at: {ReceivedAt}", args.Message.Body.ToString(), DateTimeOffset.Now);
-
             var processedSuccessfully = false;
 
             try
@@ -348,8 +336,6 @@ namespace Blocks.Genesis
 
                 string body = args.Message.Body.ToString();
 
-                _logger.LogInformation("Message received: {Body}", body);
-
                 activity?.SetTag("messaging.system", "azure.servicebus");
                 activity?.SetTag("message.body", body);
                 activity?.SetTag("usage", true);
@@ -358,7 +344,6 @@ namespace Blocks.Genesis
                 {
                     // Start processing timer
                     var processingStopwatch = Stopwatch.StartNew();
-                    _logger.LogInformation("Started processing message {MessageId} at: {StartTime}", messageId, DateTimeOffset.Now);
 
                     var message = JsonSerializer.Deserialize<Message>(body);
                     await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
@@ -366,7 +351,6 @@ namespace Blocks.Genesis
                     processedSuccessfully = true;
 
                     processingStopwatch.Stop();
-                    _logger.LogInformation("Completed processing message {MessageId} in {ProcessingTime}ms", messageId, processingStopwatch.ElapsedMilliseconds);
 
                     activity?.SetTag("response", "Successfully Completed");
                     activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
@@ -385,7 +369,6 @@ namespace Blocks.Genesis
 
                     if (processedSuccessfully)
                     {
-                        _logger.LogInformation("Complete message {MessageId}. Reason: processed successfully.", messageId);
                         await args.CompleteMessageAsync(args.Message);
                     }
                     else
@@ -395,7 +378,6 @@ namespace Blocks.Genesis
                     }
 
                     activity?.Stop();
-                    _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
                 }
             }
             catch (Exception ex)
@@ -450,8 +432,6 @@ namespace Blocks.Genesis
                     {
                         await args.RenewMessageLockAsync(message, cancellationToken);
                         renewalCount++;
-                        _logger.LogInformation("Renewed lock for message {MessageId} (renewal #{RenewalCount}, processing time: {ProcessingTimeSeconds:F1}s)",
-                                                messageId, renewalCount, processingTime.TotalSeconds);
                     }
                     catch (Exception ex) when (ex is ServiceBusException or OperationCanceledException)
                     {
@@ -459,12 +439,9 @@ namespace Blocks.Genesis
                         break;
                     }
                 }
-
-                _logger.LogInformation("Auto-renewal for message {MessageId} completed after {RenewalCount} renewals", messageId, renewalCount);
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException)
             {
-                _logger.LogInformation(ex, "Auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals", messageId, renewalCount);
             }
             catch (Exception ex)
             {
@@ -499,8 +476,6 @@ namespace Blocks.Genesis
                     {
                         await args.RenewSessionLockAsync(cancellationToken);
                         renewalCount++;
-                        _logger.LogInformation("Renewed session lock for message {MessageId} (renewal #{RenewalCount}, processing time: {ProcessingTimeSeconds:F1}s)",
-                                                messageId, renewalCount, processingTime.TotalSeconds);
                     }
                     catch (Exception ex) when (ex is ServiceBusException or OperationCanceledException)
                     {
@@ -508,12 +483,9 @@ namespace Blocks.Genesis
                         break;
                     }
                 }
-
-                _logger.LogInformation("Session auto-renewal for message {MessageId} completed after {RenewalCount} renewals", messageId, renewalCount);
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException)
             {
-                _logger.LogInformation(ex, "Session auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals", messageId, renewalCount);
             }
             catch (Exception ex)
             {

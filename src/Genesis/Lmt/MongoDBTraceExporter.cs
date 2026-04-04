@@ -14,19 +14,28 @@ namespace Blocks.Genesis
         private readonly Timer _timer;
         private readonly IMongoDatabase? _database;
         private readonly int _batchSize;
+        private readonly int _maxQueueSize;
         private readonly IBlocksSecret? _blocksSecret;
+        private readonly ITraceCollectionEnsurer? _ensurer;
         private ILmtMessageSender? _messageSender;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private int _flushScheduled;
         private bool _disposed;
+
+        private const int MaxParallelTenantWrites = 8;
 
         public MongoDBTraceExporter(
             string serviceName,
             int batchSize = 1000,
-            IBlocksSecret? blocksSecret = null)
+            int maxQueueSize = 100,
+            IBlocksSecret? blocksSecret = null,
+            ITraceCollectionEnsurer? ensurer = null)
         {
             _serviceName = serviceName;
-            _batchSize = batchSize;
+            _maxQueueSize = Math.Clamp(maxQueueSize, 1, 100);
+            _batchSize = Math.Clamp(batchSize, 1, _maxQueueSize);
             _blocksSecret = blocksSecret;
+            _ensurer = ensurer;
 
             var interval = TimeSpan.FromSeconds(3);
             _batch = new ConcurrentQueue<TraceData>();
@@ -37,7 +46,7 @@ namespace Blocks.Genesis
                 _database = LmtConfiguration.GetMongoDatabase(connectionString, LmtConfiguration.TraceDatabaseName);
             }
 
-            _timer = new Timer(async _ => await FlushBatchAsync(), null, interval, interval);
+            _timer = new Timer(_ => TryScheduleFlush(), null, interval, interval);
         }
 
         private ILmtMessageSender? GetOrCreateMessageSender()
@@ -71,8 +80,18 @@ namespace Blocks.Genesis
         public override void OnEnd(Activity data)
         {
             var endTime = data.StartTimeUtc.Add(data.Duration);
-            var tenantId = Baggage.GetBaggage("TenantId") ?? BlocksConstants.Miscellaneous;
-            tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
+            var tenantId = Baggage.GetBaggage("TenantId");
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return;
+            }
+
+            // Apply cooperative backpressure under pressure instead of dropping data.
+            while (_batch.Count >= _maxQueueSize)
+            {
+                TryScheduleFlush();
+                Thread.Yield();
+            }
 
             var traceData = new TraceData
             {
@@ -100,10 +119,36 @@ namespace Blocks.Genesis
 
             _batch.Enqueue(traceData);
 
-            if (_batch.Count >= _batchSize)
+            if (_batch.Count >= _batchSize || _batch.Count >= (_maxQueueSize * 0.8))
             {
-                Task.Run(() => FlushBatchAsync());
+                TryScheduleFlush();
             }
+        }
+
+        private void TryScheduleFlush()
+        {
+            if (Interlocked.Exchange(ref _flushScheduled, 1) == 1)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await FlushBatchAsync();
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _flushScheduled, 0);
+
+                    // If more data accumulated while flushing, schedule again.
+                    if (_batch.Count >= _batchSize)
+                    {
+                        TryScheduleFlush();
+                    }
+                }
+            });
         }
 
         private static Dictionary<string, string> GetBaggageItems()
@@ -125,6 +170,11 @@ namespace Blocks.Genesis
 
                 while (_batch.TryDequeue(out var traceData))
                 {
+                    if (string.IsNullOrWhiteSpace(traceData.TenantId))
+                    {
+                        continue;
+                    }
+
                     if (!tenantBatches.ContainsKey(traceData.TenantId))
                     {
                         tenantBatches[traceData.TenantId] = [];
@@ -155,19 +205,60 @@ namespace Blocks.Genesis
 
         public async Task SaveToMongoDBAsync(Dictionary<string, List<TraceData>> tenantBatches)
         {
+            using var concurrencyGate = new SemaphoreSlim(MaxParallelTenantWrites);
+            var insertTasks = new List<Task>();
+
             foreach (var tenantBatch in tenantBatches)
             {
-                var collection = _database!.GetCollection<BsonDocument>(tenantBatch.Key);
+                if (string.IsNullOrWhiteSpace(tenantBatch.Key))
+                {
+                    continue;
+                }
 
-                try
+                var collectionName = tenantBatch.Key;
+
+                // Bound per-flush parallelism to avoid resource spikes.
+                var insertTask = InsertTenantBatchWithGateAsync(concurrencyGate, collectionName, tenantBatch.Value);
+                insertTasks.Add(insertTask);
+            }
+
+            // Wait for all tenant inserts to complete in parallel
+            if (insertTasks.Count > 0)
+            {
+                await Task.WhenAll(insertTasks);
+            }
+        }
+
+        private async Task InsertTenantBatchWithGateAsync(SemaphoreSlim concurrencyGate, string collectionName, List<TraceData> traceDataList)
+        {
+            await concurrencyGate.WaitAsync();
+            try
+            {
+                await InsertTenantBatchAsync(collectionName, traceDataList);
+            }
+            finally
+            {
+                concurrencyGate.Release();
+            }
+        }
+
+        private async Task InsertTenantBatchAsync(string collectionName, List<TraceData> traceDataList)
+        {
+            try
+            {
+                // Ensure collection exists and all caches updated (handled by ensurer)
+                if (_ensurer != null)
                 {
-                    var bsonDocuments = tenantBatch.Value.Select(ConvertToBsonDocument).ToList();
-                    await collection.InsertManyAsync(bsonDocuments);
+                    await _ensurer.EnsureAndCacheAsync(collectionName);
                 }
-                catch (Exception ex)
-                {
-                    Trace.TraceWarning($"Failed to insert batch for tenant {tenantBatch.Key}: {ex}");
-                }
+
+                var collection = _database!.GetCollection<BsonDocument>(collectionName);
+                var bsonDocuments = traceDataList.Select(ConvertToBsonDocument).ToList();
+                await collection.InsertManyAsync(bsonDocuments);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"Failed to insert batch for tenant '{collectionName}': {ex}");
             }
         }
 

@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,19 +53,11 @@ namespace Blocks.Genesis
                 LastBootstrapState = CurrentBootstrapState.Value;
             }
 
-            if (!string.IsNullOrWhiteSpace(blocksSecret.TraceConnectionString))
-            {
-                LmtConfiguration.CreateCollectionForTrace(blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
-            }
             if (!string.IsNullOrWhiteSpace(blocksSecret.LogConnectionString))
             {
-                LmtConfiguration.CreateCollectionForLogs(blocksSecret.LogConnectionString, BlocksConstants.Miscellaneous);
                 LmtConfiguration.CreateCollectionForLogs(blocksSecret.LogConnectionString, serviceName);
             }
-            // if (!string.IsNullOrWhiteSpace(blocksSecret.MetricConnectionString))
-            // {
-            //     LmtConfiguration.CreateCollectionForMetrics(blocksSecret.MetricConnectionString, BlocksConstants.Miscellaneous);
-            // }
+
 
             Log.Logger = new LoggerConfiguration()
                 .Enrich.FromLogContext()
@@ -137,18 +130,34 @@ namespace Blocks.Genesis
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             var state = GetRequiredBootstrapState();
-
-            services.AddMemoryCache(options =>
+            var activitySource = new ActivitySource(state.ServiceName);
+            var appMemoryCache = new MemoryCache(new MemoryCacheOptions
             {
-                options.SizeLimit = 100;  // Max 100 entries (tenants + mongo clients combined)
-                options.CompactionPercentage = 0.25;  // Evict 25% when cache is full
+                SizeLimit = 300,
+                CompactionPercentage = 0.25
             });
+            var traceEnsureMemoryCache = new MemoryCache(new MemoryCacheOptions
+            {
+                SizeLimit = 1000,
+                CompactionPercentage = 0.25
+            });
+            var cacheClient = new RedisClient(state.BlocksSecret, activitySource);
+            var ensurer = new TraceCollectionEnsurer(state.BlocksSecret, cacheClient, traceEnsureMemoryCache);
+
+            // Shared L1 cache instance for tenant state and mongo client cache.
+            services.AddSingleton<IMemoryCache>(appMemoryCache);
 
             services.AddSingleton(state);
             services.AddSingleton(typeof(IBlocksSecret), state.BlocksSecret);
-            services.AddSingleton<ICacheClient, RedisClient>();
+            services.AddSingleton<ICacheClient>(cacheClient);
             services.AddSingleton<ITenants, Tenants>();
+            services.AddSingleton<ITraceCollectionEnsurer>(ensurer);
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
+            services.AddSingleton<ITenantManagementService>(sp => new TenantManagementService(
+                sp.GetRequiredService<ILogger<TenantManagementService>>(),
+                state.BlocksSecret,
+                cacheClient,
+                ensurer));
 
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);
@@ -159,7 +168,7 @@ namespace Blocks.Genesis
                 builder.AddSerilog();
             });
 
-            services.AddSingleton(new ActivitySource(state.ServiceName));
+            services.AddSingleton(activitySource);
 
             services.AddOpenTelemetry()
                 .WithTracing(tracingBuilder =>
@@ -167,7 +176,10 @@ namespace Blocks.Genesis
                     tracingBuilder
                         .SetSampler(new AlwaysOnSampler())
                         .AddAspNetCoreInstrumentation()
-                        .AddProcessor(new MongoDBTraceExporter(state.ServiceName, blocksSecret: state.BlocksSecret));
+                        .AddProcessor(new MongoDBTraceExporter(
+                            state.ServiceName,
+                            blocksSecret: state.BlocksSecret,
+                            ensurer: ensurer));
                 });
 
             services.AddSingleton<IHttpService, HttpService>();

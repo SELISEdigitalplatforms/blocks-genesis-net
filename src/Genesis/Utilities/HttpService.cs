@@ -137,13 +137,11 @@ namespace Blocks.Genesis
                         {
                             var result = JsonSerializer.Deserialize<T>(responseContent);
                             requestActivity?.SetTag("response.type", typeof(T).Name);
-
-                            _logger.LogDebug("Response successful. Content length: {Length}", responseContent.Length);
                             return (result, string.Empty);
                         }
                         catch (JsonException ex)
                         {
-                            _logger.LogError(ex, "Error deserializing response: {Error}. Response content: {Content}", ex.Message, responseContent);
+                            _logger.LogError(ex, "Error deserializing response: {Error}. Response content length: {ContentLength}", ex.Message, responseContent?.Length ?? 0);
                             return (null, $"Error deserializing response: {ex.Message}");
                         }
                     }

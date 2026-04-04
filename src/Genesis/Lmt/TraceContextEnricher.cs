@@ -14,9 +14,10 @@ namespace Blocks.Genesis
             if (activity != null)
             {
                 var tenantId = Baggage.GetBaggage("TenantId");
-                tenantId = string.IsNullOrWhiteSpace(tenantId) ? BlocksConstants.Miscellaneous : tenantId;
-
-                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", tenantId));
+                if (!string.IsNullOrWhiteSpace(tenantId))
+                {
+                    logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TenantId", tenantId));
+                }
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("TraceId", activity?.TraceId));
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("SpanId", activity?.SpanId));
             }

@@ -295,6 +295,60 @@ BlocksSecret__MessageConnectionString=amqp://username:password@localhost:5672/
 
 **Important**: Configure only one message broker. Configuring both will result in a runtime error.
 
+### Broker Runtime Options (Code Configuration)
+
+In addition to connection strings, broker runtime behavior is controlled through `MessageConfiguration` in code.
+
+#### Azure Service Bus Runtime Options
+
+```csharp
+var messageConfiguration = new MessageConfiguration
+{
+  AzureServiceBusConfiguration = new AzureServiceBusConfiguration
+  {
+    EnableSessions = false,
+    MaxConcurrentCalls = 5,
+    MaxConcurrentSessions = 8,
+    QueuePrefetchCount = 10,
+    TopicPrefetchCount = 10,
+    MaxMessageProcessingTimeInMinutes = 60,
+    MessageLockRenewalIntervalSeconds = 270
+  }
+};
+```
+
+- `EnableSessions`: toggles session vs non-session processing
+- `MaxConcurrentCalls`: non-session parallel handlers per processor
+- `MaxConcurrentSessions`: session-level parallelism when sessions are enabled
+
+#### RabbitMQ Runtime Options
+
+```csharp
+var messageConfiguration = new MessageConfiguration
+{
+  RabbitMqConfiguration = new RabbitMqConfiguration
+  {
+    EnableTenantIsolation = true,
+    MaxRetryCount = 3,
+    DeadLetterExchange = "dead-zone.exchange",
+    DeadLetterRoutingKey = "dead-zone.routing",
+    ConsumerSubscriptions =
+    [
+      ConsumerSubscription.BindToQueue(
+        queueName: "orders.queue",
+        prefetchCount: 20,
+        maxWorkerConcurrency: 8)
+    ]
+  }
+};
+```
+
+- `PrefetchCount`: broker-side in-flight window
+- `MaxWorkerConcurrency`: application-side worker concurrency
+- `EnableTenantIsolation`: serialize within tenant, parallelize across tenants
+- `MaxRetryCount`: bounded retries before dead-zone decision
+- `DeadLetterExchange` / `DeadLetterRoutingKey`: dead-zone routing when retries are exhausted
+
 ### Database Configuration
 
 Blocks Genesis uses MongoDB for primary data storage:

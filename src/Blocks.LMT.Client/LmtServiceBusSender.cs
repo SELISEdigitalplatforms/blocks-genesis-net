@@ -87,7 +87,10 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceWarning($"Exception sending logs to Service Bus. Retry {currentRetry}/{_maxRetries}: {ex}");
+                    if (currentRetry == _maxRetries)
+                    {
+                        Trace.TraceWarning($"Failed sending logs to Service Bus after {currentRetry + 1} attempts. Error: {ex.Message}");
+                    }
                 }
 
                 currentRetry++;
@@ -162,7 +165,10 @@ namespace SeliseBlocks.LMT.Client
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceWarning($"Exception sending traces to Service Bus. Retry {currentRetry}/{_maxRetries}: {ex}");
+                    if (currentRetry == _maxRetries)
+                    {
+                        Trace.TraceWarning($"Failed sending traces to Service Bus after {currentRetry + 1} attempts. Error: {ex.Message}");
+                    }
                 }
 
                 currentRetry++;
@@ -254,7 +260,6 @@ namespace SeliseBlocks.LMT.Client
                     continue;
                 }
 
-                Trace.TraceInformation($"Retrying failed log batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
                 await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount);
             }
         }
@@ -285,7 +290,6 @@ namespace SeliseBlocks.LMT.Client
                     continue;
                 }
 
-                Trace.TraceInformation($"Retrying failed trace batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
                 await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
             }
         }

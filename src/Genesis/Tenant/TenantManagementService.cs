@@ -20,15 +20,18 @@ namespace Blocks.Genesis
         private readonly ILogger<TenantManagementService> _logger;
         private readonly IMongoDatabase _database;
         private readonly ICacheClient _cacheClient;
+        private readonly ITraceCollectionEnsurer? _ensurer;
         private readonly string _tenantInvalidationChannel = "tenant:invalidate";
 
         public TenantManagementService(
             ILogger<TenantManagementService> logger,
             IBlocksSecret blocksSecret,
-            ICacheClient cacheClient)
+            ICacheClient cacheClient,
+            ITraceCollectionEnsurer? ensurer = null)
         {
             _logger = logger;
             _cacheClient = cacheClient;
+            _ensurer = ensurer;
 
             var settings = MongoClientSettings.FromConnectionString(blocksSecret.DatabaseConnectionString);
             settings.MaxConnectionPoolSize = 5;
@@ -45,14 +48,17 @@ namespace Blocks.Genesis
             {
                 var collection = _database.GetCollection<Tenant>(BlocksConstants.TenantCollectionName);
                 await collection.InsertOneAsync(tenant);
-                _logger.LogInformation("Tenant {TenantId} created in MongoDB.", tenant.TenantId);
 
                 var serialized = JsonSerializer.Serialize(tenant);
                 await _cacheClient.AddStringValueAsync($"tenant:{tenant.TenantId}", serialized);
-                _logger.LogInformation("Tenant {TenantId} cached in Redis.", tenant.TenantId);
 
                 await _cacheClient.PublishAsync(_tenantInvalidationChannel, tenant.TenantId);
-                _logger.LogInformation("Published invalidation for tenant {TenantId}.", tenant.TenantId);
+
+                // Ensure trace collection exists and both caches are populated
+                if (_ensurer != null)
+                {
+                    await _ensurer.EnsureAndCacheAsync(tenant.TenantId);
+                }
 
                 return tenant;
             }
@@ -83,14 +89,10 @@ namespace Blocks.Genesis
                     throw new KeyNotFoundException($"Tenant {tenantId} not found.");
                 }
 
-                _logger.LogInformation("Tenant {TenantId} updated in MongoDB.", tenantId);
-
                 var serialized = JsonSerializer.Serialize(updated);
                 await _cacheClient.AddStringValueAsync($"tenant:{tenantId}", serialized);
-                _logger.LogInformation("Tenant {TenantId} updated in Redis.", tenantId);
 
                 await _cacheClient.PublishAsync(_tenantInvalidationChannel, tenantId);
-                _logger.LogInformation("Published invalidation for tenant {TenantId} to all pods.", tenantId);
 
                 return updated;
             }
@@ -117,13 +119,14 @@ namespace Blocks.Genesis
                     throw new KeyNotFoundException($"Tenant {tenantId} not found.");
                 }
 
-                _logger.LogInformation("Tenant {TenantId} marked as disabled in MongoDB.", tenantId);
-
                 await _cacheClient.RemoveKeyAsync($"tenant:{tenantId}");
-                _logger.LogInformation("Tenant {TenantId} removed from Redis.", tenantId);
+
+                if (_ensurer != null)
+                {
+                    await _ensurer.RemoveEnsureAsync(tenantId);
+                }
 
                 await _cacheClient.PublishAsync(_tenantInvalidationChannel, tenantId);
-                _logger.LogInformation("Published invalidation for deleted tenant {TenantId}.", tenantId);
             }
             catch (Exception ex)
             {

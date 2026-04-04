@@ -37,8 +37,6 @@ namespace Blocks.Genesis
 
                 _connection = await factory.CreateConnectionAsync();
                 _channel = await _connection.CreateChannelAsync();
-
-                _logger.LogInformation("Successfully established RabbitMQ connection and channel.");
             }
             catch (Exception ex)
             {
@@ -64,10 +62,7 @@ namespace Blocks.Genesis
                     }
 
                     await _channel.BasicQosAsync(0, subscription.PrefetchCount, global: false);
-                    _logger.LogInformation("RabbitMQ subscription for -- {Subscription}", JsonSerializer.Serialize(subscription));
                 }
-
-                _logger.LogInformation("RabbitMQ subscriptions initialized successfully.");
             }
             catch (Exception ex)
             {
