@@ -18,8 +18,8 @@ namespace Blocks.Genesis
         private readonly MongoClient? _rootMongoClient;
         private readonly string _tenantInvalidationChannel = "tenant:invalidate";
 
-        private bool _isSubscribed = false;
-        private bool _disposed = false;
+        private volatile bool _isSubscribed = false;
+        private volatile bool _disposed = false;
 
         public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient, IMemoryCache memoryCache)
         {
@@ -52,21 +52,30 @@ namespace Blocks.Genesis
 
             var cacheKey = GetTenantCacheKey(tenantId);
             
-            return _memoryCache.GetOrCreate(cacheKey, entry =>
+            // Check if already in L1
+            if (_memoryCache.TryGetValue(cacheKey, out Tenant? cached))
+                return cached;
+            
+            // L2: Try Redis
+            var cachedJson = _cacheClient.GetStringValue($"tenant:{tenantId}");
+            if (!string.IsNullOrEmpty(cachedJson))
             {
-                ApplyTenantCacheOptions(entry);
-                
-                // L2: Try Redis (synchronous)
-                var cachedJson = _cacheClient.GetStringValue($"tenant:{tenantId}");
-                if (!string.IsNullOrEmpty(cachedJson))
+                var tenant = System.Text.Json.JsonSerializer.Deserialize<Tenant>(cachedJson);
+                if (tenant != null)
                 {
-                    var tenant = System.Text.Json.JsonSerializer.Deserialize<Tenant>(cachedJson);
-                    if (tenant != null) return tenant;
+                    _memoryCache.Set(cacheKey, tenant, CreateTenantCacheEntryOptions());
+                    return tenant;
                 }
-                
-                // L3: Try MongoDB (fallback)
-                return GetTenantFromDb(tenantId);
-            });
+            }
+            
+            // L3: Try MongoDB
+            var tenantFromDb = GetTenantFromDb(tenantId);
+            if (tenantFromDb != null)
+            {
+                _memoryCache.Set(cacheKey, tenantFromDb, CreateTenantCacheEntryOptions());
+            }
+            
+            return tenantFromDb;
         }
 
         Tenant? ITenantLookup.GetTenantByApplicationDomain(string appName)
@@ -186,13 +195,6 @@ namespace Blocks.Genesis
             };
         }
 
-        private static void ApplyTenantCacheOptions(ICacheEntry entry)
-        {
-            entry.Size = 1;
-            entry.AbsoluteExpirationRelativeToNow = TenantAbsoluteExpiration;
-            entry.SlidingExpiration = TenantSlidingExpiration;
-        }
-
         private void TrackTenantDomainCacheKey(string tenantId, string domainCacheKey)
         {
             var indexKey = GetTenantDomainIndexKey(tenantId);
@@ -294,6 +296,7 @@ namespace Blocks.Genesis
         private Tenant? GetTenantFromDb(string tenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return null;
+            if (_disposed) return null;
 
             try
             {
@@ -313,11 +316,18 @@ namespace Blocks.Genesis
         {
             if (_disposed) return;
 
+            _disposed = true;
+
             if (_isSubscribed)
             {
                 try
                 {
-                    _cacheClient.UnsubscribeAsync(_tenantInvalidationChannel).Wait(TimeSpan.FromSeconds(5));
+                    var unsubTask = _cacheClient.UnsubscribeAsync(_tenantInvalidationChannel);
+                    if (!unsubTask.Wait(TimeSpan.FromSeconds(5)))
+                    {
+                        _logger.LogWarning("Timeout waiting for tenant invalidation channel unsubscribe.");
+                    }
+                    _isSubscribed = false;
                 }
                 catch (Exception ex)
                 {
@@ -333,8 +343,6 @@ namespace Blocks.Genesis
             {
                 _logger.LogError(ex, "Error disposing root MongoClient.");
             }
-
-            _disposed = true;
         }
     }
 }
