@@ -16,6 +16,19 @@ public class BaseModelsTests
     }
 
     [Fact]
+    public void BaseSortRequest_ShouldStoreAssignedValues()
+    {
+        var sort = new BaseSortRequest
+        {
+            Property = "CreatedAt",
+            IsDescending = true
+        };
+
+        Assert.Equal("CreatedAt", sort.Property);
+        Assert.True(sort.IsDescending);
+    }
+
+    [Fact]
     public void BaseResponseTypes_ShouldStoreAssignedValues()
     {
         var mutation = new BaseMutationResponse
