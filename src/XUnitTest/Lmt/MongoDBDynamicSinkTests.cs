@@ -1,6 +1,9 @@
 ﻿using MongoDB.Bson;
+using MongoDB.Driver;
 using Moq;
 using SeliseBlocks.LMT.Client;
+using Serilog.Events;
+using Serilog.Parsing;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Configuration;

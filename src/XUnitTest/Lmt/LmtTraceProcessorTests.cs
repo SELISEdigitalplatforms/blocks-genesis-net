@@ -183,13 +183,55 @@ public class LmtTraceProcessorTests
         Assert.Equal(string.Empty, trace.StatusDescription);
     }
 
+    [Fact]
+    public async Task OnEnd_ShouldAutoFlush_WhenBatchSizeExceeded()
+    {
+        var processor = CreateProcessorWithMockSender(out var mockSender, traceBatchSize: 1);
+
+        using var source = new ActivitySource("test-trace-auto-flush");
+        using var listener = CreateListener("test-trace-auto-flush");
+        using var activity = source.StartActivity("op1");
+        Assert.NotNull(activity);
+        activity!.Stop();
+
+        processor.OnEnd(activity);
+
+        // Small delay for Task.Run to execute
+        await Task.Delay(100);
+
+        // Should have triggered flush
+        mockSender.Verify(s => s.SendTracesAsync(It.IsAny<Dictionary<string, List<TraceData>>>(), It.IsAny<int>()), Times.Once);
+    }
+
+
+    [Fact]
+    public void OnEnd_ShouldCaptureBaggageItems()
+    {
+        var processor = CreateProcessorWithMockSender(out _);
+
+        using var source = new ActivitySource("test-trace-baggage");
+        using var listener = CreateListener("test-trace-baggage");
+
+        using var activity = source.StartActivity("op-baggage");
+        Assert.NotNull(activity);
+        activity!.Stop();
+
+        processor.OnEnd(activity);
+
+        var queue = GetTraceQueue(processor);
+        Assert.True(queue.TryPeek(out var trace));
+        // Baggage items should be captured (may be empty)
+        Assert.NotNull(trace.Baggage);
+    }
+
     // --- Helpers ---
 
     private static LmtTraceProcessor CreateProcessorWithMockSender(
         out Mock<ILmtMessageSender> mockSender,
         bool enableTracing = true,
         string serviceId = "test-svc",
-        string xBlocksKey = "test-key")
+        string xBlocksKey = "test-key",
+        int traceBatchSize = 9999)
     {
         mockSender = new Mock<ILmtMessageSender>();
         var options = new LmtOptions
@@ -198,7 +240,7 @@ public class LmtTraceProcessorTests
             ConnectionString = "Endpoint=sb://dummy",
             EnableTracing = enableTracing,
             FlushIntervalSeconds = 9999,
-            TraceBatchSize = 9999,
+            TraceBatchSize = traceBatchSize,
             XBlocksKey = xBlocksKey
         };
 

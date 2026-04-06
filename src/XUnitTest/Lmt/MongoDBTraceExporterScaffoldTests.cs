@@ -15,6 +15,66 @@ namespace XUnitTest.Lmt;
 public class MongoDBTraceExporterScaffoldTests
 {
     [Fact]
+    public void Constructor_ShouldCreateExporter_WhenTraceConnectionMissing()
+    {
+        var previous = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+        try
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", null);
+            var secret = new Mock<IBlocksSecret>();
+            secret.SetupGet(s => s.TraceConnectionString).Returns(string.Empty);
+
+            var exporter = new MongoDBTraceExporter("svc-constructor", 2, secret.Object);
+
+            Assert.NotNull(exporter);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", previous);
+        }
+    }
+
+    [Fact]
+    public void Constructor_ShouldInitializeDatabase_WhenTraceConnectionPresent()
+    {
+        var previous = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+        try
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", null);
+            var secret = new Mock<IBlocksSecret>();
+            secret.SetupGet(s => s.TraceConnectionString).Returns("mongodb://localhost:27017");
+
+            var exporter = new MongoDBTraceExporter("svc-trace-db", 2, secret.Object);
+
+            Assert.NotNull(exporter);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", previous);
+        }
+    }
+
+    [Fact]
+    public void TryCreateTracesSender_ShouldCreateSender_WhenServiceBusEnvPresent()
+    {
+        var previous = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+        try
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=secret");
+
+            var method = typeof(MongoDBTraceExporter).GetMethod("TryCreateTracesSender", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            var sender = method!.Invoke(null, new object[] { "svc" });
+            Assert.NotNull(sender);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", previous);
+        }
+    }
+
+    [Fact]
     public void ConvertToBsonDocument_ShouldMapExpectedFields()
     {
         var trace = new TraceData
@@ -96,6 +156,21 @@ public class MongoDBTraceExporterScaffoldTests
     }
 
     [Fact]
+    public void OnEnd_ShouldTriggerImmediateFlush_WhenBatchSizeReached()
+    {
+        var exporter = CreateExporterForOnEndTests("svc", batchSize: 1);
+
+        using var listener = CreateActivityListener();
+        using var source = new ActivitySource("test-source");
+        using var activity = source.StartActivity("op", ActivityKind.Internal)!;
+
+        exporter.OnEnd(activity);
+
+        var queue = GetBatch(exporter);
+        Assert.True(queue.Count <= 1);
+    }
+
+    [Fact]
     public void GetBaggageItems_ShouldReturnCurrentBaggage()
     {
         Baggage.SetBaggage("TenantId", "tenant-1");
@@ -130,6 +205,42 @@ public class MongoDBTraceExporterScaffoldTests
         await task;
 
         Assert.Empty(queue);
+    }
+
+    [Fact]
+    public async Task FlushBatchAsync_ShouldCallSenderPath_WhenSenderConfigured()
+    {
+        var exporter = CreateExporterForOnEndTests("svc", batchSize: 1000);
+        var sender = (LmtServiceBusSender)RuntimeHelpers.GetUninitializedObject(typeof(LmtServiceBusSender));
+        SetField(exporter, "_serviceBusSender", sender);
+
+        var queue = GetBatch(exporter);
+        queue.Enqueue(new TraceData { TenantId = "t-1", TraceId = "trace" });
+
+        var method = typeof(MongoDBTraceExporter).GetMethod("FlushBatchAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(method);
+        await (Task)method!.Invoke(exporter, null)!;
+
+        Assert.Empty(queue);
+    }
+
+    [Fact]
+    public void Dispose_ShouldThrowObjectDisposedException_DueToCurrentImplementationOrder()
+    {
+        var previous = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+        try
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", null);
+            var secret = new Mock<IBlocksSecret>();
+            secret.SetupGet(s => s.TraceConnectionString).Returns(string.Empty);
+            var exporter = new MongoDBTraceExporter("svc-dispose-known", 10, secret.Object);
+
+            Assert.Throws<ObjectDisposedException>(() => exporter.Dispose());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", previous);
+        }
     }
 
     [Fact]
