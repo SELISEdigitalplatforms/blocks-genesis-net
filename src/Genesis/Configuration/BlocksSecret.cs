@@ -4,6 +4,8 @@ namespace Blocks.Genesis
 {
     public sealed class BlocksSecret : IBlocksSecret
     {
+        private static Func<HttpClient> _platformHttpClientFactory = static () => new HttpClient();
+
         public string CacheConnectionString { get; set; }
         public string MessageConnectionString { get; set; }
         public string LogConnectionString { get; set; }
@@ -51,9 +53,19 @@ namespace Blocks.Genesis
         {
             SecretMode.Azure => new AzureSecretProvider(),
             SecretMode.OnPrem => new LocalSecretProvider(),
-            SecretMode.Platform => new PlatformSecretProvider(new HttpClient(), options),
+            SecretMode.Platform => new PlatformSecretProvider(_platformHttpClientFactory(), options),
             _ => throw new InvalidOperationException($"Unknown SecretMode: {options.Mode}")
         };
+
+        internal static void SetPlatformHttpClientFactory(Func<HttpClient> httpClientFactory)
+        {
+            _platformHttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        }
+
+        internal static void ResetPlatformHttpClientFactory()
+        {
+            _platformHttpClientFactory = static () => new HttpClient();
+        }
 
         private static IReadOnlyList<SecretBinding> GetBindings()
         {

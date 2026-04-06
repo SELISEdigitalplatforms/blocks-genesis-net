@@ -74,15 +74,17 @@ namespace Blocks.Genesis
         {
             var httpPort = Environment.GetEnvironmentVariable("HTTP1_PORT") ?? "5000";
             var http2Port = Environment.GetEnvironmentVariable("HTTP2_PORT") ?? "5001";
+            var parsedHttpPort = ParsePort(httpPort, "HTTP1_PORT");
+            var parsedHttp2Port = ParsePort(http2Port, "HTTP2_PORT");
 
             builder.WebHost.ConfigureKestrel(options =>
             {
-                options.ListenAnyIP(int.Parse(httpPort), listenOptions =>
+                options.ListenAnyIP(parsedHttpPort, listenOptions =>
                 {
                     listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1;
                 });
 
-                options.ListenAnyIP(int.Parse(http2Port), listenOptions =>
+                options.ListenAnyIP(parsedHttp2Port, listenOptions =>
                 {
                     listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
                 });
@@ -397,6 +399,16 @@ namespace Blocks.Genesis
         {
             var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
             return string.IsNullOrWhiteSpace(currentEnvironment) ? "appsettings.json" : $"appsettings.{currentEnvironment}.json";
+        }
+
+        private static int ParsePort(string value, string variableName)
+        {
+            if (!int.TryParse(value, out var port) || port <= 0 || port > 65535)
+            {
+                throw new InvalidOperationException($"Environment variable '{variableName}' has invalid port value '{value}'.");
+            }
+
+            return port;
         }
 
         internal sealed record ApplicationBootstrapState(

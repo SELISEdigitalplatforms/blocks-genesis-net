@@ -41,27 +41,27 @@ namespace Blocks.Genesis
                     });
         }
 
-        public async Task<(T, string)> Post<T>(object payload, string url, string contentType = _contentType, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T?, string)> Post<T>(object? payload, string url, string contentType = _contentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Post, url, payload, contentType, headers, cancellationToken);
         }
 
-        public async Task<(T, string)> Get<T>(string url, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T?, string)> Get<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Get, url, null, null, headers, cancellationToken);
         }
 
-        public async Task<(T, string)> Put<T>(object payload, string url, string contentType = _contentType, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T?, string)> Put<T>(object? payload, string url, string contentType = _contentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Put, url, payload, contentType, headers, cancellationToken);
         }
 
-        public async Task<(T, string)> Delete<T>(string url, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T?, string)> Delete<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Delete, url, null, null, headers, cancellationToken);
         }
 
-        public async Task<(T, string)> Patch<T>(object payload, string url, string contentType = _contentType, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T?, string)> Patch<T>(object? payload, string url, string contentType = _contentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, headers, cancellationToken);
         }
@@ -69,8 +69,8 @@ namespace Blocks.Genesis
         /// <summary>
         /// Generic method for making any HTTP request with custom HttpMethod
         /// </summary>
-        public async Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object payload = null,
-            string contentType = _contentType, Dictionary<string, string> headers = null,
+        public async Task<(T?, string)> SendRequest<T>(HttpMethod method, string url, object? payload = null,
+            string contentType = _contentType, Dictionary<string, string>? headers = null,
             CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(method, url, payload, contentType, headers, cancellationToken);
@@ -79,8 +79,8 @@ namespace Blocks.Genesis
         /// <summary>
         /// Makes an HTTP request with form URL encoded data
         /// </summary>
-        public async Task<(T, string)> PostFormUrlEncoded<T>(Dictionary<string, string> formData, string url,
-            Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T?, string)> PostFormUrlEncoded<T>(Dictionary<string, string> formData, string url,
+            Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(HttpMethod.Post, url, formData, "application/x-www-form-urlencoded",
                 headers, cancellationToken, isFormUrlEncoded: true);
@@ -89,22 +89,28 @@ namespace Blocks.Genesis
         /// <summary>
         /// Makes any HTTP request with form URL encoded data
         /// </summary>
-        public async Task<(T, string)> SendFormUrlEncoded<T>(HttpMethod method, Dictionary<string, string> formData,
-            string url, Dictionary<string, string> headers = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<(T?, string)> SendFormUrlEncoded<T>(HttpMethod method, Dictionary<string, string> formData,
+            string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
         {
             return await MakeRequest<T>(method, url, formData, "application/x-www-form-urlencoded",
                 headers, cancellationToken, isFormUrlEncoded: true);
         }
 
-        private async Task<(T, string)> MakeRequest<T>(HttpMethod method, string url, object payload = null,
-            string contentType = _contentType, Dictionary<string, string> headers = null,
+        private async Task<(T?, string)> MakeRequest<T>(HttpMethod method, string url, object? payload = null,
+            string contentType = _contentType, Dictionary<string, string>? headers = null,
             CancellationToken cancellationToken = default, bool isFormUrlEncoded = false) where T : class
         {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var requestUri))
+            {
+                _logger.LogError("Invalid URL provided for HTTP request: {Url}", url);
+                return (null, $"Invalid URL: {url}");
+            }
+
             using (var client = _httpClientFactory.CreateClient())
             using (var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client, Activity.Current?.Context ?? default))
             {
                 requestActivity?.SetTag("url.full", url);
-                requestActivity?.SetTag("server.address", new Uri(url).Host);
+                requestActivity?.SetTag("server.address", requestUri.Host);
                 requestActivity?.SetTag("http.request.method", method.Method);
                 requestActivity?.SetTag("content.type", contentType);
 
@@ -168,8 +174,8 @@ namespace Blocks.Genesis
             }
         }
 
-        private HttpRequestMessage CreateHttpRequest(HttpMethod method, string url, object payload,
-            string contentType, Dictionary<string, string> headers, bool isFormUrlEncoded = false)
+        private HttpRequestMessage CreateHttpRequest(HttpMethod method, string url, object? payload,
+            string contentType, Dictionary<string, string>? headers, bool isFormUrlEncoded = false)
         {
             var request = new HttpRequestMessage(method, url);
 
@@ -188,7 +194,7 @@ namespace Blocks.Genesis
                 else if (!string.IsNullOrEmpty(contentType))
                 {
                     request.Content = new StringContent(
-                        payload is string ? payload.ToString() : JsonSerializer.Serialize(payload),
+                        payload is string payloadString ? payloadString : JsonSerializer.Serialize(payload),
                         Encoding.UTF8,
                         contentType);
                 }

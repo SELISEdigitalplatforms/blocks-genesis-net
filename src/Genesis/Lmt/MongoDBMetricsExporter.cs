@@ -9,12 +9,13 @@ namespace Blocks.Genesis
     public class MongoDBMetricsExporter : BaseExporter<Metric>
     {
         private readonly string _serviceName;
+        private readonly IMongoCollection<BsonDocument> _collection;
         private const string _value = "Value";
 
         public MongoDBMetricsExporter(string serviceName, IBlocksSecret blocksSecret)
         {
             _serviceName = serviceName;
-            LmtConfiguration.GetMongoCollection<BsonDocument>(blocksSecret.MetricConnectionString, LmtConfiguration.MetricDatabaseName, _serviceName);
+            _collection = LmtConfiguration.GetMongoCollection<BsonDocument>(blocksSecret.MetricConnectionString, LmtConfiguration.MetricDatabaseName, _serviceName);
         }
 
         public override ExportResult Export(in Batch<Metric> batch)
@@ -64,6 +65,11 @@ namespace Blocks.Genesis
 
             try
             {
+                if (documents.Count > 0)
+                {
+                    _collection.InsertMany(documents);
+                }
+
                 return ExportResult.Success;
             }
             catch (Exception ex)

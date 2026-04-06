@@ -212,6 +212,7 @@ namespace Blocks.Genesis
             var logger = GetAuthLogger(httpContext);
             if (ex == null)
             {
+                logger.LogWarning("Auth event {EventName}: {Message}", eventName, message);
                 return;
             }
 
