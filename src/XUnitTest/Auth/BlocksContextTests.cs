@@ -24,6 +24,8 @@ public class BlocksContextTests : IDisposable
     [Fact]
     public void CreateFromClaimsIdentity_ShouldReadClaims()
     {
+        BlocksHttpContextAccessor.Instance = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
+
         var identity = new ClaimsIdentity(
         [
             new Claim(BlocksContext.TENANT_ID_CLAIM, "tenant-1"),
