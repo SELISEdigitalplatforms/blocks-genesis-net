@@ -13,6 +13,8 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Net.Http;
 using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace XUnitTest.Auth;
 
@@ -370,6 +372,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         Assert.NotNull(method);
 
         var httpContext = new DefaultHttpContext();
+        httpContext.RequestServices = BuildRequestServicesForAuthTests();
         var scheme = new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler));
         var options = new JwtBearerOptions();
         var messageContext = new MessageReceivedContext(httpContext, scheme, options)
@@ -378,10 +381,9 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         };
 
         var tenants = new Mock<ITenants>();
-        var cacheDb = new Mock<IDatabase>();
         var clientFactory = new Mock<IHttpClientFactory>();
 
-        var task = (Task)method!.Invoke(null, [messageContext, tenants.Object, cacheDb.Object, clientFactory.Object, null])!;
+        var task = (Task)method!.Invoke(null, [messageContext, tenants.Object, clientFactory.Object, null])!;
         await task;
 
         Assert.NotNull(messageContext.Result?.Failure);
@@ -398,6 +400,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         Assert.NotNull(method);
 
         var httpContext = new DefaultHttpContext();
+        httpContext.RequestServices = BuildRequestServicesForAuthTests();
         var scheme = new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler));
         var options = new JwtBearerOptions();
         var messageContext = new MessageReceivedContext(httpContext, scheme, options)
@@ -406,17 +409,18 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         };
 
         var tenants = new Mock<ITenants>();
-        tenants.Setup(t => t.GetTenantTokenValidationParameter("tenant-z")).Returns((JwtTokenParameters?)null);
-
-        var cacheDb = new Mock<IDatabase>();
-        cacheDb.Setup(db => db.StringGetAsync(
-                It.IsAny<RedisKey>(),
-                It.IsAny<CommandFlags>()))
-            .ReturnsAsync(RedisValue.Null);
+        tenants.Setup(t => t.GetTenantByID("tenant-z")).Returns(new Blocks.Genesis.Tenant
+        {
+            TenantId = "tenant-z",
+            ApplicationDomain = "app.local",
+            DbConnectionString = "mongodb://localhost:27017",
+            JwtTokenParameters = null!,
+            ThirdPartyJwtTokenParameters = null!
+        });
 
         var clientFactory = new Mock<IHttpClientFactory>();
 
-        var task = (Task)method!.Invoke(null, [messageContext, tenants.Object, cacheDb.Object, clientFactory.Object, "tenant-z"])!;
+        var task = (Task)method!.Invoke(null, [messageContext, tenants.Object, clientFactory.Object, "tenant-z"])!;
         await task;
 
         Assert.NotNull(messageContext.Result?.Failure);
@@ -521,6 +525,20 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         var task = (Task<bool>)method!.Invoke(null, [context, tenants, token, tenantId, httpClientFactory, ex])!;
         return await task;
+    }
+
+    private static IServiceProvider BuildRequestServicesForAuthTests()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(NullLoggerFactory.Instance);
+        services.AddSingleton<ICacheClient>(_ =>
+        {
+            var cacheClient = new Mock<ICacheClient>();
+            cacheClient.Setup(c => c.CacheDatabase()).Returns(Mock.Of<IDatabase>());
+            return cacheClient.Object;
+        });
+
+        return services.BuildServiceProvider();
     }
 
     private sealed class ThrowingHttpMessageHandler : HttpMessageHandler

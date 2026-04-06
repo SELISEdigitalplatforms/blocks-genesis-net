@@ -29,7 +29,7 @@ public class ApplicationConfigurationsTests
             Environment.SetEnvironmentVariable("BlocksSecret__TraceConnectionString", string.Empty);
             Environment.SetEnvironmentVariable("BlocksSecret__EnableHsts", "true");
 
-            var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync("svc-config", VaultType.OnPrem);
+            var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync("svc-config", SecretMode.OnPrem);
 
             Assert.NotNull(secret);
             Assert.Equal("svc-config", secret.ServiceName);
@@ -448,5 +448,27 @@ public class ApplicationConfigurationsTests
         }
 
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+    }
+
+    private static void SetPrivateStaticField(string fieldName, object? value)
+    {
+        var field = typeof(ApplicationConfigurations).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(field);
+        field!.SetValue(null, value);
+    }
+
+    private static void RegisterApiPrerequisites(IServiceCollection services)
+    {
+        var stateType = typeof(ApplicationConfigurations).GetNestedType("ApplicationBootstrapState", BindingFlags.NonPublic);
+        Assert.NotNull(stateType);
+
+        var stateInstance = Activator.CreateInstance(
+            stateType!,
+            "test-service",
+            new BlocksSecret { EnableHsts = false },
+            null);
+
+        Assert.NotNull(stateInstance);
+        services.AddSingleton(stateType!, stateInstance!);
     }
 }

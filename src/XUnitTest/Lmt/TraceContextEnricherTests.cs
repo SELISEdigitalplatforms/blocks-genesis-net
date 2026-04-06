@@ -54,7 +54,7 @@ public class TraceContextEnricherTests
     }
 
     [Fact]
-    public void Enrich_ShouldFallbackTenantToMiscellaneous_WhenBaggageMissing()
+    public void Enrich_ShouldNotAddTenantId_WhenBaggageMissing()
     {
         using var source = new ActivitySource("test-trace-enricher-fallback");
         using var listener = new ActivityListener
@@ -74,7 +74,7 @@ public class TraceContextEnricherTests
 
         enricher.Enrich(logEvent, new TestLogEventPropertyFactory());
 
-        Assert.Equal(BlocksConstants.Miscellaneous, ((ScalarValue)logEvent.Properties["TenantId"]).Value?.ToString());
+        Assert.False(logEvent.Properties.ContainsKey("TenantId"));
     }
 
     private static LogEvent CreateLogEvent()

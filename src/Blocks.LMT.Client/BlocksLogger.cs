@@ -6,6 +6,8 @@ namespace SeliseBlocks.LMT.Client
 {
     public class BlocksLogger : IBlocksLogger
     {
+        private static readonly Regex PlaceholderRegex = new(@"\{(.*?)\}", RegexOptions.Compiled);
+        
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<LogData> _logBatch;
         private readonly PeriodicTimer _flushTimer;
@@ -19,8 +21,9 @@ namespace SeliseBlocks.LMT.Client
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
 
+            // Validate options
             if (string.IsNullOrWhiteSpace(_options.ServiceId))
-                throw new ArgumentException("ServiceName is required", nameof(options));
+                throw new ArgumentException("ServiceId is required", nameof(options));
 
             if (string.IsNullOrWhiteSpace(_options.ConnectionString))
                 throw new ArgumentException("ConnectionString is required", nameof(options));
@@ -40,6 +43,12 @@ namespace SeliseBlocks.LMT.Client
                 return;
             }
 
+            // Validate and sanitize messageTemplate
+            if (string.IsNullOrWhiteSpace(messageTemplate))
+            {
+                messageTemplate = "<empty message>";
+            }
+
             var activity = Activity.Current;
             var properties = new Dictionary<string, object>();
             string formattedMessage = FormatLogMessage(messageTemplate, args, properties);
@@ -49,7 +58,7 @@ namespace SeliseBlocks.LMT.Client
                 Timestamp = DateTime.UtcNow,
                 Level = level.ToString(),
                 Message = formattedMessage,
-                Exception = exception?.ToString() ?? string.Empty,
+                Exception = SanitizeException(exception),
                 ServiceName = _options.ServiceId,
                 Properties = properties,
                 TenantId = _options.XBlocksKey
@@ -67,6 +76,15 @@ namespace SeliseBlocks.LMT.Client
             {
                 _ = Task.Run(FlushBatchSafeAsync);
             }
+        }
+
+        private static string SanitizeException(Exception? exception)
+        {
+            if (exception == null)
+                return string.Empty;
+
+            // Only include exception type and message, not full stack trace
+            return $"{exception.GetType().Name}: {exception.Message}";
         }
 
         public void LogTrace(string messageTemplate, params object?[] args)
@@ -94,8 +112,7 @@ namespace SeliseBlocks.LMT.Client
                 return messageTemplate;
             }
 
-            var placeholderRegex = new Regex(@"\{(.*?)\}");
-            var matches = placeholderRegex.Matches(messageTemplate);
+            var matches = PlaceholderRegex.Matches(messageTemplate);
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -108,11 +125,15 @@ namespace SeliseBlocks.LMT.Client
                 }
 
                 if (!properties.ContainsKey(key))
-                    properties[key] = args[i] ?? string.Empty;
+                {
+                    // Sanitize object to prevent exposing sensitive data
+                    var sanitizedValue = SanitizeArgument(args[i]);
+                    properties[key] = sanitizedValue;
+                }
             }
 
             int index = 0;
-            return placeholderRegex.Replace(messageTemplate, match =>
+            return PlaceholderRegex.Replace(messageTemplate, match =>
             {
                 if (index >= args.Length)
                     return match.Value;
@@ -121,6 +142,25 @@ namespace SeliseBlocks.LMT.Client
                 index++;
                 return value;
             });
+        }
+
+        private static object SanitizeArgument(object? arg)
+        {
+            if (arg == null)
+                return string.Empty;
+
+            var type = arg.GetType();
+
+            // Don't log exceptions directly - they'll include stack traces
+            if (arg is Exception ex)
+                return ex.GetType().Name; // Only log exception type, not stack trace
+
+            // String arguments are safe
+            if (arg is string)
+                return arg;
+
+            // For other types, convert to string (safe)
+            return arg;
         }
 
         private async Task RunPeriodicFlushAsync(CancellationToken cancellationToken)

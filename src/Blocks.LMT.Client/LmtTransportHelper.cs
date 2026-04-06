@@ -19,5 +19,23 @@ namespace SeliseBlocks.LMT.Client
             return uri.Scheme.Equals("amqp", StringComparison.OrdinalIgnoreCase) ||
                    uri.Scheme.Equals("amqps", StringComparison.OrdinalIgnoreCase);
         }
+
+        public static bool IsValidConnectionString(string? connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+                return false;
+
+            // Check for RabbitMQ pattern
+            if (IsRabbitMq(connectionString))
+                return true;
+
+            // Check for Service Bus pattern (should contain Endpoint and SharedAccessKey or similar)
+            if (connectionString.Contains("Endpoint=", StringComparison.OrdinalIgnoreCase) &&
+                (connectionString.Contains("SharedAccessKey=", StringComparison.OrdinalIgnoreCase) ||
+                 connectionString.Contains("SharedAccessKeyValue=", StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            return false;
+        }
     }
 }

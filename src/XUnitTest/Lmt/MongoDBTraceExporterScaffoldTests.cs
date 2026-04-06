@@ -24,7 +24,7 @@ public class MongoDBTraceExporterScaffoldTests
             var secret = new Mock<IBlocksSecret>();
             secret.SetupGet(s => s.TraceConnectionString).Returns(string.Empty);
 
-            var exporter = new MongoDBTraceExporter("svc-constructor", 2, secret.Object);
+            var exporter = new MongoDBTraceExporter("svc-constructor", 2, blocksSecret: secret.Object);
 
             Assert.NotNull(exporter);
         }
@@ -44,7 +44,7 @@ public class MongoDBTraceExporterScaffoldTests
             var secret = new Mock<IBlocksSecret>();
             secret.SetupGet(s => s.TraceConnectionString).Returns("mongodb://localhost:27017");
 
-            var exporter = new MongoDBTraceExporter("svc-trace-db", 2, secret.Object);
+            var exporter = new MongoDBTraceExporter("svc-trace-db", 2, blocksSecret: secret.Object);
 
             Assert.NotNull(exporter);
         }
@@ -233,7 +233,7 @@ public class MongoDBTraceExporterScaffoldTests
             Environment.SetEnvironmentVariable("ServiceBusConnectionString", null);
             var secret = new Mock<IBlocksSecret>();
             secret.SetupGet(s => s.TraceConnectionString).Returns(string.Empty);
-            var exporter = new MongoDBTraceExporter("svc-dispose-known", 10, secret.Object);
+            var exporter = new MongoDBTraceExporter("svc-dispose-known", 10, blocksSecret: secret.Object);
 
             Assert.Throws<ObjectDisposedException>(() => exporter.Dispose());
         }
