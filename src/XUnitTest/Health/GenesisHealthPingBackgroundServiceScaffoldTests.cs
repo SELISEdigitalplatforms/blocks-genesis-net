@@ -1,5 +1,7 @@
+using Blocks.Genesis;
 using Blocks.Genesis.Health;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 using Moq;
 using StackExchange.Redis;
 using System.Reflection;
@@ -77,6 +79,22 @@ public class GenesisHealthPingBackgroundServiceScaffoldTests
     {
         var service = CreateServiceForPing(_ =>
             Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError)));
+
+        var method = typeof(GenesisHealthPingBackgroundService).GetMethod("PingAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var cfg = new BlocksServicesHealthConfiguration { Endpoint = "https://api.example.com/health", HealthCheckEnabled = true };
+        var task = (Task<bool>)method!.Invoke(service, [cfg, CancellationToken.None])!;
+        var result = await task;
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task PingAsync_ShouldReturnFalse_OnClientErrorStatusCode()
+    {
+        var service = CreateServiceForPing(_ =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.BadRequest)));
 
         var method = typeof(GenesisHealthPingBackgroundService).GetMethod("PingAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
@@ -171,6 +189,239 @@ public class GenesisHealthPingBackgroundServiceScaffoldTests
         Assert.False(result);
     }
 
+    [Fact]
+    public async Task PingAsync_ShouldReturnFalse_OnUnexpectedException()
+    {
+        var service = CreateServiceForPing(_ => throw new InvalidOperationException("unexpected"));
+        var method = typeof(GenesisHealthPingBackgroundService).GetMethod("PingAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var cfg = new BlocksServicesHealthConfiguration { Endpoint = "https://api.example.com/health", HealthCheckEnabled = true };
+        var task = (Task<bool>)method!.Invoke(service, [cfg, CancellationToken.None])!;
+        var result = await task;
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void Constructor_ShouldInitializeCoreFields_AndDispose_ShouldNotThrow()
+    {
+        var cacheDb = new Mock<IDatabase>();
+        var cacheClient = new Mock<ICacheClient>();
+        cacheClient.Setup(c => c.CacheDatabase()).Returns(cacheDb.Object);
+
+        var blocksSecret = new Mock<IBlocksSecret>();
+        blocksSecret.SetupGet(s => s.ServiceName).Returns("svc-ctor");
+        blocksSecret.SetupGet(s => s.DatabaseConnectionString).Returns("mongodb://localhost:27017");
+        blocksSecret.SetupGet(s => s.RootDatabaseName).Returns("root-db");
+
+        var service = new GenesisHealthPingBackgroundService(
+            Mock.Of<ILogger<GenesisHealthPingBackgroundService>>(),
+            Mock.Of<IDbContextProvider>(),
+            cacheClient.Object,
+            blocksSecret.Object);
+
+        Assert.Equal("svc-ctor", GetField<string>(service, "_serviceName"));
+        Assert.Equal("mongodb://localhost:27017", GetField<string>(service, "_connectionString"));
+        Assert.Equal("root-db", GetField<string>(service, "_databaseName"));
+        Assert.Contains("GenesisHealthConfig:svc-ctor", GetField<string>(service, "_configKey"));
+
+        var ex = Record.Exception(() => service.Dispose());
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void LogConfigChanges_ShouldExecuteBranches_WithoutThrowing()
+    {
+        var service = CreateServiceForPing(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)));
+        var method = typeof(GenesisHealthPingBackgroundService).GetMethod("LogConfigChanges", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var first = new BlocksServicesHealthConfiguration
+        {
+            ServiceName = "svc",
+            Endpoint = "https://api.example.com/health",
+            HealthCheckEnabled = true,
+            PingIntervalSeconds = 30
+        };
+
+        var second = new BlocksServicesHealthConfiguration
+        {
+            ServiceName = "svc",
+            Endpoint = "https://api.example.com/health2",
+            HealthCheckEnabled = false,
+            PingIntervalSeconds = 60
+        };
+
+        var ex1 = Record.Exception(() => method!.Invoke(service, [first]));
+        SetField(service, "_currentConfig", first);
+        var ex2 = Record.Exception(() => method!.Invoke(service, [second]));
+
+        Assert.Null(ex1);
+        Assert.Null(ex2);
+    }
+
+    [Fact]
+    public async Task RefreshConfigurationAsync_ShouldSwallowErrors_WhenDatabaseLoadFails()
+    {
+        var service = CreateServiceForPing(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)));
+
+        var cache = new Mock<IDatabase>();
+        cache.Setup(c => c.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync(RedisValue.Null);
+        SetField(service, "_cacheDb", cache.Object);
+
+        var dbProvider = new Mock<IDbContextProvider>();
+        dbProvider.Setup(d => d.GetDatabase(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new Exception("db-error"));
+        SetField(service, "_dbContextProvider", dbProvider.Object);
+
+        var method = typeof(GenesisHealthPingBackgroundService).GetMethod("RefreshConfigurationAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        await (Task)method!.Invoke(service, [CancellationToken.None])!;
+
+        var current = GetField<BlocksServicesHealthConfiguration?>(service, "_currentConfig");
+        Assert.Null(current);
+    }
+
+    [Fact]
+    public async Task RefreshConfigurationAsync_ShouldFallbackToDatabase_WhenCachePayloadInvalid()
+    {
+        var service = CreateServiceForPing(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)));
+
+        var cache = new Mock<IDatabase>();
+        cache.Setup(c => c.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync((RedisValue)"{not-json}");
+        SetField(service, "_cacheDb", cache.Object);
+
+        var dbProvider = new Mock<IDbContextProvider>();
+        dbProvider.Setup(d => d.GetDatabase(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new Exception("db-fallback-error"));
+        SetField(service, "_dbContextProvider", dbProvider.Object);
+
+        var method = typeof(GenesisHealthPingBackgroundService).GetMethod("RefreshConfigurationAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        await (Task)method!.Invoke(service, [CancellationToken.None])!;
+
+        var current = GetField<BlocksServicesHealthConfiguration?>(service, "_currentConfig");
+        Assert.Null(current);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldStartLoop_AndStopOnCancellation()
+    {
+        var cacheDb = new Mock<IDatabase>();
+        var cacheClient = new Mock<ICacheClient>();
+        cacheClient.Setup(c => c.CacheDatabase()).Returns(cacheDb.Object);
+
+        var cfg = new BlocksServicesHealthConfiguration
+        {
+            ServiceName = "svc-exec",
+            Endpoint = "https://api.example.com/health",
+            HealthCheckEnabled = true,
+            PingIntervalSeconds = 1
+        };
+
+        cacheDb.Setup(c => c.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync((RedisValue)System.Text.Json.JsonSerializer.Serialize(cfg));
+
+        var blocksSecret = new Mock<IBlocksSecret>();
+        blocksSecret.SetupGet(s => s.ServiceName).Returns("svc-exec");
+        blocksSecret.SetupGet(s => s.DatabaseConnectionString).Returns("mongodb://localhost:27017");
+        blocksSecret.SetupGet(s => s.RootDatabaseName).Returns("root-db");
+
+        var service = new GenesisHealthPingBackgroundService(
+            Mock.Of<ILogger<GenesisHealthPingBackgroundService>>(),
+            Mock.Of<IDbContextProvider>(),
+            cacheClient.Object,
+            blocksSecret.Object);
+
+        SetField(service, "_httpClient", new HttpClient(new StubHandler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)))));
+
+        var execute = typeof(GenesisHealthPingBackgroundService).GetMethod("ExecuteAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(execute);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+        var task = (Task)execute!.Invoke(service, [cts.Token])!;
+        await task;
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldHandleDisabledConfigBranch()
+    {
+        var cacheDb = new Mock<IDatabase>();
+        var cacheClient = new Mock<ICacheClient>();
+        cacheClient.Setup(c => c.CacheDatabase()).Returns(cacheDb.Object);
+
+        var cfg = new BlocksServicesHealthConfiguration
+        {
+            ServiceName = "svc-disabled",
+            Endpoint = "https://api.example.com/health",
+            HealthCheckEnabled = false,
+            PingIntervalSeconds = 1
+        };
+
+        cacheDb.Setup(c => c.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync((RedisValue)System.Text.Json.JsonSerializer.Serialize(cfg));
+
+        var blocksSecret = new Mock<IBlocksSecret>();
+        blocksSecret.SetupGet(s => s.ServiceName).Returns("svc-disabled");
+        blocksSecret.SetupGet(s => s.DatabaseConnectionString).Returns("mongodb://localhost:27017");
+        blocksSecret.SetupGet(s => s.RootDatabaseName).Returns("root-db");
+
+        var service = new GenesisHealthPingBackgroundService(
+            Mock.Of<ILogger<GenesisHealthPingBackgroundService>>(),
+            Mock.Of<IDbContextProvider>(),
+            cacheClient.Object,
+            blocksSecret.Object);
+
+        var execute = typeof(GenesisHealthPingBackgroundService).GetMethod("ExecuteAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(execute);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+        var task = (Task)execute!.Invoke(service, [cts.Token])!;
+        await task;
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldHandleEmptyEndpointBranch()
+    {
+        var cacheDb = new Mock<IDatabase>();
+        var cacheClient = new Mock<ICacheClient>();
+        cacheClient.Setup(c => c.CacheDatabase()).Returns(cacheDb.Object);
+
+        var cfg = new BlocksServicesHealthConfiguration
+        {
+            ServiceName = "svc-empty-endpoint",
+            Endpoint = " ",
+            HealthCheckEnabled = true,
+            PingIntervalSeconds = 1
+        };
+
+        cacheDb.Setup(c => c.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync((RedisValue)System.Text.Json.JsonSerializer.Serialize(cfg));
+
+        var blocksSecret = new Mock<IBlocksSecret>();
+        blocksSecret.SetupGet(s => s.ServiceName).Returns("svc-empty-endpoint");
+        blocksSecret.SetupGet(s => s.DatabaseConnectionString).Returns("mongodb://localhost:27017");
+        blocksSecret.SetupGet(s => s.RootDatabaseName).Returns("root-db");
+
+        var service = new GenesisHealthPingBackgroundService(
+            Mock.Of<ILogger<GenesisHealthPingBackgroundService>>(),
+            Mock.Of<IDbContextProvider>(),
+            cacheClient.Object,
+            blocksSecret.Object);
+
+        var execute = typeof(GenesisHealthPingBackgroundService).GetMethod("ExecuteAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(execute);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+        var task = (Task)execute!.Invoke(service, [cts.Token])!;
+        await task;
+    }
+
     private static GenesisHealthPingBackgroundService CreateServiceForPing(Func<HttpRequestMessage, Task<HttpResponseMessage>> responder)
     {
         var service = (GenesisHealthPingBackgroundService)RuntimeHelpers.GetUninitializedObject(typeof(GenesisHealthPingBackgroundService));
@@ -181,6 +432,13 @@ public class GenesisHealthPingBackgroundServiceScaffoldTests
         SetField(service, "_httpClient", new HttpClient(new StubHandler(responder)));
 
         return service;
+    }
+
+    private static T GetField<T>(object instance, string fieldName)
+    {
+        var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (T)field!.GetValue(instance)!;
     }
 
     private static void SetField(object instance, string fieldName, object value)

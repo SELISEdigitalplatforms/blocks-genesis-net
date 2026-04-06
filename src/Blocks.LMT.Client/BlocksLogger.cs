@@ -153,9 +153,9 @@ namespace SeliseBlocks.LMT.Client
             _flushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
             _flushTimer?.Dispose();
 
-            _semaphore.Wait();
             try
             {
+                // FlushBatchAsync already synchronizes with _semaphore; waiting here causes a self-deadlock.
                 FlushBatchAsync().GetAwaiter().GetResult();
             }
             catch (Exception ex)
@@ -164,7 +164,6 @@ namespace SeliseBlocks.LMT.Client
             }
             finally
             {
-                _semaphore.Release();
                 _semaphore?.Dispose();
             }
 
