@@ -70,34 +70,42 @@ public class TenantValidationMiddlewareTests
     [Fact]
     public async Task InvokeAsync_ShouldCallNext_AndClearContext_OnSuccess()
     {
-        var tenants = new Mock<ITenants>();
-        var crypto = new Mock<ICryptoService>();
-        var tenant = CreateTenant("tenant-1", "app.local");
-        var nextCalled = false;
-
-        tenants.Setup(t => t.GetTenantByID("tenant-1")).Returns(tenant);
-
-        RequestDelegate next = async ctx =>
+        var originalTestMode = BlocksContext.IsTestMode;
+        try
         {
-            nextCalled = true;
-            ctx.Response.StatusCode = StatusCodes.Status200OK;
-            await ctx.Response.WriteAsync("ok");
-        };
+            BlocksContext.IsTestMode = true;
+            BlocksContext.ClearContext();
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
-        var context = CreateHttpContext("app.local");
-        context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-1";
+            var tenants = new Mock<ITenants>();
+            var crypto = new Mock<ICryptoService>();
+            var tenant = CreateTenant("tenant-1", "app.local");
+            var nextCalled = false;
 
-        using var activity = new Activity("tenant-validation").Start();
-        await middleware.InvokeAsync(context);
-    Assert.True(nextCalled);
-    Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
-    var contextVal = BlocksContext.GetContext();
-    Assert.NotNull(contextVal);
-    Assert.Equal(string.Empty, contextVal.TenantId);
-    Assert.Empty(contextVal.Roles);
-    Assert.Equal(string.Empty, contextVal.UserId);
-    Assert.False(contextVal.IsAuthenticated);
+            tenants.Setup(t => t.GetTenantByID("tenant-1")).Returns(tenant);
+
+            RequestDelegate next = async ctx =>
+            {
+                nextCalled = true;
+                ctx.Response.StatusCode = StatusCodes.Status200OK;
+                await ctx.Response.WriteAsync("ok");
+            };
+
+            var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+            var context = CreateHttpContext("app.local");
+            context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-1";
+
+            using var activity = new Activity("tenant-validation").Start();
+            await middleware.InvokeAsync(context);
+
+            Assert.True(nextCalled);
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+            Assert.Null(BlocksContext.GetContext());
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+            BlocksContext.IsTestMode = originalTestMode;
+        }
     }
 
     [Fact]

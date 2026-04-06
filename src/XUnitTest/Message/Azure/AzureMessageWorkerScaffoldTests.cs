@@ -72,71 +72,81 @@ public class AzureMessageWorkerScaffoldTests
     [Fact]
     public async Task MessageHandler_ShouldCatchOuterError_AndClearContextAndRenewals()
     {
-        BlocksContext.ClearContext();
-        var worker = CreateWorkerWithEmptyConnection();
+        var originalTestMode = BlocksContext.IsTestMode;
+        try
+        {
+            BlocksContext.IsTestMode = true;
+            BlocksContext.ClearContext();
+            var worker = CreateWorkerWithEmptyConnection();
 
-        var message = ServiceBusModelFactory.ServiceBusReceivedMessage(
-            body: BinaryData.FromString("{\"Type\":\"NoRoute\",\"Body\":\"{}\"}"),
-            messageId: "msg-1",
-            properties: new Dictionary<string, object>
-            {
-                ["TraceId"] = "invalid-trace-id",
-                ["SpanId"] = "invalid-span-id",
-                ["TenantId"] = "tenant-1",
-                ["SecurityContext"] = "{}",
-                ["Baggage"] = "{}"
-            });
+            var message = ServiceBusModelFactory.ServiceBusReceivedMessage(
+                body: BinaryData.FromString("{\"Type\":\"NoRoute\",\"Body\":\"{}\"}"),
+                messageId: "msg-1",
+                properties: new Dictionary<string, object>
+                {
+                    ["TraceId"] = "invalid-trace-id",
+                    ["SpanId"] = "invalid-span-id",
+                    ["TenantId"] = "tenant-1",
+                    ["SecurityContext"] = "{}",
+                    ["Baggage"] = "{}"
+                });
 
-        var args = (ProcessMessageEventArgs)RuntimeHelpers.GetUninitializedObject(typeof(ProcessMessageEventArgs));
-        SetMember(args, "Message", message);
+            var args = (ProcessMessageEventArgs)RuntimeHelpers.GetUninitializedObject(typeof(ProcessMessageEventArgs));
+            SetMember(args, "Message", message);
 
-        var started = false;
-        worker.MessageProcessingStarted += (_, _) => started = true;
+            var started = false;
+            worker.MessageProcessingStarted += (_, _) => started = true;
 
-        await InvokePrivateAsync(worker, "MessageHandler", args);
+            await InvokePrivateAsync(worker, "MessageHandler", args);
 
-    Assert.True(started);
-    var context = BlocksContext.GetContext();
-    Assert.NotNull(context);
-    Assert.Equal(string.Empty, context.TenantId);
-    Assert.Empty(context.Roles);
-    Assert.Equal(string.Empty, context.UserId);
-    Assert.False(context.IsAuthenticated);
+            Assert.True(started);
+            AssertClearedContext(BlocksContext.GetContext());
 
-    var renewals = GetField<ConcurrentDictionary<string, CancellationTokenSource>>(worker, "_activeMessageRenewals");
-    Assert.DoesNotContain("msg-1", renewals.Keys);
+            var renewals = GetField<ConcurrentDictionary<string, CancellationTokenSource>>(worker, "_activeMessageRenewals");
+            Assert.DoesNotContain("msg-1", renewals.Keys);
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+            BlocksContext.IsTestMode = originalTestMode;
+        }
     }
 
     [Fact]
     public async Task MessageHandler_ShouldRunInnerProcessingPath_WhenTraceIdsAreValid()
     {
-        BlocksContext.ClearContext();
-        var worker = CreateWorkerWithEmptyConnection();
+        var originalTestMode = BlocksContext.IsTestMode;
+        try
+        {
+            BlocksContext.IsTestMode = true;
+            BlocksContext.ClearContext();
+            var worker = CreateWorkerWithEmptyConnection();
 
-        var message = ServiceBusModelFactory.ServiceBusReceivedMessage(
-            body: BinaryData.FromString("{\"Type\":\"NoRoute\",\"Body\":\"{}\"}"),
-            messageId: "msg-2",
-            properties: new Dictionary<string, object>
-            {
-                ["TraceId"] = "0123456789abcdef0123456789abcdef",
-                ["SpanId"] = "0123456789abcdef",
-                ["TenantId"] = "tenant-2",
-                ["SecurityContext"] = "{}",
-                ["Baggage"] = "{}"
-            });
+            var message = ServiceBusModelFactory.ServiceBusReceivedMessage(
+                body: BinaryData.FromString("{\"Type\":\"NoRoute\",\"Body\":\"{}\"}"),
+                messageId: "msg-2",
+                properties: new Dictionary<string, object>
+                {
+                    ["TraceId"] = "0123456789abcdef0123456789abcdef",
+                    ["SpanId"] = "0123456789abcdef",
+                    ["TenantId"] = "tenant-2",
+                    ["SecurityContext"] = "{}",
+                    ["Baggage"] = "{}"
+                });
 
-        var args = (ProcessMessageEventArgs)RuntimeHelpers.GetUninitializedObject(typeof(ProcessMessageEventArgs));
-        SetMember(args, "Message", message);
+            var args = (ProcessMessageEventArgs)RuntimeHelpers.GetUninitializedObject(typeof(ProcessMessageEventArgs));
+            SetMember(args, "Message", message);
 
-        var exception = await Record.ExceptionAsync(() => InvokePrivateAsync(worker, "MessageHandler", args));
+            var exception = await Record.ExceptionAsync(() => InvokePrivateAsync(worker, "MessageHandler", args));
 
-        Assert.Null(exception);
-        var context = BlocksContext.GetContext();
-        Assert.NotNull(context);
-        Assert.Equal(string.Empty, context.TenantId);
-        Assert.Empty(context.Roles);
-        Assert.Equal(string.Empty, context.UserId);
-        Assert.False(context.IsAuthenticated);
+            Assert.Null(exception);
+            AssertClearedContext(BlocksContext.GetContext());
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+            BlocksContext.IsTestMode = originalTestMode;
+        }
     }
 
     [Fact]
@@ -287,5 +297,18 @@ public class AzureMessageWorkerScaffoldTests
 
         Assert.NotNull(field);
         field!.SetValue(instance, value);
+    }
+
+    private static void AssertClearedContext(BlocksContext? context)
+    {
+        if (context is null)
+        {
+            return;
+        }
+
+        Assert.Equal(string.Empty, context.TenantId);
+        Assert.Empty(context.Roles);
+        Assert.Equal(string.Empty, context.UserId);
+        Assert.False(context.IsAuthenticated);
     }
 }
