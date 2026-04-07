@@ -11,6 +11,7 @@ using MongoDB.Bson.Serialization.Serializers;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
+using StackExchange.Redis;
 using System.Diagnostics;
 using System.Threading;
 
@@ -21,6 +22,31 @@ namespace Blocks.Genesis
         private static readonly AsyncLocal<ApplicationBootstrapState?> CurrentBootstrapState = new();
         private static readonly Lock BootstrapStateSyncRoot = new();
         private static ApplicationBootstrapState? LastBootstrapState;
+
+        /// <summary>
+        /// Shared L1 cache for tenant lookups (used by <see cref="Tenants"/> only).
+        /// Intentionally small: a single pod serves a fraction of the 4k+ tenant fleet.
+        /// L2 (Redis) handles misses at ~1-2ms — no need to bloat the pod heap.
+        /// SizeLimit = 100, scanned every 5 minutes.
+        /// </summary>
+        private static readonly MemoryCacheOptions AppCacheOptions = new()
+        {
+            SizeLimit = 100,
+            CompactionPercentage = 0.25,
+            ExpirationScanFrequency = TimeSpan.FromMinutes(5)
+        };
+
+        /// <summary>
+        /// Dedicated L1 cache for TraceCollectionEnsurer flags.
+        /// SizeLimit = 500 entries — one per active tenant on this pod.
+        /// Scanned every 15 minutes to keep overhead low while clearing expired flags.
+        /// </summary>
+        private static readonly MemoryCacheOptions TraceEnsureCacheOptions = new()
+        {
+            SizeLimit = 500,
+            CompactionPercentage = 0.20,
+            ExpirationScanFrequency = TimeSpan.FromMinutes(15)
+        };
 
         internal static ApplicationBootstrapState? GetBootstrapState()
         {
@@ -132,34 +158,29 @@ namespace Blocks.Genesis
         public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
         {
             var state = GetRequiredBootstrapState();
-            var activitySource = new ActivitySource(state.ServiceName);
-            var appMemoryCache = new MemoryCache(new MemoryCacheOptions
-            {
-                SizeLimit = 300,
-                CompactionPercentage = 0.25
-            });
-            var traceEnsureMemoryCache = new MemoryCache(new MemoryCacheOptions
-            {
-                SizeLimit = 1000,
-                CompactionPercentage = 0.25
-            });
-            var cacheClient = new RedisClient(state.BlocksSecret, activitySource);
-            var ensurer = new TraceCollectionEnsurer(state.BlocksSecret, cacheClient, traceEnsureMemoryCache);
+            var redisMultiplexer = ConnectionMultiplexer.Connect(state.BlocksSecret.CacheConnectionString);
 
-            // Shared L1 cache instance for tenant state and mongo client cache.
-            services.AddSingleton<IMemoryCache>(appMemoryCache);
+            // Register ActivitySource via factory so the container owns its lifetime.
+            services.AddSingleton(_ => new ActivitySource(state.ServiceName));
+
+            // Shared L1 cache instance for tenant state and MongoClient cache.
+            services.AddSingleton<IMemoryCache>(_ => new MemoryCache(AppCacheOptions));
 
             services.AddSingleton(state);
             services.AddSingleton(typeof(IBlocksSecret), state.BlocksSecret);
-            services.AddSingleton<ICacheClient>(cacheClient);
+            services.AddSingleton<IConnectionMultiplexer>(redisMultiplexer);
+
+            services.AddSingleton<ICacheClient>(sp =>
+                new RedisClient(sp.GetRequiredService<IConnectionMultiplexer>(), sp.GetRequiredService<ActivitySource>()));
+
+            services.AddSingleton<ITraceCollectionEnsurer>(sp =>
+            {
+                var traceEnsureMemoryCache = new MemoryCache(TraceEnsureCacheOptions);
+                return new TraceCollectionEnsurer(state.BlocksSecret, sp.GetRequiredService<ICacheClient>(), traceEnsureMemoryCache);
+            });
+
             services.AddSingleton<ITenants, Tenants>();
-            services.AddSingleton<ITraceCollectionEnsurer>(ensurer);
             services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
-            services.AddSingleton<ITenantManagementService>(sp => new TenantManagementService(
-                sp.GetRequiredService<ILogger<TenantManagementService>>(),
-                state.BlocksSecret,
-                cacheClient,
-                ensurer));
 
             var objectSerializer = new ObjectSerializer(_ => true);
             BsonSerializer.RegisterSerializer(objectSerializer);
@@ -170,18 +191,17 @@ namespace Blocks.Genesis
                 builder.AddSerilog();
             });
 
-            services.AddSingleton(activitySource);
-
             services.AddOpenTelemetry()
                 .WithTracing(tracingBuilder =>
                 {
                     tracingBuilder
                         .SetSampler(new AlwaysOnSampler())
                         .AddAspNetCoreInstrumentation()
-                        .AddProcessor(new MongoDBTraceExporter(
+                        .AddRedisInstrumentation(redisMultiplexer)
+                        .AddProcessor(sp => new MongoDBTraceExporter(
                             state.ServiceName,
                             blocksSecret: state.BlocksSecret,
-                            ensurer: ensurer));
+                            ensurer: sp.GetRequiredService<ITraceCollectionEnsurer>()));
                 });
 
             services.AddSingleton<IHttpService, HttpService>();
@@ -193,7 +213,9 @@ namespace Blocks.Genesis
             services.AddHttpContextAccessor();
 
             if (state.SwaggerOptions != null)
+            {
                 services.AddBlocksSwagger(state.SwaggerOptions);
+            }
 
             services.AddSingleton<ICryptoService, CryptoService>();
             services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();

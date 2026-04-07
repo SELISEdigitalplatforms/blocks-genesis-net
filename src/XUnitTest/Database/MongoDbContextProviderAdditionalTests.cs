@@ -116,7 +116,6 @@ public class MongoDbContextProviderAdditionalTests : IDisposable
     private static MongoDbContextProvider CreateProvider(Mock<ITenants> tenants)
     {
         var logger = new Mock<ILogger<MongoDbContextProvider>>();
-        var memoryCache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 100 });
-        return new MongoDbContextProvider(logger.Object, tenants.Object, new System.Diagnostics.ActivitySource("test"), memoryCache);
+        return new MongoDbContextProvider(logger.Object, tenants.Object, new System.Diagnostics.ActivitySource("test"));
     }
 }

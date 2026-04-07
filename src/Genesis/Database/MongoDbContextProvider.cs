@@ -9,6 +9,22 @@ namespace Blocks.Genesis
 {
     public class MongoDbContextProvider : IDbContextProvider, IDisposable
     {
+        // MongoClient is expensive to create (TCP connection pool setup).
+        // Aggressive sliding (5 min): inactive tenants release their connection pool quickly.
+        // Absolute (20 min): active tenants are never rebuilt mid-load, even under sustained traffic.
+        private static readonly TimeSpan MongoClientAbsoluteExpiration = TimeSpan.FromMinutes(20);
+        private static readonly TimeSpan MongoClientSlidingExpiration = TimeSpan.FromMinutes(5);
+
+        // Keep MongoClient cache intentionally small: each client holds a TCP connection pool.
+        // 100 clients × 5 connections = 500 open connections to MongoDB per pod — already significant.
+        // Inactive tenants are evicted by sliding TTL; hot tenants stay warm.
+        private static readonly MemoryCacheOptions MongoClientCacheOptions = new()
+        {
+            SizeLimit = 100,
+            CompactionPercentage = 0.25,
+            ExpirationScanFrequency = TimeSpan.FromMinutes(5)
+        };
+
         private readonly ILogger<MongoDbContextProvider> _logger;
         private readonly ITenants _tenants;
         private readonly ActivitySource _activitySource;
@@ -16,15 +32,14 @@ namespace Blocks.Genesis
         private bool _disposed = false;
 
         public MongoDbContextProvider(
-            ILogger<MongoDbContextProvider> logger, 
-            ITenants tenants, 
-            ActivitySource activitySource,
-            IMemoryCache memoryCache)
+            ILogger<MongoDbContextProvider> logger,
+            ITenants tenants,
+            ActivitySource activitySource)
         {
             _logger = logger;
             _tenants = tenants;
             _activitySource = activitySource;
-            _mongoClientCache = memoryCache;
+            _mongoClientCache = new MemoryCache(MongoClientCacheOptions);
         }
 
         // Get or create MongoClient with bounded L1 cache
@@ -38,12 +53,9 @@ namespace Blocks.Genesis
 
             return _mongoClientCache.GetOrCreate(cacheKey, entry =>
             {
-                // Size: 1 = each client counts as 1 unit
                 entry.Size = 1;
-                
-                // TTL: 30 min absolute, 10 min sliding
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30);
-                entry.SlidingExpiration = TimeSpan.FromMinutes(10);
+                entry.AbsoluteExpirationRelativeToNow = MongoClientAbsoluteExpiration;
+                entry.SlidingExpiration = MongoClientSlidingExpiration;
 
                 // When this client is evicted, dispose it properly
                 entry.RegisterPostEvictionCallback((k, v, reason, state) =>

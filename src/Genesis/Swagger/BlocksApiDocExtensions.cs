@@ -7,11 +7,25 @@ using System.Reflection;
 
 namespace Blocks.Genesis
 {
+    /// <summary>
+    /// Extension methods for registering and configuring Swagger/OpenAPI documentation
+    /// with Blocks platform conventions including service path prefixing and security schemes.
+    /// </summary>
     public static class BlocksApiDocExtensions
     {
+        private const string BearerSchemeDescription = "Enter 'Bearer' [space] and then your valid token";
+        private const string BlocksKeyDescription = "API key needed to access the endpoints.";
+
+        /// <summary>
+        /// Registers Swagger generation with Blocks-specific configuration including
+        /// JWT bearer auth, custom header security, and optional service path prefixing.
+        /// </summary>
+        /// <param name="services">The service collection to register Swagger into.</param>
+        /// <param name="blocksSwaggerOptions">Blocks Swagger configuration options.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="blocksSwaggerOptions"/> is null.</exception>
         public static void AddBlocksSwagger(this IServiceCollection services, BlocksSwaggerOptions blocksSwaggerOptions)
         {
-            if (blocksSwaggerOptions == null) return;
+            ArgumentNullException.ThrowIfNull(blocksSwaggerOptions);
 
             services.AddSwaggerGen(options =>
             {
@@ -24,29 +38,36 @@ namespace Blocks.Genesis
 
                 options.SwaggerDoc(blocksSwaggerOptions.Version, openApiInfo);
 
-                var xmlFilename = string.IsNullOrWhiteSpace(blocksSwaggerOptions.XmlCommentsFilePath)
+                var xmlFileName = string.IsNullOrWhiteSpace(blocksSwaggerOptions.XmlCommentsFilePath)
                     ? $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"
                     : blocksSwaggerOptions.XmlCommentsFilePath;
 
-                options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFilename));
+                options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFileName));
 
-                EnableAuthorization(options, blocksSwaggerOptions.EnableBearerAuth);
-                AddCustomHeader(options, BlocksConstants.BlocksKey, "API key needed to access the endpoints.");
+                EnableBearerAuthorization(options, blocksSwaggerOptions.EnableBearerAuth);
+                AddCustomHeader(options, BlocksConstants.BlocksKey, BlocksKeyDescription);
 
-                if(!string.IsNullOrEmpty(blocksSwaggerOptions.ServiceName))
-                     options.DocumentFilter<AddServiceVersionToPathsFilter>(blocksSwaggerOptions);
+                if (!string.IsNullOrWhiteSpace(blocksSwaggerOptions.ServiceName))
+                {
+                    options.DocumentFilter<AddServiceVersionToPathsFilter>(blocksSwaggerOptions);
+                }
             });
-
         }
 
-        private static void EnableAuthorization(SwaggerGenOptions options, bool isEnable)
+        /// <summary>
+        /// Adds JWT Bearer security definition and requirement to Swagger options.
+        /// </summary>
+        private static void EnableBearerAuthorization(SwaggerGenOptions options, bool isEnabled)
         {
-            if (!isEnable) return;
+            if (!isEnabled)
+            {
+                return;
+            }
 
             var securityScheme = new OpenApiSecurityScheme
             {
                 Name = "JWT Authentication",
-                Description = "Enter 'Bearer' [space] and then your valid token",
+                Description = BearerSchemeDescription,
                 In = ParameterLocation.Header,
                 Type = SecuritySchemeType.Http,
                 Scheme = "bearer",
@@ -57,6 +78,7 @@ namespace Blocks.Genesis
                     Type = ReferenceType.SecurityScheme
                 }
             };
+
             options.AddSecurityDefinition(securityScheme.Reference.Id, securityScheme);
             options.AddSecurityRequirement(new OpenApiSecurityRequirement
             {
@@ -64,6 +86,9 @@ namespace Blocks.Genesis
             });
         }
 
+        /// <summary>
+        /// Adds a custom API key header security definition and requirement to Swagger options.
+        /// </summary>
         private static void AddCustomHeader(SwaggerGenOptions options, string headerName, string description)
         {
             var securityScheme = new OpenApiSecurityScheme

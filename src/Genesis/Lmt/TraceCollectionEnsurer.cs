@@ -26,7 +26,10 @@ namespace Blocks.Genesis
 
         private const string LocalEnsurePrefix = "trace:ensure:l1:";
         private const string RedisEnsurePrefix = "trace:ensure:l2:";
-        private static readonly TimeSpan LocalEnsureTtl = TimeSpan.FromMinutes(5); // L1: 5 min for active tenants
+
+        // Trace collections are permanent once created — 60 min L1 TTL avoids redundant DB checks
+        // while still recovering from pod restarts within a reasonable window.
+        private static readonly TimeSpan LocalEnsureTtl = TimeSpan.FromMinutes(60);
 
         public TraceCollectionEnsurer(
             IBlocksSecret blocksSecret,

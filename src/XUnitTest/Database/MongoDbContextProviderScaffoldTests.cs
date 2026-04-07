@@ -114,7 +114,6 @@ public class MongoDbContextProviderScaffoldTests
     private static MongoDbContextProvider CreateProvider(Mock<ITenants> tenants)
     {
         var logger = new Mock<ILogger<MongoDbContextProvider>>();
-        var memoryCache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 100 });
-        return new MongoDbContextProvider(logger.Object, tenants.Object, new System.Diagnostics.ActivitySource("test-mongo"), memoryCache);
+        return new MongoDbContextProvider(logger.Object, tenants.Object, new System.Diagnostics.ActivitySource("test-mongo"));
     }
 }

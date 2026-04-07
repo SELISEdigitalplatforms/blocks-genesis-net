@@ -6,6 +6,10 @@ using System.Text.Json;
 
 namespace Blocks.Genesis
 {
+    /// <summary>
+    /// Middleware for validating and enforcing tenant context for API requests.
+    /// Validates tenant information, enforces origin/referer policies, and tracks request metrics.
+    /// </summary>
     public class TenantValidationMiddleware
     {
         private readonly RequestDelegate _next;
@@ -19,6 +23,10 @@ namespace Blocks.Genesis
             _cryptoService = cryptoService ?? throw new ArgumentNullException(nameof(cryptoService));
         }
 
+        /// <summary>
+        /// Processes the HTTP request and validates the tenant context.
+        /// </summary>
+        /// <param name="context">The HTTP context for the current request.</param>
         public async Task InvokeAsync(HttpContext context)
         {
             var activity = Activity.Current;
@@ -26,7 +34,7 @@ namespace Blocks.Genesis
             var endpoint = context.GetEndpoint();
             if (endpoint is null || endpoint.DisplayName?.Contains("Controller") == false)
             {
-                Console.WriteLine("Skipping tenant validation for controller-action");
+                Debug.WriteLine("Skipping tenant validation for non-controller endpoint");
                 await _next(context);
                 return;
             }

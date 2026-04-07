@@ -1,9 +1,14 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
+using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
+    /// <summary>
+    /// Configuration utility for MongoDB collections used by the Logging, Monitoring, and Telemetry (LMT) system.
+    /// Manages time-series collection creation and index management.
+    /// </summary>
     public static class LmtConfiguration
     {
         public static string LogDatabaseName { get; } = "Logs";
@@ -24,6 +29,11 @@ namespace Blocks.Genesis
             return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
         }
 
+        /// <summary>
+        /// Creates a time-series collection for trace data with automatic TTL.
+        /// </summary>
+        /// <param name="connection">MongoDB connection string</param>
+        /// <param name="collectionName">Name of the collection to create</param>
         public static void CreateCollectionForTrace(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
@@ -39,11 +49,16 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Debug.WriteLine($"Error creating trace collection: {ex}");
                 throw;
             }
         }
 
+        /// <summary>
+        /// Creates a time-series collection for metrics data with automatic TTL.
+        /// </summary>
+        /// <param name="connection">MongoDB connection string</param>
+        /// <param name="collectionName">Name of the collection to create</param>
         public static void CreateCollectionForMetrics(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
@@ -59,10 +74,15 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Debug.WriteLine($"Error creating metrics collection: {ex}");
             }
         }
 
+        /// <summary>
+        /// Creates a time-series collection for log data with automatic TTL and tenant-based partitioning.
+        /// </summary>
+        /// <param name="connection">MongoDB connection string</param>
+        /// <param name="collectionName">Name of the collection to create</param>
         public static void CreateCollectionForLogs(string connection, string collectionName)
         {
             var options = new CreateCollectionOptions
@@ -83,10 +103,13 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Debug.WriteLine($"Error creating logs collection: {ex}");
             }
         }
 
+        /// <summary>
+        /// Creates a MongoDB collection if it does not exist, or recreates it as a time-series if it exists as a normal collection.
+        /// </summary>
         private static void CreateCollectionIfNotExists(string connection, string databaseName, string collectionName, CreateCollectionOptions options)
         {
             try
@@ -97,19 +120,19 @@ namespace Blocks.Genesis
                 if (!collectionExists)
                 {
                     database.CreateCollection(collectionName, options);
-                    Console.WriteLine($"Created collection '{collectionName}' in database '{databaseName}'");
+                    Debug.WriteLine($"Created collection '{collectionName}' in database '{databaseName}'");
                 }
                 else if (!IsTimeSeriesCollection(database, collectionName))
                 {
-                    Console.WriteLine($"Collection '{collectionName}' in database '{databaseName}' is a normal collection. Dropping and recreating as time series.");
+                    Debug.WriteLine($"Collection '{collectionName}' in database '{databaseName}' is a normal collection. Converting to time series.");
                     database.DropCollection(collectionName);
                     database.CreateCollection(collectionName, options);
-                    Console.WriteLine($"Recreated collection '{collectionName}' as time series in database '{databaseName}'");
+                    Debug.WriteLine($"Recreated collection '{collectionName}' as time series in database '{databaseName}'");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Debug.WriteLine($"Error creating collection '{collectionName}': {ex}");
                 throw;
             }
         }
@@ -134,6 +157,9 @@ namespace Blocks.Genesis
                 && collectionInfo["type"].AsString == "timeseries";
         }
 
+        /// <summary>
+        /// Creates an index on a MongoDB collection with optional partial filter.
+        /// </summary>
         public static void CreateIndex(
             string connection,
             string databaseName,
@@ -174,17 +200,17 @@ namespace Blocks.Genesis
                 {
                     var indexModel = new CreateIndexModel<BsonDocument>(indexKeys, indexOptions);
                     collection.Indexes.CreateOne(indexModel);
-                    Console.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
+                    Debug.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
                 }
             }
             catch (MongoCommandException ex) when (ex.Message.Contains("Index already exists with a different name"))
             {
                 // Handle specific case where the index exists with a different name
-                Console.WriteLine($"Cannot create index: An index with the same key pattern already exists with a different name on collection '{collectionName}' in database '{databaseName}'");
+                Debug.WriteLine($"Index with same key pattern exists on collection '{collectionName}' in database '{databaseName}'");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error creating index on collection '{collectionName}': {ex.Message}");
+                Debug.WriteLine($"Error creating index on collection '{collectionName}': {ex.Message}");
                 throw;
             }
         }

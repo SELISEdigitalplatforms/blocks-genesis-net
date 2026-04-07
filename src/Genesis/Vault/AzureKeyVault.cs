@@ -1,9 +1,14 @@
 ﻿using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.Configuration;
+using System.Diagnostics;
 
 namespace Blocks.Genesis
 {
+    /// <summary>
+    /// Azure Key Vault secret provider implementation.
+    /// Manages secret retrieval from Azure Key Vault using configured credentials.
+    /// </summary>
     public class AzureSecretProvider : ISecretProvider
     {
         private readonly SecretClient _client;
@@ -85,6 +90,11 @@ namespace Blocks.Genesis
             return new SecretClient(new Uri(_keyVaultUrl), new DefaultAzureCredential(credentialOptions));
         }
 
+        /// <summary>
+        /// Retrieves a secret from Azure Key Vault asynchronously.
+        /// </summary>
+        /// <param name="key">The secret key to retrieve</param>
+        /// <returns>The secret value if found; otherwise null</returns>
         public async Task<string?> GetAsync(string key)
         {
             try
@@ -94,7 +104,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error retrieving secret '{key}': {ex.Message}");
+                Debug.WriteLine($"Error retrieving secret '{key}': {ex.Message}");
                 return null;
             }
         }

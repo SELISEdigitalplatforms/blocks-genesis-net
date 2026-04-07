@@ -7,7 +7,11 @@ namespace Blocks.Genesis
 {
     public class Tenants : ITenantLookup, IDisposable
     {
-        private static readonly TimeSpan TenantAbsoluteExpiration = TimeSpan.FromMinutes(15);
+        // Tenant data is invalidated in real-time via Redis pub/sub.
+        // TTLs are a safety net only — not the primary freshness mechanism.
+        // Aggressive sliding (5 min): a tenant not seen in 5 min frees the L1 slot back to Redis.
+        // Absolute (10 min): caps worst-case stale data if pub/sub misses an event.
+        private static readonly TimeSpan TenantAbsoluteExpiration = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan TenantSlidingExpiration = TimeSpan.FromMinutes(5);
 
         private readonly ILogger<Tenants> _logger;
@@ -45,7 +49,8 @@ namespace Blocks.Genesis
             }
         }
 
-        // L1 ONLY: Bounded in-memory cache (40-50 tenants max per pod)
+        // L1 is intentionally small — a pod serves only a fraction of the 4k+ tenant fleet.
+        // L2 (Redis) handles misses at ~1-2ms; L3 (MongoDB) is last resort.
         public Tenant? GetTenantByID(string tenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return null;

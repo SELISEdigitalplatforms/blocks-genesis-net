@@ -4,6 +4,10 @@ using System.Text.RegularExpressions;
 
 namespace SeliseBlocks.LMT.Client
 {
+    /// <summary>
+    /// Implementation of IBlocksLogger for Logging and Monitoring Telemetry (LMT).
+    /// Batches log entries and sends them to Azure Service Bus asynchronously.
+    /// </summary>
     public class BlocksLogger : IBlocksLogger
     {
         private static readonly Regex PlaceholderRegex = new(@"\{(.*?)\}", RegexOptions.Compiled);
@@ -17,6 +21,12 @@ namespace SeliseBlocks.LMT.Client
         private readonly Task _flushLoopTask;
         private bool _disposed;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="BlocksLogger"/> class.
+        /// </summary>
+        /// <param name="options">Configuration options for the logger</param>
+        /// <exception cref="ArgumentNullException">Thrown when options is null</exception>
+        /// <exception cref="ArgumentException">Thrown when required options are not provided</exception>
         public BlocksLogger(LmtOptions options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -87,21 +97,53 @@ namespace SeliseBlocks.LMT.Client
             return $"{exception.GetType().Name}: {exception.Message}";
         }
 
+        /// <summary>
+        /// Logs a message at trace level.
+        /// </summary>
+        /// <param name="messageTemplate">The message template</param>
+        /// <param name="args">Optional format arguments</param>
         public void LogTrace(string messageTemplate, params object?[] args)
             => Log(LmtLogLevel.Trace, messageTemplate, null, args);
 
+        /// <summary>
+        /// Logs a message at debug level.
+        /// </summary>
+        /// <param name="messageTemplate">The message template</param>
+        /// <param name="args">Optional format arguments</param>
         public void LogDebug(string messageTemplate, params object?[] args)
             => Log(LmtLogLevel.Debug, messageTemplate, null, args);
 
+        /// <summary>
+        /// Logs a message at information level.
+        /// </summary>
+        /// <param name="messageTemplate">The message template</param>
+        /// <param name="args">Optional format arguments</param>
         public void LogInformation(string messageTemplate, params object?[] args)
             => Log(LmtLogLevel.Information, messageTemplate, null, args);
 
+        /// <summary>
+        /// Logs a message at warning level.
+        /// </summary>
+        /// <param name="messageTemplate">The message template</param>
+        /// <param name="args">Optional format arguments</param>
         public void LogWarning(string messageTemplate, params object?[] args)
             => Log(LmtLogLevel.Warning, messageTemplate, null, args);
 
+        /// <summary>
+        /// Logs a message at error level with optional exception.
+        /// </summary>
+        /// <param name="messageTemplate">The message template</param>
+        /// <param name="exception">Optional exception to log</param>
+        /// <param name="args">Optional format arguments</param>
         public void LogError(string messageTemplate, Exception? exception = null, params object?[] args)
             => Log(LmtLogLevel.Error, messageTemplate, exception, args);
 
+        /// <summary>
+        /// Logs a message at critical level with optional exception.
+        /// </summary>
+        /// <param name="messageTemplate">The message template</param>
+        /// <param name="exception">Optional exception to log</param>
+        /// <param name="args">Optional format arguments</param>
         public void LogCritical(string messageTemplate, Exception? exception = null, params object?[] args)
             => Log(LmtLogLevel.Critical, messageTemplate, exception, args);
 

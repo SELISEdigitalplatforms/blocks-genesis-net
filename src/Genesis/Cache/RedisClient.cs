@@ -6,26 +6,23 @@ namespace Blocks.Genesis
 {
     public sealed class RedisClient : ICacheClient, IDisposable
     {
-            private readonly IConnectionMultiplexer _connectionMultiplexer;
+        private const string ErrorTag = "error";
+        private const string ErrorMessageTag = "errorMessage";
+
+        private readonly IConnectionMultiplexer _connectionMultiplexer;
         private readonly IDatabase _database;
         private readonly ActivitySource _activitySource;
         private readonly ISubscriber _subscriber;
         private readonly ConcurrentDictionary<string, Action<RedisChannel, RedisValue>> _subscriptions = new();
 
-        private bool _disposed = false;
-        private const string _valueLength = "ValueLength";
-        private const string _tTLSeconds = "TTLSeconds";
-        private const string _hashFieldCount = "HashFieldCount";
-        private const string _tTLSetSuccess = "TTLSetSuccess";
-        private const string _error = "Error";
-        private const string _errorMessage = "errorMessage";
+        private bool _disposed;
 
-        public RedisClient(IBlocksSecret blocksSecret, ActivitySource activitySource)
+        public RedisClient(IConnectionMultiplexer connectionMultiplexer, ActivitySource activitySource)
         {
-              _connectionMultiplexer = ConnectionMultiplexer.Connect(blocksSecret.CacheConnectionString);
-              _database = _connectionMultiplexer.GetDatabase();
-            _activitySource = activitySource;
-              _subscriber = _connectionMultiplexer.GetSubscriber();
+            _connectionMultiplexer = connectionMultiplexer ?? throw new ArgumentNullException(nameof(connectionMultiplexer));
+            _activitySource = activitySource ?? throw new ArgumentNullException(nameof(activitySource));
+            _database = _connectionMultiplexer.GetDatabase();
+            _subscriber = _connectionMultiplexer.GetSubscriber();
         }
 
         public IDatabase CacheDatabase() => _database;
@@ -34,76 +31,46 @@ namespace Blocks.Genesis
 
         public bool KeyExists(string key)
         {
-            using var activity = SetActivity(key, "KeyExists");
-            var result = _database.KeyExists(key);
-            activity?.SetTag("Exists", result);
-            return result;
+            return _database.KeyExists(key);
         }
 
         public bool AddStringValue(string key, string value)
         {
-            using var activity = SetActivity(key, "AddStringValue");
-            activity?.SetTag(_valueLength, value?.Length ?? 0);
-            var result = _database.StringSet(key, value);
-            activity?.SetTag("Success", result);
-            return result;
+            return _database.StringSet(key, value);
         }
 
         public bool AddStringValue(string key, string value, long keyLifeSpan)
         {
-            using var activity = SetActivity(key, "AddStringValueWithTTL");
-            activity?.SetTag(_valueLength, value?.Length ?? 0);
-            activity?.SetTag(_tTLSeconds, keyLifeSpan);
-            var setResult = _database.StringSet(key, value);
-            var expireResult = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            var result = setResult && expireResult;
-            activity?.SetTag(_tTLSetSuccess, result);
-            return result;
+            return _database.StringSet(key, value, TimeSpan.FromSeconds(keyLifeSpan));
         }
 
-        public string GetStringValue(string key)
+        public string? GetStringValue(string key)
         {
-            using var activity = SetActivity(key, "GetStringValue");
-            var result = _database.StringGet(key);
-            activity?.SetTag("Hit", result.HasValue);
-            return result;
+            return _database.StringGet(key);
         }
 
         public bool RemoveKey(string key)
         {
-            using var activity = SetActivity(key, "RemoveKey");
-            var result = _database.KeyDelete(key);
-            activity?.SetTag("Removed", result);
-            return result;
+            return _database.KeyDelete(key);
         }
 
         public bool AddHashValue(string key, IEnumerable<HashEntry> value)
         {
-            using var activity = SetActivity(key, "AddHashValue");
             var entries = value.ToArray();
-            activity?.SetTag(_hashFieldCount, entries.Length);
             _database.HashSet(key, entries);
             return true;
         }
 
         public bool AddHashValue(string key, IEnumerable<HashEntry> value, long keyLifeSpan)
         {
-            using var activity = SetActivity(key, "AddHashValueWithTTL");
             var entries = value.ToArray();
-            activity?.SetTag(_hashFieldCount, entries.Length);
-            activity?.SetTag(_tTLSeconds, keyLifeSpan);
             _database.HashSet(key, entries);
-            var expireResult = _database.KeyExpire(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag(_tTLSetSuccess, expireResult);
-            return expireResult;
+            return _database.KeyExpire(key, TimeSpan.FromSeconds(keyLifeSpan));
         }
 
         public HashEntry[] GetHashValue(string key)
         {
-            using var activity = SetActivity(key, "GetHashValue");
-            var result = _database.HashGetAll(key);
-            activity?.SetTag("FieldCount", result.Length);
-            return result;
+            return _database.HashGetAll(key);
         }
 
         #endregion
@@ -112,76 +79,46 @@ namespace Blocks.Genesis
 
         public async Task<bool> KeyExistsAsync(string key)
         {
-            using var activity = SetActivity(key, "KeyExistsAsync");
-            var result = await _database.KeyExistsAsync(key);
-            activity?.SetTag("Exists", result);
-            return result;
+            return await _database.KeyExistsAsync(key);
         }
 
         public async Task<bool> AddStringValueAsync(string key, string value)
         {
-            using var activity = SetActivity(key, "AddStringValueAsync");
-            activity?.SetTag(_valueLength, value?.Length ?? 0);    
-            var result = await _database.StringSetAsync(key, value);
-            activity?.SetTag("Success", result);
-            return result;
+            return await _database.StringSetAsync(key, value);
         }
 
         public async Task<bool> AddStringValueAsync(string key, string value, long keyLifeSpan)
         {
-            using var activity = SetActivity(key, "AddStringValueWithTTLAsync");
-            activity?.SetTag(_valueLength, value?.Length ?? 0);
-            activity?.SetTag(_tTLSeconds, keyLifeSpan);
-            var setResult = await _database.StringSetAsync(key, value);
-            var expireResult = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            var result = setResult && expireResult;
-            activity?.SetTag(_tTLSetSuccess, result);
-            return result;
+            return await _database.StringSetAsync(key, value, TimeSpan.FromSeconds(keyLifeSpan));
         }
 
-        public async Task<string> GetStringValueAsync(string key)
+        public async Task<string?> GetStringValueAsync(string key)
         {
-            using var activity = SetActivity(key, "GetStringValueAsync");
-            var result = await _database.StringGetAsync(key);
-            activity?.SetTag("Hit", result.HasValue);
-            return result;
+            return await _database.StringGetAsync(key);
         }
 
         public async Task<bool> RemoveKeyAsync(string key)
         {
-            using var activity = SetActivity(key, "RemoveKeyAsync");
-            var result = await _database.KeyDeleteAsync(key);
-            activity?.SetTag("Removed", result);
-            return result;
+            return await _database.KeyDeleteAsync(key);
         }
 
         public async Task<bool> AddHashValueAsync(string key, IEnumerable<HashEntry> value)
         {
-            using var activity = SetActivity(key, "AddHashValueAsync");
             var entries = value.ToArray();
-            activity?.SetTag(_hashFieldCount, entries.Length);
             await _database.HashSetAsync(key, entries);
             return true;
         }
 
         public async Task<bool> AddHashValueAsync(string key, IEnumerable<HashEntry> value, long keyLifeSpan)
         {
-            using var activity = SetActivity(key, "AddHashValueWithTTLAsync");
             var entries = value.ToArray();
-            activity?.SetTag(_hashFieldCount, entries.Length);
-            activity?.SetTag(_tTLSeconds, keyLifeSpan);
             await _database.HashSetAsync(key, entries);
-            var expireResult = await _database.KeyExpireAsync(key, DateTime.UtcNow.AddSeconds(keyLifeSpan));
-            activity?.SetTag(_tTLSetSuccess, expireResult);
-            return expireResult;
+            return await _database.KeyExpireAsync(key, TimeSpan.FromSeconds(keyLifeSpan));
         }
 
         public async Task<HashEntry[]> GetHashValueAsync(string key)
         {
-            using var activity = SetActivity(key, "GetHashValueAsync");
-            var result = await _database.HashGetAllAsync(key);
-            activity?.SetTag("FieldCount", result.Length);
-            return result;
+            return await _database.HashGetAllAsync(key);
         }
 
         #endregion
@@ -191,21 +128,20 @@ namespace Blocks.Genesis
         public async Task<long> PublishAsync(string channel, string message)
         {
             if (string.IsNullOrEmpty(channel))
+            {
                 throw new ArgumentNullException(nameof(channel));
-
-            using var activity = SetActivity(channel, "Publish");
-            activity?.SetTag("MessageLength", message?.Length ?? 0);
+            }
 
             try
             {
-                var result = await _subscriber.PublishAsync(channel, message);
-                activity?.SetTag("SubscribersNotified", result);
-                return result;
+                return await _subscriber.PublishAsync(channel, message);
             }
             catch (Exception ex)
             {
-                activity?.SetTag(_error, true);
-                activity?.SetTag(_errorMessage, ex.Message);
+                using var activity = _activitySource.StartActivity("Redis::Publish", ActivityKind.Producer, Activity.Current?.Context ?? default);
+                activity?.SetTag("Channel", channel);
+                activity?.SetTag(ErrorTag, true);
+                activity?.SetTag(ErrorMessageTag, ex.Message);
                 throw;
             }
         }
@@ -213,11 +149,13 @@ namespace Blocks.Genesis
         public async Task SubscribeAsync(string channel, Action<RedisChannel, RedisValue> handler)
         {
             if (string.IsNullOrEmpty(channel))
+            {
                 throw new ArgumentNullException(nameof(channel));
+            }
             if (handler == null)
+            {
                 throw new ArgumentNullException(nameof(handler));
-
-            using var activity = SetActivity(channel, "Subscribe");
+            }
 
             try
             {
@@ -234,15 +172,17 @@ namespace Blocks.Genesis
                     }
                     catch (Exception ex)
                     {
-                        messageActivity?.SetTag(_error, true);
-                        messageActivity?.SetTag(_errorMessage, ex.Message);
+                        messageActivity?.SetTag(ErrorTag, true);
+                        messageActivity?.SetTag(ErrorMessageTag, ex.Message);
                     }
                 });
             }
             catch (Exception ex)
             {
-                activity?.SetTag(_error, true);
-                activity?.SetTag(_errorMessage, ex.Message);
+                using var activity = _activitySource.StartActivity("Redis::Subscribe", ActivityKind.Consumer, Activity.Current?.Context ?? default);
+                activity?.SetTag("Channel", channel);
+                activity?.SetTag(ErrorTag, true);
+                activity?.SetTag(ErrorMessageTag, ex.Message);
                 _subscriptions.TryRemove(channel, out _);
                 throw;
             }
@@ -251,35 +191,23 @@ namespace Blocks.Genesis
         public async Task UnsubscribeAsync(string channel)
         {
             if (string.IsNullOrEmpty(channel))
+            {
                 throw new ArgumentNullException(nameof(channel));
-
-            using var activity = SetActivity(channel, "Unsubscribe");
+            }
 
             try
             {
                 await _subscriber.UnsubscribeAsync(channel);
                 _subscriptions.TryRemove(channel, out _);
-                activity?.SetTag("Unsubscribed", true);
             }
             catch (Exception ex)
             {
-                activity?.SetTag(_error, true);
-                activity?.SetTag(_errorMessage, ex.Message);
+                using var activity = _activitySource.StartActivity("Redis::Unsubscribe", ActivityKind.Consumer, Activity.Current?.Context ?? default);
+                activity?.SetTag("Channel", channel);
+                activity?.SetTag(ErrorTag, true);
+                activity?.SetTag(ErrorMessageTag, ex.Message);
                 throw;
             }
-        }
-
-        #endregion
-
-        #region Helper Methods
-
-        private Activity? SetActivity(string key, string operation)
-        {
-            var currentActivity = Activity.Current;
-            var activity = _activitySource.StartActivity($"Redis::{operation}", ActivityKind.Producer, currentActivity?.Context ?? default);
-            activity?.SetTag("Key", key);
-
-            return activity;
         }
 
         #endregion
@@ -289,14 +217,16 @@ namespace Blocks.Genesis
         public void Dispose()
         {
             if (_disposed)
+            {
                 return;
+            }
 
             foreach (var channel in _subscriptions.Keys)
             {
                 _subscriber.Unsubscribe(channel);
             }
+
             _subscriptions.Clear();
-            _connectionMultiplexer?.Dispose();
             _disposed = true;
         }
 

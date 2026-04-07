@@ -74,7 +74,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error exporting metrics: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error exporting metrics: {ex.Message}");
                 return ExportResult.Failure;
             }
             finally

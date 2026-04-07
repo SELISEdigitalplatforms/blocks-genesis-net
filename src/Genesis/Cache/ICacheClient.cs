@@ -44,7 +44,7 @@ namespace Blocks.Genesis
         /// </summary>
         /// <param name="key">The key for the value</param>
         /// <returns>The string value if found, null otherwise</returns>
-        string GetStringValue(string key);
+        string? GetStringValue(string key);
 
         /// <summary>
         /// Removes a key from the cache
@@ -110,7 +110,7 @@ namespace Blocks.Genesis
         /// </summary>
         /// <param name="key">The key for the value</param>
         /// <returns>The string value if found, null otherwise</returns>
-        Task<string> GetStringValueAsync(string key);
+        Task<string?> GetStringValueAsync(string key);
 
         /// <summary>
         /// Removes a key from the cache asynchronously
