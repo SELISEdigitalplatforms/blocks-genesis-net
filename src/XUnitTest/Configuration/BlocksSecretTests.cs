@@ -27,10 +27,7 @@ public class BlocksSecretTests
             SshNginxTemplate = "template",
             ProdDatabaseConnectionString = "prod-db",
             LmtMessageConnectionString = "lmt-message",
-            ProdVaultUrl = "https://vault",
-            ProdVaultTenantId = "tenant-id",
-            ProdVaultClientId = "client-id",
-            ProdVaultClientSecret = "client-secret"
+            ProdVaultUrl = "https://vault"
         };
 
         Assert.Equal("cache", secret.CacheConnectionString);
@@ -52,9 +49,6 @@ public class BlocksSecretTests
         Assert.Equal("prod-db", secret.ProdDatabaseConnectionString);
         Assert.Equal("lmt-message", secret.LmtMessageConnectionString);
         Assert.Equal("https://vault", secret.ProdVaultUrl);
-        Assert.Equal("tenant-id", secret.ProdVaultTenantId);
-        Assert.Equal("client-id", secret.ProdVaultClientId);
-        Assert.Equal("client-secret", secret.ProdVaultClientSecret);
     }
 
     [Fact]

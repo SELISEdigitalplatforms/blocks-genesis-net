@@ -25,9 +25,6 @@ namespace Blocks.Genesis
         public string LmtMessageConnectionString { get ; set ; }
         public string LmtBlobStorageConnectionString { get ; set ; }
         public string ProdVaultUrl { get ; set ; }
-        public string ProdVaultTenantId { get ; set ; }
-        public string ProdVaultClientId { get ; set ; }
-        public string ProdVaultClientSecret { get ; set ; }
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
         {

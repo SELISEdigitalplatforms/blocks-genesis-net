@@ -1,45 +1,31 @@
 
-# Example Environment Variables (OS Agnostic)
+# Azure Key Vault Authentication
 
-To populate the `KeyVault` class properties using environment variables, set them as follows in your operating system:
+This project now supports these authentication modes for Azure Key Vault:
 
-```
-KeyVault__KeyVaultUrl=your_cache_connection_string_from_env  
-KeyVault__TenantId=your_message_queue_connection_string_from_env 
-KeyVault__ClientId=your_message_queue_connection_string_from_env  
-KeyVault__ClientSecret=your_logging_connection_string_from_env  
-```
+1. Local development: Azure CLI login (`az login`)
+2. Docker/server deployment: Managed Identity
 
+Client secret authentication is no longer used.
 
-## Different OS Environment Variable Examples (How to Set Them)
+## Required Environment Variable
 
-### 1. **Windows**
+Only the Key Vault URL is required:
 
-#### Using Command Prompt (for the current session):
-```
-set KeyVault__KeyVaultUrl = "KeyVaultUrl"
-set KeyVault__ClientSecret = "ClientSecret" 
+```bash
+KeyVault__KeyVaultUrl=https://your-vault-name.vault.azure.net/
 ```
 
-#### Using PowerShell (for the current session):
-```
-$env:KeyVault__KeyVaultUrl = "KeyVaultUrl"  
-$env:KeyVault__ClientSecret = "ClientSecret"  
+## Local Development
+
+```bash
+az login
 ```
 
-#### Using System Properties (persistent):
-- Search for "environment variables" in the Start Menu.
-- Click on **"Edit the system environment variables"**.
-- In the "System Properties" dialog, click the **"Environment Variables..."** button.
-- You can set **user variables** (for your account) or **system variables** (for all users).
-- Click **"New..."** and enter the variable name (e.g., `KeyVault__KeyVaultUrl`) and its value.
+The application will authenticate with `AzureCliCredential`.
 
----
+## Docker or Server Deployment
 
-### 2. **Linux (Bash/Zsh)**
+Assign a Managed Identity to the container host / VM / app service and grant it Key Vault secret permissions.
 
-#### Using the `export` command (for the current session):
-```
-export KeyVault__KeyVaultUrl = "KeyVaultUrl" 
-export KeyVault__ClientSecret = "ClientSecret"  
-```
+The application will authenticate with `ManagedIdentityCredential` when Azure CLI is not available.
