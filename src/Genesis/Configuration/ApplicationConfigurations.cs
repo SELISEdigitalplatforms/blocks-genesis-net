@@ -31,18 +31,10 @@ namespace Blocks.Genesis
             _blocksSecret = await BlocksSecret.ProcessBlocksSecret(vaultType);
             _blocksSecret.ServiceName = _serviceName;
 
-            if (!string.IsNullOrWhiteSpace(_blocksSecret.TraceConnectionString))
-            {
-                LmtConfiguration.CreateCollectionForTrace(_blocksSecret.TraceConnectionString, BlocksConstants.Miscellaneous);
-            }
+
             if (!string.IsNullOrWhiteSpace(_blocksSecret.LogConnectionString))
             {
-                LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, BlocksConstants.Miscellaneous);
                 LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, serviceName);
-            }
-            if (!string.IsNullOrWhiteSpace(_blocksSecret.MetricConnectionString))
-            {
-                LmtConfiguration.CreateCollectionForMetrics(_blocksSecret.MetricConnectionString, BlocksConstants.Miscellaneous);
             }
 
             Log.Logger = new LoggerConfiguration()
@@ -86,9 +78,6 @@ namespace Blocks.Genesis
 
             _blocksSwaggerOptions = builder.Configuration.GetSection("SwaggerOptions").Get<BlocksSwaggerOptions>();
 
-            var blocksProjectKey = builder.Configuration.GetValue<string>("BlocksProjectKey");
-            Console.WriteLine($"Blocks Project Key: {blocksProjectKey}");
-            BlocksConstants.SetBlocksProjectKey(blocksProjectKey);
             // Initialize LMT configuration provider
             LmtConfigurationProvider.Initialize(builder.Configuration);
 
