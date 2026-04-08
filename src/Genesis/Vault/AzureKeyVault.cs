@@ -35,10 +35,9 @@ namespace Blocks.Genesis
 
         private void ConnectToAzureKeyVaultSecret()
         {
-            // Prefer Azure CLI locally and fall back to Managed Identity in container/server deployments.
-            var credential = new ChainedTokenCredential(
-                new AzureCliCredential(),
-                new ManagedIdentityCredential());
+            // DefaultAzureCredential covers local dev (az login, VS, VS Code) and
+            // production (Managed Identity, Workload Identity) in a single credential.
+            var credential = new DefaultAzureCredential();
 
             _secretClient = new SecretClient(new Uri(_keyVaultUrl), credential);
         }
