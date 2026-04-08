@@ -3,6 +3,7 @@ using MongoDB.Driver;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Threading;
 
 namespace Blocks.Genesis
 {
@@ -20,6 +21,7 @@ namespace Blocks.Genesis
         private bool _disposed = false;
 
         private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
+        private readonly ConcurrentDictionary<string, Lazy<Tenant?>> _tenantLoadInProgress = [];
 
         public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
         {
@@ -31,7 +33,6 @@ namespace Blocks.Genesis
 
             try
             {
-                InitializeCache();
                 // Subscribe to tenant updates
                 SubscribeToTenantUpdates().ConfigureAwait(true);
             }
@@ -49,12 +50,25 @@ namespace Blocks.Genesis
             if (_tenantCache.TryGetValue(tenantId, out var tenant))
                 return tenant;
 
+            // Deduplicate concurrent DB lookups for the same tenant ID.
+            var loader = _tenantLoadInProgress.GetOrAdd(
+                tenantId,
+                id => new Lazy<Tenant?>(() => GetTenantFromDb(id), LazyThreadSafetyMode.ExecutionAndPublication));
 
-            // If not found in cache, fetch from database and update cache
-            tenant = GetTenantFromDb(tenantId);
+            try
+            {
+                tenant = loader.Value;
+            }
+            finally
+            {
+                _tenantLoadInProgress.TryRemove(tenantId, out _);
+            }
+
             if (tenant != null)
             {
                 _tenantCache[tenant.TenantId] = tenant;
+                // Ensure trace collection exists asynchronously without blocking
+                _ = EnsureTraceCollectionExistsAsync(tenant);
             }
 
             return tenant;
@@ -111,11 +125,6 @@ namespace Blocks.Genesis
             {
                 _logger.LogError(ex, "Failed to update tenant version.");
             }
-        }
-
-        private void InitializeCache()
-        {
-            ReloadTenants();
         }
 
         private async Task SubscribeToTenantUpdates()
@@ -186,7 +195,8 @@ namespace Blocks.Genesis
 
                 if (isNewTenant)
                 {
-                    EnsureTraceCollectionExists(tenant);
+                    // Ensure trace collection exists asynchronously without blocking the update handler
+                    _ = EnsureTraceCollectionExistsAsync(tenant);
                 }
             }
             catch (Exception ex)
@@ -195,33 +205,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private void ReloadTenants()
-        {
-            try
-            {
-                var tenants = _database
-                    .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(FilterDefinition<Tenant>.Empty)
-                    .ToList();
 
-                _tenantCache.Clear();
-                foreach (var tenant in tenants ?? [])
-                {
-                    if (!tenant.IsDisabled)
-                    {
-                        _tenantCache[tenant.TenantId] = tenant;
-                        if (tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
-                        {
-                            EnsureTraceCollectionExists(tenant);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to reload tenants into cache.");
-            }
-        }
 
 
         private Tenant? GetTenantFromDb(string tenantId)
@@ -293,6 +277,8 @@ namespace Blocks.Genesis
                 if (tenant != null)
                 {
                     _tenantCache[tenant.TenantId] = tenant;
+                    // Ensure trace collection exists asynchronously without blocking
+                    _ = EnsureTraceCollectionExistsAsync(tenant);
                 }
 
                 return tenant;
@@ -305,11 +291,24 @@ namespace Blocks.Genesis
         }
 
 
-        private void EnsureTraceCollectionExists(Tenant tenant)
+        private async Task EnsureTraceCollectionExistsAsync(Tenant tenant)
         {
-            LmtConfiguration.CreateCollectionForTrace(
-                _blocksSecret.TraceConnectionString,
-                tenant.TenantId);
+            if (tenant is null) return;
+
+            // Only create trace collection for recently created tenants (< 24 hours old)
+            if (tenant.CreatedDate <= DateTime.UtcNow.AddDays(-1))
+                return;
+
+            try
+            {
+                await Task.Run(() => LmtConfiguration.CreateCollectionForTrace(
+                    _blocksSecret.TraceConnectionString,
+                    tenant.TenantId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to ensure trace collection for tenant: {TenantId}", tenant.TenantId);
+            }
         }
 
         private static TenantCacheUpdateMessage? ParseTenantCacheUpdate(string message)
