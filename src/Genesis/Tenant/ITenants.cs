@@ -40,9 +40,10 @@
         JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId);
 
         /// <summary>
-        /// Updates the tenant version in cache and notifies all instances asynchronously
+        /// Publishes a tenant cache change notification so all instances can upsert or remove a single tenant.
         /// </summary>
-        /// <returns>A task representing the asynchronous operation</returns>
-        Task UpdateTenantVersionAsync();
+        /// <param name="cacheUpdate">Cache update message with action and tenant payload (or tenant ID for remove).</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        Task UpdateTenantVersionAsync(TenantCacheUpdateMessage cacheUpdate);
     }
 }

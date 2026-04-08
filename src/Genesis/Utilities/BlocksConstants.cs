@@ -12,13 +12,6 @@
         public const string Miscellaneous = "miscellaneous";
         internal const string KeyVault = "KeyVault";
 
-        public static string BlocksProjectKey { get; private set; } = string.Empty;
-
-        internal static void SetBlocksProjectKey(string blocksProjectKey)
-        {
-            BlocksProjectKey = blocksProjectKey;
-        }
-
     }
 }
 

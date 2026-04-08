@@ -1,24 +1,24 @@
 ﻿using Microsoft.Extensions.Logging;
-using MongoDB.Bson;
 using MongoDB.Driver;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
     public class Tenants : ITenants, IDisposable
     {
+        public const string TenantCacheUpdateActionUpsert = "upsert";
+        public const string TenantCacheUpdateActionRemove = "remove";
+
         private readonly ILogger<Tenants> _logger;
         private readonly IBlocksSecret _blocksSecret;
         private readonly ICacheClient _cacheClient;
         private readonly IMongoDatabase _database;
-        private readonly string _tenantVersionKey = "tenant::version";
         private readonly string _tenantUpdateChannel = "tenant::updates";
-        private string _tenantVersion;
         private bool _isSubscribed = false;
         private bool _disposed = false;
 
-        // Using ConcurrentDictionary for thread-safe access and efficient lookups
         private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
 
         public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
@@ -83,27 +83,29 @@ namespace Blocks.Genesis
             return tenant?.JwtTokenParameters;
         }
 
-        public async Task UpdateTenantVersionAsync()
+        public async Task UpdateTenantVersionAsync(TenantCacheUpdateMessage cacheUpdate)
         {
+            if (cacheUpdate is null)
+            {
+                throw new ArgumentNullException(nameof(cacheUpdate));
+            }
+
             try
             {
-                string newVersion = Guid.NewGuid().ToString("n");
-
-                // Set the new version in Redis
-                bool setSuccess = await _cacheClient.AddStringValueAsync(_tenantVersionKey, newVersion);
-                if (!setSuccess)
+                var normalizedUpdate = NormalizeCacheUpdate(cacheUpdate);
+                if (normalizedUpdate is null)
                 {
-                    _logger.LogWarning("Failed to update tenant version in Redis.");
+                    _logger.LogWarning("Skipping invalid tenant cache update payload.");
                     return;
                 }
 
-                // Update local version
-                _tenantVersion = newVersion;
-
                 // Publish the update to notify all instances
-                await _cacheClient.PublishAsync(_tenantUpdateChannel, _tenantVersion);
+                await _cacheClient.PublishAsync(_tenantUpdateChannel, JsonSerializer.Serialize(normalizedUpdate));
 
-                _logger.LogInformation("Tenant version updated to {Version} and published to channel.", newVersion);
+                _logger.LogInformation(
+                    "Tenant cache update published. TenantId: {TenantId}, Action: {Action}",
+                    ResolveTenantId(normalizedUpdate),
+                    normalizedUpdate.Action);
             }
             catch (Exception ex)
             {
@@ -113,7 +115,7 @@ namespace Blocks.Genesis
 
         private void InitializeCache()
         {
-            ReloadTenants(checkAll: true);
+            ReloadTenants();
         }
 
         private async Task SubscribeToTenantUpdates()
@@ -136,18 +138,56 @@ namespace Blocks.Genesis
         {
             try
             {
-                string newVersion = message.ToString();
+                var cacheUpdate = ParseTenantCacheUpdate(message.ToString());
+                if (cacheUpdate is null)
+                {
+                    _logger.LogWarning("Received invalid tenant update payload.");
+                    return;
+                }
 
-                // Skip if we're already on this version
-                if (_tenantVersion == newVersion) return;
+                cacheUpdate = NormalizeCacheUpdate(cacheUpdate);
+                if (cacheUpdate is null)
+                {
+                    _logger.LogWarning("Skipping tenant update due to missing action/tenant details.");
+                    return;
+                }
 
-                _logger.LogInformation("Received tenant update notification. New version: {Version}", newVersion);
+                var tenantId = ResolveTenantId(cacheUpdate);
 
-                // Update local version
-                _tenantVersion = newVersion;
+                _logger.LogInformation(
+                    "Received tenant update notification. TenantId: {TenantId}, Action: {Action}",
+                    tenantId,
+                    cacheUpdate.Action);
 
-                // Reload tenant data
-                ReloadTenants();
+                if (cacheUpdate.Action == TenantCacheUpdateActionRemove)
+                {
+                    if (!string.IsNullOrWhiteSpace(tenantId))
+                    {
+                        _tenantCache.TryRemove(tenantId, out _);
+                    }
+
+                    return;
+                }
+
+                var tenant = cacheUpdate.Tenant;
+                if (tenant is null)
+                {
+                    return;
+                }
+
+                if (tenant.IsDisabled)
+                {
+                    _tenantCache.TryRemove(tenant.TenantId, out _);
+                    return;
+                }
+
+                bool isNewTenant = !_tenantCache.ContainsKey(tenant.TenantId);
+                _tenantCache[tenant.TenantId] = tenant;
+
+                if (isNewTenant)
+                {
+                    EnsureTraceCollectionExists(tenant);
+                }
             }
             catch (Exception ex)
             {
@@ -155,7 +195,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private void ReloadTenants(bool checkAll = false)
+        private void ReloadTenants()
         {
             try
             {
@@ -165,36 +205,17 @@ namespace Blocks.Genesis
                     .ToList();
 
                 _tenantCache.Clear();
-
-                foreach (var tenant in tenants)
+                foreach (var tenant in tenants ?? [])
                 {
-                    _tenantCache[tenant.TenantId] = tenant;                   
-                }
-
-                // Run the per-tenant processing in a background thread
-                _ = Task.Run(() =>
-                {
-                    try
+                    if (!tenant.IsDisabled)
                     {
-                        foreach (var tenant in tenants)
+                        _tenantCache[tenant.TenantId] = tenant;
+                        if (tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
                         {
-                           // _tenantCache[tenant.TenantId] = tenant;
-
-                            if (checkAll || tenant.CreatedDate > DateTime.UtcNow.AddDays(-1))
-                            {
-                                LmtConfiguration.CreateCollectionForTrace(
-                                    _blocksSecret.TraceConnectionString,
-                                    tenant.TenantId);
-                            }
+                            EnsureTraceCollectionExists(tenant);
                         }
-
-                     //   _logger.LogInformation("Reloaded {Count} tenants into cache.", tenants.Count);
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed while processing tenants in background.");
-                    }
-                });
+                }
             }
             catch (Exception ex)
             {
@@ -247,6 +268,15 @@ namespace Blocks.Genesis
 
             appName = appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? appName : $"https://{appName}";
 
+            var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant =>
+                string.Equals(tenant.ApplicationDomain, appName, StringComparison.OrdinalIgnoreCase)
+                || tenant.AllowedDomains.Any(domain => string.Equals(domain, appName, StringComparison.OrdinalIgnoreCase)));
+
+            if (cachedTenant != null)
+            {
+                return cachedTenant;
+            }
+
             try
             {
                 var builder = Builders<Tenant>.Filter;
@@ -255,16 +285,82 @@ namespace Blocks.Genesis
                     builder.Eq(t => t.ApplicationDomain, appName),
                     builder.AnyEq(t => t.AllowedDomains, appName));
 
-                return _database
+                var tenant = _database
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
                     .Find(domainMatch)
                     .FirstOrDefault();
+
+                if (tenant != null)
+                {
+                    _tenantCache[tenant.TenantId] = tenant;
+                }
+
+                return tenant;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to retrieve tenant from DB for Application name: {AppName}", appName);
                 return null;
             }
+        }
+
+
+        private void EnsureTraceCollectionExists(Tenant tenant)
+        {
+            LmtConfiguration.CreateCollectionForTrace(
+                _blocksSecret.TraceConnectionString,
+                tenant.TenantId);
+        }
+
+        private static TenantCacheUpdateMessage? ParseTenantCacheUpdate(string message)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                try
+                {
+                    var cacheUpdate = JsonSerializer.Deserialize<TenantCacheUpdateMessage>(message);
+                    if (cacheUpdate != null)
+                    {
+                        return cacheUpdate;
+                    }
+                }
+                catch (JsonException)
+                {
+                }
+            }
+
+            return null;
+        }
+
+        private static TenantCacheUpdateMessage? NormalizeCacheUpdate(TenantCacheUpdateMessage cacheUpdate)
+        {
+            var action = (cacheUpdate.Action ?? string.Empty).Trim().ToLowerInvariant();
+            if (action != TenantCacheUpdateActionRemove && action != TenantCacheUpdateActionUpsert)
+            {
+                return null;
+            }
+
+            if (action == TenantCacheUpdateActionRemove)
+            {
+                var tenantId = ResolveTenantId(cacheUpdate);
+                return string.IsNullOrWhiteSpace(tenantId)
+                    ? null
+                    : cacheUpdate with { Action = TenantCacheUpdateActionRemove, TenantId = tenantId };
+            }
+
+            if (cacheUpdate.Tenant is null || string.IsNullOrWhiteSpace(cacheUpdate.Tenant.TenantId))
+            {
+                return null;
+            }
+
+            return cacheUpdate with { Action = TenantCacheUpdateActionUpsert, TenantId = cacheUpdate.Tenant.TenantId };
+        }
+
+        private static string? ResolveTenantId(TenantCacheUpdateMessage cacheUpdate)
+        {
+            return string.IsNullOrWhiteSpace(cacheUpdate.TenantId)
+                ? cacheUpdate.Tenant?.TenantId
+                : cacheUpdate.TenantId;
         }
     }
 }

@@ -6,6 +6,7 @@ using StackExchange.Redis;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace XUnitTest.Tenant;
 
@@ -140,28 +141,53 @@ public class TenantsServiceTests
     {
         var sut = CreateSut();
         var cacheClient = new Mock<ICacheClient>();
-        cacheClient.Setup(c => c.AddStringValueAsync("tenant::version", It.IsAny<string>())).ReturnsAsync(true);
         cacheClient.Setup(c => c.PublishAsync("tenant::updates", It.IsAny<string>())).ReturnsAsync(1);
         SetField(sut, "_cacheClient", cacheClient.Object);
 
-        await sut.UpdateTenantVersionAsync();
+        await sut.UpdateTenantVersionAsync(new TenantCacheUpdateMessage
+        {
+            Action = Tenants.TenantCacheUpdateActionUpsert,
+            Tenant = CreateTenant("tenant-1")
+        });
 
-        cacheClient.Verify(c => c.AddStringValueAsync("tenant::version", It.IsAny<string>()), Times.Once);
         cacheClient.Verify(c => c.PublishAsync("tenant::updates", It.IsAny<string>()), Times.Once);
-
-        var tenantVersion = GetField<string>(sut, "_tenantVersion");
-        Assert.False(string.IsNullOrWhiteSpace(tenantVersion));
     }
 
     [Fact]
-    public async Task UpdateTenantVersionAsync_ShouldNotPublish_WhenCacheSetFails()
+    public async Task UpdateTenantVersionAsync_ShouldPublishTenantSpecificPayload_WhenTenantIdProvided()
     {
         var sut = CreateSut();
         var cacheClient = new Mock<ICacheClient>();
-        cacheClient.Setup(c => c.AddStringValueAsync("tenant::version", It.IsAny<string>())).ReturnsAsync(false);
+        string? publishedPayload = null;
+        cacheClient
+            .Setup(c => c.PublishAsync("tenant::updates", It.IsAny<string>()))
+            .Callback<string, string>((_, payload) => publishedPayload = payload)
+            .ReturnsAsync(1);
         SetField(sut, "_cacheClient", cacheClient.Object);
 
-        await sut.UpdateTenantVersionAsync();
+        await sut.UpdateTenantVersionAsync(new TenantCacheUpdateMessage
+        {
+            Action = Tenants.TenantCacheUpdateActionRemove,
+            TenantId = "tenant-42"
+        });
+
+        Assert.NotNull(publishedPayload);
+        Assert.Contains("tenant-42", publishedPayload, StringComparison.Ordinal);
+        Assert.Contains("remove", publishedPayload, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UpdateTenantVersionAsync_ShouldNotPublish_WhenPayloadIsInvalid()
+    {
+        var sut = CreateSut();
+        var cacheClient = new Mock<ICacheClient>();
+        SetField(sut, "_cacheClient", cacheClient.Object);
+
+        await sut.UpdateTenantVersionAsync(new TenantCacheUpdateMessage
+        {
+            Action = "invalid",
+            Tenant = CreateTenant("tenant-1")
+        });
 
         cacheClient.Verify(c => c.PublishAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
@@ -171,10 +197,14 @@ public class TenantsServiceTests
     {
         var sut = CreateSut();
         var cacheClient = new Mock<ICacheClient>();
-        cacheClient.Setup(c => c.AddStringValueAsync("tenant::version", It.IsAny<string>())).ThrowsAsync(new Exception("cache-fail"));
+        cacheClient.Setup(c => c.PublishAsync("tenant::updates", It.IsAny<string>())).ThrowsAsync(new Exception("pub-fail"));
         SetField(sut, "_cacheClient", cacheClient.Object);
 
-        var exception = await Record.ExceptionAsync(() => sut.UpdateTenantVersionAsync());
+        var exception = await Record.ExceptionAsync(() => sut.UpdateTenantVersionAsync(new TenantCacheUpdateMessage
+        {
+            Action = Tenants.TenantCacheUpdateActionUpsert,
+            Tenant = CreateTenant("tenant-1")
+        }));
 
         Assert.Null(exception);
     }
@@ -229,6 +259,20 @@ public class TenantsServiceTests
         var result = sut.GetTenantByApplicationDomain("acme.local");
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetTenantByApplicationDomain_ShouldReturnTenantFromCache_WhenPresent()
+    {
+        var sut = CreateSut();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var tenant = CreateTenant("tenant-cache");
+        tenant.ApplicationDomain = "https://acme.local";
+        cache[tenant.TenantId] = tenant;
+
+        var result = sut.GetTenantByApplicationDomain("acme.local");
+
+        Assert.Same(tenant, result);
     }
 
     [Fact]
@@ -308,12 +352,14 @@ public class TenantsServiceTests
         var sut = CreateSut();
         var database = new Mock<IMongoDatabase>();
         var collection = new Mock<IMongoCollection<Blocks.Genesis.Tenant>>();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
 
         var tenant1 = CreateTenant("t1");
         tenant1.CreatedDate = DateTime.UtcNow.AddDays(-2);
         var tenant2 = CreateTenant("t2");
         tenant2.CreatedDate = DateTime.UtcNow.AddDays(-3);
         var tenants = new[] { tenant1, tenant2 };
+        cache["stale"] = CreateTenant("stale");
 
         collection
             .Setup(c => c.FindSync(
@@ -329,10 +375,10 @@ public class TenantsServiceTests
 
         InvokePrivateReloadTenants(sut);
 
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
         Assert.Equal(2, cache.Count);
         Assert.True(cache.ContainsKey("t1"));
         Assert.True(cache.ContainsKey("t2"));
+        Assert.False(cache.ContainsKey("stale"));
     }
 
     [Fact]
@@ -351,30 +397,68 @@ public class TenantsServiceTests
     }
 
     [Fact]
-    public void HandleTenantUpdate_ShouldSkipReload_WhenVersionIsUnchanged()
+    public void HandleTenantUpdate_ShouldIgnoreInvalidPayload()
     {
         var sut = CreateSut();
-        SetField(sut, "_tenantVersion", "v1");
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        cache["tenant-1"] = CreateTenant("tenant-1", dbName: "db");
 
-        InvokePrivateHandleTenantUpdate(sut, "tenant::updates", "v1");
+        InvokePrivateHandleTenantUpdate(sut, "tenant::updates", "not-json");
 
-        Assert.Equal("v1", GetField<string>(sut, "_tenantVersion"));
+        Assert.Single(cache);
+        Assert.True(cache.ContainsKey("tenant-1"));
     }
 
     [Fact]
-    public void HandleTenantUpdate_ShouldUpdateVersion_WhenVersionChanged()
+    public void HandleTenantUpdate_ShouldUpsertTenant_WhenUpsertMessageReceived()
     {
         var sut = CreateSut();
-        SetField(sut, "_tenantVersion", "old-version");
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var incoming = CreateTenant("tenant-1", dbName: "updated-db");
 
-        var database = new Mock<IMongoDatabase>();
-        database.Setup(d => d.GetCollection<Blocks.Genesis.Tenant>(It.IsAny<string>(), It.IsAny<MongoCollectionSettings>()))
-            .Throws(new Exception("reload-fail"));
-        SetField(sut, "_database", database.Object);
+        InvokePrivateHandleTenantUpdate(
+            sut,
+            "tenant::updates",
+            CreateUpdateMessage(Tenants.TenantCacheUpdateActionUpsert, tenant: incoming));
 
-        InvokePrivateHandleTenantUpdate(sut, "tenant::updates", "new-version");
+        Assert.Single(cache);
+        Assert.Equal("updated-db", cache["tenant-1"].DBName);
+    }
 
-        Assert.Equal("new-version", GetField<string>(sut, "_tenantVersion"));
+    [Fact]
+    public void HandleTenantUpdate_ShouldRemoveByTenantId_WhenRemoveMessageReceived()
+    {
+        var sut = CreateSut();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        cache["keep"] = CreateTenant("keep", dbName: "keep-db");
+        cache["tenant-1"] = CreateTenant("tenant-1", dbName: "old-db");
+
+        InvokePrivateHandleTenantUpdate(
+            sut,
+            "tenant::updates",
+            CreateUpdateMessage(Tenants.TenantCacheUpdateActionRemove, tenantId: "tenant-1"));
+
+        Assert.Single(cache);
+        Assert.False(cache.ContainsKey("tenant-1"));
+        Assert.True(cache.ContainsKey("keep"));
+    }
+
+    [Fact]
+    public void HandleTenantUpdate_ShouldRemoveByTenantPayload_WhenRemoveMessageReceived()
+    {
+        var sut = CreateSut();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        cache["keep"] = CreateTenant("keep", dbName: "keep-db");
+        cache["tenant-1"] = CreateTenant("tenant-1", dbName: "old-db");
+
+        InvokePrivateHandleTenantUpdate(
+            sut,
+            "tenant::updates",
+            CreateUpdateMessage(Tenants.TenantCacheUpdateActionRemove, tenant: CreateTenant("tenant-1")));
+
+        Assert.Single(cache);
+        Assert.False(cache.ContainsKey("tenant-1"));
+        Assert.True(cache.ContainsKey("keep"));
     }
 
     private static Tenants CreateSut()
@@ -385,9 +469,7 @@ public class TenantsServiceTests
         SetField(instance, "_blocksSecret", Mock.Of<IBlocksSecret>());
         SetField(instance, "_cacheClient", Mock.Of<ICacheClient>());
         SetField(instance, "_database", Mock.Of<IMongoDatabase>());
-        SetField(instance, "_tenantVersionKey", "tenant::version");
         SetField(instance, "_tenantUpdateChannel", "tenant::updates");
-        SetField(instance, "_tenantVersion", string.Empty);
         SetField(instance, "_isSubscribed", false);
         SetField(instance, "_disposed", false);
         SetField(instance, "_tenantCache", new ConcurrentDictionary<string, Blocks.Genesis.Tenant>());
@@ -430,6 +512,7 @@ public class TenantsServiceTests
     {
         return new Blocks.Genesis.Tenant
         {
+            ItemId = tenantId,
             TenantId = tenantId,
             DBName = dbName,
             DbConnectionString = connection,
@@ -462,5 +545,15 @@ public class TenantsServiceTests
             .Returns(false);
         cursor.SetupGet(c => c.Current).Returns(list);
         return cursor;
+    }
+
+    private static string CreateUpdateMessage(string action, string? tenantId = null, Blocks.Genesis.Tenant? tenant = null)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            Tenant = tenant,
+            TenantId = tenantId,
+            Action = action
+        });
     }
 }
