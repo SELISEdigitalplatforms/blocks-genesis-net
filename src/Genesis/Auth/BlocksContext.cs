@@ -200,7 +200,7 @@ namespace Blocks.Genesis
                     return CreateFromClaimsIdentity(identity);
                 }
 
-                return _asyncLocalContext.Value ?? new BlocksContext(BlocksConstants.BlocksProjectKey, [], string.Empty, false, string.Empty, string.Empty, DateTime.MinValue, string.Empty, [], string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
+                return _asyncLocalContext.Value;
             }
             catch (Exception)
             {
