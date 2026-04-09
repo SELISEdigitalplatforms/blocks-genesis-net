@@ -8,8 +8,6 @@ namespace Blocks.Genesis
 {
     public sealed record BlocksContext
     {
-        private const string HttpContextItemKey = "blocks.security.context";
-
         // JWT Standard Claims
         public const string ISSUER_CLAIM = "iss";
         public const string AUDIANCES_CLAIM = "aud";
@@ -190,11 +188,6 @@ namespace Blocks.Genesis
                     return _asyncLocalContext.Value;
 
                 var httpContext = GetHttpContext();
-                if (httpContext?.Items.TryGetValue(HttpContextItemKey, out var storedContext) == true && storedContext is BlocksContext requestContext)
-                {
-                    return requestContext;
-                }
-
                 if (httpContext?.User?.Identity is ClaimsIdentity identity && identity.IsAuthenticated)
                 {
                     return CreateFromClaimsIdentity(identity);
@@ -204,10 +197,9 @@ namespace Blocks.Genesis
             }
             catch (Exception)
             {
-                return _asyncLocalContext.Value;
+                return null;
             }
         }
-
 
         /// <summary>
         /// Sets the context in AsyncLocal storage (for background services/workers)
@@ -216,19 +208,6 @@ namespace Blocks.Genesis
         {
             _asyncLocalContext.Value = context;
             _forceAsyncLocalContext.Value = context != null && changeContext;
-
-            var httpContext = GetHttpContext();
-            if (httpContext != null)
-            {
-                if (context is null)
-                {
-                    httpContext.Items.Remove(HttpContextItemKey);
-                }
-                else
-                {
-                    httpContext.Items[HttpContextItemKey] = context;
-                }
-            }
         }
 
         /// <summary>
@@ -237,9 +216,6 @@ namespace Blocks.Genesis
         public static void ClearContext()
         {
             _asyncLocalContext.Value = null;
-
-            var httpContext = GetHttpContext();
-            httpContext?.Items.Remove(HttpContextItemKey);
         }
 
         /// <summary>
