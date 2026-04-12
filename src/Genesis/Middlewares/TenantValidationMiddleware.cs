@@ -24,7 +24,7 @@ namespace Blocks.Genesis
             var activity = Activity.Current;
 
             var endpoint = context.GetEndpoint();
-            if (endpoint is null || endpoint.DisplayName?.Contains("Controller") == false)
+            if (endpoint is null || (endpoint.DisplayName?.Contains("Controller") == false && endpoint.DisplayName?.Contains("GraphQL") == false))
             {
                 Console.WriteLine("Skipping tenant validation for controller-action");
                 await _next(context);
