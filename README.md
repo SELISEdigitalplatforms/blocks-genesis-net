@@ -19,6 +19,7 @@ This repository provides a multi-project .NET solution containing a reusable fra
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
 - [Installation](#installation)
+- [Environment Variables](#environment-variables)
 
 ## Feature
 
@@ -171,3 +172,35 @@ From the repository root:
 docker build -f Apis.Dockerfile -t blocks-genesis-api --build-arg git_branch=dev .
 docker build -f Workers.Dockerfile -t blocks-genesis-worker --build-arg git_branch=dev .
 ```
+
+## Environment Variables
+
+### Essentials
+
+- `BlocksSecret__CacheConnectionString`
+- `BlocksSecret__MessageConnectionString`
+- `BlocksSecret__LogConnectionString`
+- `BlocksSecret__MetricConnectionString`
+- `BlocksSecret__TraceConnectionString`
+- `BlocksSecret__LogDatabaseName`
+- `BlocksSecret__MetricDatabaseName`
+- `BlocksSecret__TraceDatabaseName`
+- `BlocksSecret__DatabaseConnectionString`
+- `BlocksSecret__RootDatabaseName`
+- `BlocksSecret__EnableHsts`
+
+### KeyVault
+
+If you want to access these environment variables from KeyVault then add the following variables instead:
+
+- `CacheConnectionString`
+- `MessageConnectionString`
+- `LogConnectionString`
+- `MetricConnectionString`
+- `TraceConnectionString`
+- `LogDatabaseName`
+- `MetricDatabaseName`
+- `TraceDatabaseName`
+- `DatabaseConnectionString`
+- `RootDatabaseName`
+- `EnableHsts`

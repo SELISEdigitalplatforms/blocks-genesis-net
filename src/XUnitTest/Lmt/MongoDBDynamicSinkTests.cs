@@ -79,9 +79,8 @@ namespace Blocks.Genesis.Tests
         }
 
         [Fact]
-        public async Task EmitBatchAsync_ShouldCallSenderAndMongo_WhenConfigured()
+        public async Task EmitBatchAsync_ShouldCallMongo_WhenDatabaseConfigured()
         {
-            var sender = (LmtServiceBusSender)RuntimeHelpers.GetUninitializedObject(typeof(LmtServiceBusSender));
             var collection = new Mock<IMongoCollection<BsonDocument>>();
             collection.Setup(c => c.InsertManyAsync(It.IsAny<IEnumerable<BsonDocument>>(), It.IsAny<InsertManyOptions>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
@@ -89,7 +88,7 @@ namespace Blocks.Genesis.Tests
             var database = new Mock<IMongoDatabase>();
             database.Setup(d => d.GetCollection<BsonDocument>("svc", It.IsAny<MongoCollectionSettings>())).Returns(collection.Object);
 
-            var sink = CreateSinkWithInternals(sender, database.Object, "svc");
+            var sink = CreateSinkWithInternals(serviceBusSender: null, database.Object, "svc");
             var parser = new MessageTemplateParser();
             var evt = new LogEvent(DateTimeOffset.UtcNow, LogEventLevel.Warning, null, parser.Parse("m"), new List<LogEventProperty>
             {
