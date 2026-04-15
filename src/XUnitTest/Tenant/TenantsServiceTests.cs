@@ -346,40 +346,7 @@ public class TenantsServiceTests
         Assert.False(GetField<bool>(sut, "_isSubscribed"));
     }
 
-    [Fact]
-    public void ReloadTenants_ShouldPopulateCacheFromDatabase()
-    {
-        var sut = CreateSut();
-        var database = new Mock<IMongoDatabase>();
-        var collection = new Mock<IMongoCollection<Blocks.Genesis.Tenant>>();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
 
-        var tenant1 = CreateTenant("t1");
-        tenant1.CreatedDate = DateTime.UtcNow.AddDays(-2);
-        var tenant2 = CreateTenant("t2");
-        tenant2.CreatedDate = DateTime.UtcNow.AddDays(-3);
-        var tenants = new[] { tenant1, tenant2 };
-        cache["stale"] = CreateTenant("stale");
-
-        collection
-            .Setup(c => c.FindSync(
-                It.IsAny<FilterDefinition<Blocks.Genesis.Tenant>>(),
-                It.IsAny<FindOptions<Blocks.Genesis.Tenant, Blocks.Genesis.Tenant>>(),
-                It.IsAny<CancellationToken>()))
-            .Returns(CreateCursorWithMany(tenants).Object);
-
-        database
-            .Setup(d => d.GetCollection<Blocks.Genesis.Tenant>(It.IsAny<string>(), It.IsAny<MongoCollectionSettings>()))
-            .Returns(collection.Object);
-        SetField(sut, "_database", database.Object);
-
-        InvokePrivateReloadTenants(sut);
-
-        Assert.Equal(2, cache.Count);
-        Assert.True(cache.ContainsKey("t1"));
-        Assert.True(cache.ContainsKey("t2"));
-        Assert.False(cache.ContainsKey("stale"));
-    }
 
     [Fact]
     public void Dispose_ShouldCatchUnsubscribeExceptions()
@@ -473,6 +440,7 @@ public class TenantsServiceTests
         SetField(instance, "_isSubscribed", false);
         SetField(instance, "_disposed", false);
         SetField(instance, "_tenantCache", new ConcurrentDictionary<string, Blocks.Genesis.Tenant>());
+        SetField(instance, "_tenantLoadInProgress", new ConcurrentDictionary<string, Lazy<Blocks.Genesis.Tenant?>>());
 
         return instance;
     }
@@ -482,12 +450,6 @@ public class TenantsServiceTests
         var method = typeof(Tenants).GetMethod("SubscribeToTenantUpdates", BindingFlags.NonPublic | BindingFlags.Instance)!;
         var task = (Task)method.Invoke(sut, null)!;
         await task;
-    }
-
-    private static void InvokePrivateReloadTenants(Tenants sut)
-    {
-        var method = typeof(Tenants).GetMethod("ReloadTenants", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        method.Invoke(sut, [false]);
     }
 
     private static void InvokePrivateHandleTenantUpdate(Tenants sut, string channel, string message)
