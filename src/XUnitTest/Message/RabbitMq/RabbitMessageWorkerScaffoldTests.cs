@@ -207,12 +207,7 @@ public class RabbitMessageWorkerScaffoldTests
 
     Assert.Equal("ok", WorkerConsumerProbe.LastValue);
     channel.Verify(x => x.BasicAckAsync(42, false, It.IsAny<CancellationToken>()), Times.Once);
-    var context = BlocksContext.GetContext();
-    Assert.NotNull(context);
-    Assert.Equal(string.Empty, context.TenantId);
-    Assert.Empty(context.Roles);
-    Assert.Equal(string.Empty, context.UserId);
-    Assert.False(context.IsAuthenticated);
+    Assert.Null(BlocksContext.GetContext());
     }
 
     [Fact]
@@ -234,12 +229,7 @@ public class RabbitMessageWorkerScaffoldTests
 
     Assert.Null(exception);
     channel.Verify(x => x.BasicAckAsync(7, false, It.IsAny<CancellationToken>()), Times.Once);
-    var context = BlocksContext.GetContext();
-    Assert.NotNull(context);
-    Assert.Equal(string.Empty, context.TenantId);
-    Assert.Empty(context.Roles);
-    Assert.Equal(string.Empty, context.UserId);
-    Assert.False(context.IsAuthenticated);
+    Assert.Null(BlocksContext.GetContext());
     }
 
     [Fact]
