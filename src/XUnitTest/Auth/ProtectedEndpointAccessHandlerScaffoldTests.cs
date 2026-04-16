@@ -185,6 +185,34 @@ public class ProtectedEndpointAccessHandlerScaffoldTests
     }
 
     [Fact]
+    public void GetActionName_ShouldReturnEmpty_WhenResourceIsNotHttpContext()
+    {
+        var type = Type.GetType("Blocks.Genesis.ProtectedEndpointAccessHandler, Blocks.Genesis");
+        Assert.NotNull(type);
+
+        var context = new AuthorizationHandlerContext([], new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "u")], "Bearer")), new object());
+        var method = type!.GetMethod("GetActionName", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = (string)method!.Invoke(null, [context])!;
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
+    public void GetControllerName_ShouldReturnEmpty_WhenResourceIsNotHttpContext()
+    {
+        var type = Type.GetType("Blocks.Genesis.ProtectedEndpointAccessHandler, Blocks.Genesis");
+        Assert.NotNull(type);
+
+        var context = new AuthorizationHandlerContext([], new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "u")], "Bearer")), new object());
+        var method = type!.GetMethod("GetControllerName", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = (string)method!.Invoke(null, [context])!;
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
     public async Task HandleRequirementAsync_ShouldFail_WhenUserIsNotAuthenticated()
     {
         var type = Type.GetType("Blocks.Genesis.ProtectedEndpointAccessHandler, Blocks.Genesis");
@@ -411,6 +439,102 @@ public class ProtectedEndpointAccessHandlerScaffoldTests
 
         Assert.True(context.HasSucceeded);
         Assert.False(context.HasFailed);
+    }
+
+    [Fact]
+    public async Task HandleRequirementAsync_ShouldFail_WhenActionOrControllerMissing()
+    {
+        BlocksContext.IsTestMode = true;
+        BlocksContext.SetContext(BlocksContext.Create("tenant-a", [], "user-1", true, "/", "", DateTime.MinValue, "", [], "", "", "", "", "", "tenant-a"));
+
+        var type = Type.GetType("Blocks.Genesis.ProtectedEndpointAccessHandler, Blocks.Genesis");
+        var requirementType = Type.GetType("Blocks.Genesis.ProtectedEndpointAccessRequirement, Blocks.Genesis");
+        Assert.NotNull(type);
+        Assert.NotNull(requirementType);
+
+        var dbContext = new Mock<IDbContextProvider>();
+        var blocksSecret = new Mock<IBlocksSecret>();
+        var tenants = new Mock<ITenants>();
+        var handler = Activator.CreateInstance(type!, dbContext.Object, blocksSecret.Object, tenants.Object);
+        var requirement = (IAuthorizationRequirement)Activator.CreateInstance(requirementType!)!;
+
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(BlocksContext.USER_ID_CLAIM, "user-1")], "Bearer"));
+        var context = new AuthorizationHandlerContext([requirement], principal, new DefaultHttpContext());
+
+        var method = type!.GetMethod("HandleRequirementAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(method);
+        var task = (Task)method!.Invoke(handler, [context, requirement])!;
+        await task;
+
+        Assert.True(context.HasFailed);
+    }
+
+    [Fact]
+    public async Task HandleRequirementAsync_ShouldFail_WhenStandardPermissionCheckReturnsFalse()
+    {
+        BlocksContext.IsTestMode = true;
+        BlocksContext.SetContext(BlocksContext.Create("tenant-deny", ["viewer"], "user-1", true, "/orders", "", DateTime.MinValue, "", [], "", "", "", "", "", "tenant-deny"));
+
+        var type = Type.GetType("Blocks.Genesis.ProtectedEndpointAccessHandler, Blocks.Genesis");
+        var requirementType = Type.GetType("Blocks.Genesis.ProtectedEndpointAccessRequirement, Blocks.Genesis");
+        Assert.NotNull(type);
+        Assert.NotNull(requirementType);
+
+        var dbContext = new Mock<IDbContextProvider>();
+
+        var database = new Mock<IMongoDatabase>();
+        var resourceLimits = new Mock<IMongoCollection<BsonDocument>>();
+        resourceLimits
+            .Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<BsonDocument>>(),
+                It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateCursor(null));
+
+        database
+            .Setup(d => d.GetCollection<BsonDocument>("ResourceLimits", It.IsAny<MongoCollectionSettings>()))
+            .Returns(resourceLimits.Object);
+        dbContext.Setup(d => d.GetDatabase("tenant-deny")).Returns(database.Object);
+
+        var permissionsCollection = new Mock<IMongoCollection<BsonDocument>>();
+        permissionsCollection
+            .Setup(c => c.CountDocumentsAsync(
+                It.IsAny<FilterDefinition<BsonDocument>>(),
+                It.IsAny<CountOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+        dbContext.Setup(d => d.GetCollection<BsonDocument>("Permissions")).Returns(permissionsCollection.Object);
+
+        var blocksSecret = new Mock<IBlocksSecret>();
+        blocksSecret.SetupGet(s => s.ServiceName).Returns("svc");
+
+        var tenants = new Mock<ITenants>();
+        tenants.Setup(t => t.GetTenantByID("tenant-deny")).Returns(CreateNonRootTenant("tenant-deny"));
+
+        var handler = Activator.CreateInstance(type!, dbContext.Object, blocksSecret.Object, tenants.Object);
+        var requirement = (IAuthorizationRequirement)Activator.CreateInstance(requirementType!)!;
+
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(BlocksContext.USER_ID_CLAIM, "user-1"),
+            new Claim(BlocksContext.PERMISSION_CLAIM, "some-other-resource")
+        ], "Bearer"));
+
+        var http = new DefaultHttpContext();
+        http.Request.Headers[BlocksConstants.BlocksKey] = "tenant-deny";
+        http.SetEndpoint(new Endpoint(_ => Task.CompletedTask,
+            new EndpointMetadataCollection(new ControllerActionDescriptor { ActionName = "Get", ControllerName = "Orders" }),
+            "orders-get"));
+
+        var context = new AuthorizationHandlerContext([requirement], principal, http);
+
+        var method = type!.GetMethod("HandleRequirementAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(method);
+        var task = (Task)method!.Invoke(handler, [context, requirement])!;
+        await task;
+
+        Assert.True(context.HasFailed);
+        Assert.False(context.HasSucceeded);
     }
 
     [Fact]
