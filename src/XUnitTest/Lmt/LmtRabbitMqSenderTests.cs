@@ -40,6 +40,33 @@ public class LmtRabbitMqSenderTests
     }
 
     [Fact]
+    public async Task SendLogsAsync_ShouldRetryBeforeQueueing_WhenRetriesConfigured()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 1, maxFailedBatches: 10);
+
+        await sender.SendLogsAsync([new LogData { Message = "retry-log" }]);
+
+        var queue = GetLogQueue(sender);
+        Assert.Single(queue);
+        Assert.Equal(1, queue.First().RetryCount);
+    }
+
+    [Fact]
+    public async Task SendTracesAsync_ShouldRetryBeforeQueueing_WhenRetriesConfigured()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 1, maxFailedBatches: 10);
+
+        await sender.SendTracesAsync(new Dictionary<string, List<TraceData>>
+        {
+            ["tenant-a"] = [new TraceData { TraceId = "t", SpanId = "s" }]
+        });
+
+        var queue = GetTraceQueue(sender);
+        Assert.Single(queue);
+        Assert.Equal(1, queue.First().RetryCount);
+    }
+
+    [Fact]
     public async Task SendLogsAsync_ShouldDropBatch_WhenQueueIsFull()
     {
         var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 1);
@@ -143,6 +170,95 @@ public class LmtRabbitMqSenderTests
         await InvokePrivateAsync(sender, "RetryFailedTracesAsync", DateTime.UtcNow);
 
         Assert.Empty(queue);
+    }
+
+    [Fact]
+    public async Task RetryFailedLogsAsync_ShouldSendDueBatch_WhenRetryAllowed()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 3, maxFailedBatches: 10);
+
+        var connection = new Mock<IConnection>();
+        connection.SetupGet(c => c.IsOpen).Returns(true);
+
+        var channel = new Mock<IChannel>();
+        channel.SetupGet(c => c.IsOpen).Returns(true);
+        channel
+            .Setup(c => c.BasicPublishAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<BasicProperties>(),
+                It.IsAny<ReadOnlyMemory<byte>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        SetField(sender, "_connection", connection.Object);
+        SetField(sender, "_channel", channel.Object);
+
+        var queue = GetLogQueue(sender);
+        queue.Enqueue(new FailedLogBatch
+        {
+            Logs = [new LogData { Message = "due", ServiceName = "svc", Level = "Info", Timestamp = DateTime.UtcNow }],
+            RetryCount = 0,
+            NextRetryTime = DateTime.UtcNow.AddSeconds(-1)
+        });
+
+        await InvokePrivateAsync(sender, "RetryFailedLogsAsync", DateTime.UtcNow);
+
+        Assert.Empty(queue);
+        channel.Verify(c => c.BasicPublishAsync(
+            It.IsAny<string>(),
+            LmtConstants.RabbitMqLogsRoutingKey,
+            true,
+            It.IsAny<BasicProperties>(),
+            It.IsAny<ReadOnlyMemory<byte>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RetryFailedTracesAsync_ShouldSendDueBatch_WhenRetryAllowed()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 3, maxFailedBatches: 10);
+
+        var connection = new Mock<IConnection>();
+        connection.SetupGet(c => c.IsOpen).Returns(true);
+
+        var channel = new Mock<IChannel>();
+        channel.SetupGet(c => c.IsOpen).Returns(true);
+        channel
+            .Setup(c => c.BasicPublishAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<BasicProperties>(),
+                It.IsAny<ReadOnlyMemory<byte>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        SetField(sender, "_connection", connection.Object);
+        SetField(sender, "_channel", channel.Object);
+
+        var queue = GetTraceQueue(sender);
+        queue.Enqueue(new FailedTraceBatch
+        {
+            TenantBatches = new Dictionary<string, List<TraceData>>
+            {
+                ["tenant-a"] = [new TraceData { TraceId = "t", SpanId = "s", TenantId = "tenant-a" }]
+            },
+            RetryCount = 0,
+            NextRetryTime = DateTime.UtcNow.AddSeconds(-1)
+        });
+
+        await InvokePrivateAsync(sender, "RetryFailedTracesAsync", DateTime.UtcNow);
+
+        Assert.Empty(queue);
+        channel.Verify(c => c.BasicPublishAsync(
+            It.IsAny<string>(),
+            LmtConstants.RabbitMqTracesRoutingKey,
+            true,
+            It.IsAny<BasicProperties>(),
+            It.IsAny<ReadOnlyMemory<byte>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -272,6 +388,16 @@ public class LmtRabbitMqSenderTests
     }
 
     [Fact]
+    public async Task PublishAsync_ShouldThrow_WhenChannelIsNull()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 10);
+        SetField(sender, "_channel", null);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => InvokePrivateAsync(sender, "PublishAsync", "route", new { A = 1 }, "src", "logs"));
+    }
+
+    [Fact]
     public void Constructor_ShouldInitializeRecoverySettings()
     {
         using var sender = new LmtRabbitMqSender(
@@ -288,6 +414,23 @@ public class LmtRabbitMqSenderTests
         Assert.Equal(5, maxFailedBatches);
         Assert.True(factory.AutomaticRecoveryEnabled);
         Assert.Equal(TimeSpan.FromSeconds(10), factory.NetworkRecoveryInterval);
+    }
+
+    [Fact]
+    public void Dispose_ShouldDisposeChannelAndConnection_AndBeIdempotent()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 10);
+
+        var channel = new Mock<IChannel>();
+        var connection = new Mock<IConnection>();
+        SetField(sender, "_channel", channel.Object);
+        SetField(sender, "_connection", connection.Object);
+
+        sender.Dispose();
+        sender.Dispose();
+
+        channel.Verify(c => c.Dispose(), Times.Once);
+        connection.Verify(c => c.Dispose(), Times.Once);
     }
 
     [Fact]
