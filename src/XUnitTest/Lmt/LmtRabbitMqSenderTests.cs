@@ -2,6 +2,8 @@ using SeliseBlocks.LMT.Client;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Moq;
+using RabbitMQ.Client;
 
 namespace XUnitTest.Lmt;
 
@@ -166,9 +168,126 @@ public class LmtRabbitMqSenderTests
     {
         var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 0);
 
-        // Source code disposes _retrySemaphore before RetryFailedBatchesAsync uses it,
-        // so Dispose throws ObjectDisposedException
-        Assert.ThrowsAny<ObjectDisposedException>(() => sender.Dispose());
+        sender.Dispose();
+
+        var disposed = GetField<bool>(sender, "_disposed");
+        Assert.True(disposed);
+    }
+
+    [Fact]
+    public async Task EnsureChannelAsync_ShouldReturn_WhenConnectionAndChannelAlreadyOpen()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 10);
+
+        var connection = new Mock<IConnection>();
+        connection.SetupGet(c => c.IsOpen).Returns(true);
+
+        var channel = new Mock<IChannel>();
+        channel.SetupGet(c => c.IsOpen).Returns(true);
+
+        SetField(sender, "_connection", connection.Object);
+        SetField(sender, "_channel", channel.Object);
+
+        await InvokePrivateAsync(sender, "EnsureChannelAsync");
+    }
+
+    [Fact]
+    public async Task SendLogsAsync_ShouldPublish_WhenChannelAlreadyOpen()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 10);
+
+        var connection = new Mock<IConnection>();
+        connection.SetupGet(c => c.IsOpen).Returns(true);
+
+        var channel = new Mock<IChannel>();
+        channel.SetupGet(c => c.IsOpen).Returns(true);
+        channel
+            .Setup(c => c.BasicPublishAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<BasicProperties>(),
+                It.IsAny<ReadOnlyMemory<byte>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        SetField(sender, "_connection", connection.Object);
+        SetField(sender, "_channel", channel.Object);
+
+        var logs = new List<LogData>
+        {
+            new() { Message = "ok", Level = "Info", ServiceName = "svc", Timestamp = DateTime.UtcNow }
+        };
+
+        await sender.SendLogsAsync(logs);
+
+        Assert.Empty(GetLogQueue(sender));
+        channel.Verify(c => c.BasicPublishAsync(
+            It.IsAny<string>(),
+            LmtConstants.RabbitMqLogsRoutingKey,
+            true,
+            It.Is<BasicProperties>(p => p.Type == "logs" && p.ContentType == "application/json"),
+            It.IsAny<ReadOnlyMemory<byte>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SendTracesAsync_ShouldPublish_WhenChannelAlreadyOpen()
+    {
+        var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 10);
+
+        var connection = new Mock<IConnection>();
+        connection.SetupGet(c => c.IsOpen).Returns(true);
+
+        var channel = new Mock<IChannel>();
+        channel.SetupGet(c => c.IsOpen).Returns(true);
+        channel
+            .Setup(c => c.BasicPublishAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<BasicProperties>(),
+                It.IsAny<ReadOnlyMemory<byte>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        SetField(sender, "_connection", connection.Object);
+        SetField(sender, "_channel", channel.Object);
+
+        var traces = new Dictionary<string, List<TraceData>>
+        {
+            ["tenant-a"] = [new TraceData { TraceId = "t1", SpanId = "s1", TenantId = "tenant-a" }]
+        };
+
+        await sender.SendTracesAsync(traces);
+
+        Assert.Empty(GetTraceQueue(sender));
+        channel.Verify(c => c.BasicPublishAsync(
+            It.IsAny<string>(),
+            LmtConstants.RabbitMqTracesRoutingKey,
+            true,
+            It.Is<BasicProperties>(p => p.Type == "traces" && p.ContentType == "application/json"),
+            It.IsAny<ReadOnlyMemory<byte>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void Constructor_ShouldInitializeRecoverySettings()
+    {
+        using var sender = new LmtRabbitMqSender(
+            serviceName: "svc",
+            rabbitMqConnectionString: "amqp://guest:guest@localhost:5672",
+            maxRetries: 2,
+            maxFailedBatches: 5);
+
+        var maxRetries = GetField<int>(sender, "_maxRetries");
+        var maxFailedBatches = GetField<int>(sender, "_maxFailedBatches");
+        var factory = GetField<ConnectionFactory>(sender, "_factory");
+
+        Assert.Equal(2, maxRetries);
+        Assert.Equal(5, maxFailedBatches);
+        Assert.True(factory.AutomaticRecoveryEnabled);
+        Assert.Equal(TimeSpan.FromSeconds(10), factory.NetworkRecoveryInterval);
     }
 
     [Fact]

@@ -303,8 +303,8 @@ namespace SeliseBlocks.LMT.Client
             if (_disposed) return;
 
             _retryTimer.Dispose();
-            _retrySemaphore.Dispose();
             RetryFailedBatchesAsync().GetAwaiter().GetResult();
+            _retrySemaphore.Dispose();
             _channel?.Dispose();
             _connection?.Dispose();
 
