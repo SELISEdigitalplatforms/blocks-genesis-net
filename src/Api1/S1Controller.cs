@@ -56,6 +56,12 @@ namespace ApiOne
             return new {http = result, grpc };
         }
 
+        [HttpGet("Hello")]
+        public async Task<IActionResult> Get()
+        {       
+            return Ok("Hello From Blocks");
+        }
+
         private async Task CallApi()
         {
             // Make HTTP call to S2

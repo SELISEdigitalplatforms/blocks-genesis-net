@@ -1,22 +1,18 @@
-﻿using Blocks.Genesis;
+﻿using ApiOne.DomainService.Utilities;
+using Blocks.Genesis;
+using Microsoft.AspNetCore.DataProtection;
 using TestDriver;
 
 const string _serviceName = "Service-API-Test_One";
 
-await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
+var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
 var services = builder.Services;
 
-ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
-{
-    AzureServiceBusConfiguration = new()
-    {
-        Queues = new List<string> { "demo_queue" },
-        Topics = new List<string> { "demo_topic_1" },
-    },
-});
+
+ApplicationConfigurations.ConfigureServices(services, ApiConstant.GetMessageConfiguration(secret.MessageConnectionString));
 
 ApplicationConfigurations.ConfigureApi(services);
 services.AddSingleton<IGrpcClient, GrpcClient>();

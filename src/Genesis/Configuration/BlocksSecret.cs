@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
+using StackExchange.Redis;
 using System.Reflection;
 
 namespace Blocks.Genesis
@@ -28,7 +29,10 @@ namespace Blocks.Genesis
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
         {
+            var secretManagerType = Environment.GetEnvironmentVariable("SecretManagerType");
+            vaultType = (VaultType)Convert.ToInt32(secretManagerType);
             IVault cloudVault = Vault.GetCloudVault(vaultType);
+
             var blocksSecret = new BlocksSecret();
             PropertyInfo[] properties = typeof(BlocksSecret).GetProperties();
             var blocksSecretVault = await cloudVault.ProcessSecretsAsync(properties.Select(x => x.Name).ToList());

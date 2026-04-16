@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using DotNetEnv;
+using Microsoft.Extensions.Configuration;
 
 namespace Blocks.Genesis
 {
@@ -11,6 +12,9 @@ namespace Blocks.Genesis
 
         public static Dictionary<string, string> GetVaultValues()
         {
+            var envPath = Environment.GetEnvironmentVariable("envPath");
+            Env.Load(envPath);
+
             var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
             var keyVaultConfig = new Dictionary<string, string>();
             configuration.GetSection("BlocksSecret").Bind(keyVaultConfig);
