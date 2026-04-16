@@ -151,9 +151,10 @@ public class LmtTraceProcessorTests
     {
         var processor = CreateProcessorWithMockSender(out _);
 
-        // Source code disposes _semaphore before FlushBatchAsync uses it,
-        // so Dispose throws ObjectDisposedException
-        Assert.ThrowsAny<ObjectDisposedException>(() => processor.Dispose());
+        processor.Dispose();
+
+        var disposed = GetField<bool>(processor, "_disposed");
+        Assert.True(disposed);
     }
 
     [Fact]
@@ -161,12 +162,39 @@ public class LmtTraceProcessorTests
     {
         var processor = CreateProcessorWithMockSender(out _);
 
-        // First dispose throws due to source code bug
-        try { processor.Dispose(); } catch (ObjectDisposedException) { }
+        processor.Dispose();
+        processor.Dispose();
+    }
 
-        // Manually set _disposed so second call returns early
-        SetField(processor, "_disposed", true);
-        processor.Dispose(); // should not throw since _disposed is true
+    [Fact]
+    public void Constructor_AndOnEnd_ShouldWork_WithRealInstance()
+    {
+        var options = new LmtOptions
+        {
+            ServiceId = "svc-real",
+            ConnectionString = string.Empty,
+            EnableTracing = true,
+            FlushIntervalSeconds = 3600,
+            TraceBatchSize = 9999,
+            XBlocksKey = "tenant-real"
+        };
+
+        using var processor = new LmtTraceProcessor(options);
+        using var source = new ActivitySource("test-trace-real");
+        using var listener = CreateListener("test-trace-real");
+        using var activity = source.StartActivity("real-op", ActivityKind.Client);
+        Assert.NotNull(activity);
+        activity!.SetTag("http.method", "GET");
+        activity.Stop();
+
+        processor.OnEnd(activity);
+
+        var queue = GetTraceQueue(processor);
+        Assert.True(queue.TryPeek(out var trace));
+        Assert.Equal("real-op", trace.OperationName);
+        Assert.Equal("svc-real", trace.ServiceName);
+        Assert.Equal("tenant-real", trace.TenantId);
+        Assert.Equal("Client", trace.Kind);
     }
 
     [Fact]
