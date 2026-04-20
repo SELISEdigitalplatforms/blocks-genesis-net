@@ -304,6 +304,20 @@ public class BlocksLoggerTests
     }
 
     [Fact]
+    public void Dispose_ShouldNotThrow_WhenFlushCannotAcquireSemaphore()
+    {
+        var logger = CreateLoggerWithMockSender(out var mockSender);
+        var semaphore = GetField<SemaphoreSlim>(logger, "_semaphore");
+        semaphore.Dispose();
+
+        var exception = Record.Exception(() => logger.Dispose());
+
+        Assert.Null(exception);
+        mockSender.Verify(s => s.Dispose(), Times.Once);
+        Assert.True(GetField<bool>(logger, "_disposed"));
+    }
+
+    [Fact]
     public void Constructor_ShouldInitializeWithRealFactory()
     {
         // Use real constructor to cover initialization path

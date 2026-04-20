@@ -10,6 +10,53 @@ namespace XUnitTest.Lmt;
 public class LmtServiceBusSenderAdditionalTests
 {
     [Fact]
+    public async Task SendLogsAsync_ShouldSendMessage_WithExpectedMetadata()
+    {
+        ServiceBusMessage? captured = null;
+        var mockSbSender = new Mock<ServiceBusSender>();
+        mockSbSender
+            .Setup(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<ServiceBusMessage, CancellationToken>((msg, _) => captured = msg)
+            .Returns(Task.CompletedTask);
+
+        var sender = CreateSenderWithMockServiceBus(mockSbSender.Object, maxRetries: 0, maxFailedBatches: 10);
+
+        await sender.SendLogsAsync([
+            new LogData { Message = "test", Level = "Info", ServiceName = "svc", Timestamp = DateTime.UtcNow }
+        ]);
+
+        mockSbSender.Verify(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.NotNull(captured);
+        Assert.Equal("application/json", captured!.ContentType);
+        Assert.Equal(LmtConstants.LogSubscription, captured.CorrelationId);
+        Assert.Equal("logs", captured.ApplicationProperties["type"]);
+    }
+
+    [Fact]
+    public async Task SendTracesAsync_ShouldSendMessage_WithExpectedMetadata()
+    {
+        ServiceBusMessage? captured = null;
+        var mockSbSender = new Mock<ServiceBusSender>();
+        mockSbSender
+            .Setup(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<ServiceBusMessage, CancellationToken>((msg, _) => captured = msg)
+            .Returns(Task.CompletedTask);
+
+        var sender = CreateSenderWithMockServiceBus(mockSbSender.Object, maxRetries: 0, maxFailedBatches: 10);
+
+        await sender.SendTracesAsync(new Dictionary<string, List<TraceData>>
+        {
+            ["t1"] = [new TraceData { TraceId = "tr-1", SpanId = "sp-1" }]
+        });
+
+        mockSbSender.Verify(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.NotNull(captured);
+        Assert.Equal("application/json", captured!.ContentType);
+        Assert.Equal(LmtConstants.TraceSubscription, captured.CorrelationId);
+        Assert.Equal("traces", captured.ApplicationProperties["type"]);
+    }
+
+    [Fact]
     public async Task SendLogsAsync_ShouldQueueFailedBatch_WhenSendThrows()
     {
         var mockSbSender = new Mock<ServiceBusSender>();
@@ -124,6 +171,23 @@ public class LmtServiceBusSenderAdditionalTests
         });
 
         await InvokePrivateAsync(sender, "RetryFailedTracesAsync", DateTime.UtcNow);
+
+        Assert.Empty(queue);
+    }
+
+    [Fact]
+    public async Task RetryFailedLogsAsync_ShouldDrainDueBatches_WhenRetryAllowed()
+    {
+        var sender = CreateSenderWithMockServiceBus(null, maxRetries: 3, maxFailedBatches: 10);
+        var queue = GetLogQueue(sender);
+        queue.Enqueue(new FailedLogBatch
+        {
+            Logs = [new LogData { Message = "retry" }],
+            RetryCount = 0,
+            NextRetryTime = DateTime.UtcNow.AddMinutes(-1)
+        });
+
+        await InvokePrivateAsync(sender, "RetryFailedLogsAsync", DateTime.UtcNow);
 
         Assert.Empty(queue);
     }

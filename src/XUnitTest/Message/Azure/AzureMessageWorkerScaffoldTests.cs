@@ -244,6 +244,69 @@ public class AzureMessageWorkerScaffoldTests
         await worker.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public void Initialization_ShouldLogError_WhenConnectionStringIsNull()
+    {
+        var logger = new Mock<ILogger<AzureMessageWorker>>();
+        var services = new ServiceCollection().BuildServiceProvider();
+        var consumerLogger = new Mock<ILogger<Consumer>>();
+        var consumer = new Consumer(consumerLogger.Object, services, new RoutingTable(new ServiceCollection()));
+
+        var config = new MessageConfiguration
+        {
+            Connection = null,
+            AzureServiceBusConfiguration = new AzureServiceBusConfiguration()
+        };
+
+        var ex = Record.Exception(() => new AzureMessageWorker(logger.Object, config, consumer, new ActivitySource("test")));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Initialization_ShouldCatchException_WhenConnectionStringIsInvalid()
+    {
+        var logger = new Mock<ILogger<AzureMessageWorker>>();
+        var services = new ServiceCollection().BuildServiceProvider();
+        var consumerLogger = new Mock<ILogger<Consumer>>();
+        var consumer = new Consumer(consumerLogger.Object, services, new RoutingTable(new ServiceCollection()));
+
+        var config = new MessageConfiguration
+        {
+            Connection = "not-a-valid-service-bus-connection",
+            AzureServiceBusConfiguration = new AzureServiceBusConfiguration()
+        };
+
+        var ex = Record.Exception(() => new AzureMessageWorker(logger.Object, config, consumer, new ActivitySource("test")));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldThrowInvalidOperationException_WhenClientIsNull()
+    {
+        var worker = CreateWorkerWithEmptyConnection();
+
+        var method = worker.GetType().GetMethod("ExecuteAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var task = (Task)method!.Invoke(worker, [CancellationToken.None])!;
+        await task;
+
+        var client = GetField<object?>(worker, "_serviceBusClient");
+        Assert.Null(client);
+    }
+
+    [Fact]
+    public void DeserializeBaggage_ShouldReturnEmptyDictionary_ForEmptyString()
+    {
+        var method = typeof(AzureMessageWorker).GetMethod("DeserializeBaggage", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var result = (Dictionary<string, string>)method!.Invoke(null, [""])!;
+
+        Assert.Empty(result);
+    }
+
     private static AzureMessageWorker CreateWorkerWithEmptyConnection()
     {
         return CreateWorkerWithConfiguration(new MessageConfiguration
