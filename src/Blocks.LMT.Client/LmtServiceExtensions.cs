@@ -19,13 +19,20 @@ namespace SeliseBlocks.LMT.Client
 
         public static IServiceCollection AddLmtClient(this IServiceCollection services, IConfiguration configuration)
         {
+            var effectiveConfig = new ConfigurationBuilder()
+               .AddEnvironmentVariables()
+               .AddConfiguration(configuration)
+               .Build();
+
             var options = new LmtOptions();
-            configuration.GetSection("Lmt").Bind(options);
+            effectiveConfig.GetSection("Lmt").Bind(options);
 
             services.AddSingleton(options);
             services.AddSingleton<IBlocksLogger, BlocksLogger>();
 
             return services;
+
+
         }
 
         public static TracerProviderBuilder AddLmtTracing(this TracerProviderBuilder builder, LmtOptions options)
