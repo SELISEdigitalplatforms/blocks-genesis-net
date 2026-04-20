@@ -108,8 +108,8 @@ namespace SeliseBlocks.LMT.Client
             if (disposing)
             {
                 _flushTimer?.Dispose();
-                _semaphore?.Dispose();
                 FlushBatchAsync().GetAwaiter().GetResult();
+                _semaphore?.Dispose();
                 _serviceBusSender?.Dispose();
             }
 

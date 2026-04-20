@@ -1,5 +1,6 @@
 using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace XUnitTest.Auth;
@@ -211,5 +212,128 @@ public class BlocksContextAdditionalTests : IDisposable
         BlocksContext.IsTestMode = false;
         Assert.False(BlocksContext.IsTestMode);
         BlocksContext.IsTestMode = true;
+    }
+
+    [Fact]
+    public void CreateFromClaimsIdentity_ShouldUseThirdPartyContextHeader_WhenPresent()
+    {
+        var headerContext = BlocksContext.Create(
+            "tenant-third-party", ["viewer"], "user-third-party", true, "/third-party", "org", DateTime.UtcNow,
+            "tp@example.com", ["read"], "tp-user", "123", "Third Party", "oauth", "refresh", "tenant-third-party");
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["ThirdPartyContext"] = JsonSerializer.Serialize(headerContext);
+        BlocksHttpContextAccessor.Instance = new HttpContextAccessor { HttpContext = httpContext };
+
+        var identity = new ClaimsIdentity([new Claim(BlocksContext.TENANT_ID_CLAIM, "tenant-claim")], "Bearer");
+
+        var result = BlocksContext.CreateFromClaimsIdentity(identity);
+
+        Assert.Equal("tenant-third-party", result.TenantId);
+        Assert.Equal("user-third-party", result.UserId);
+        Assert.Equal("tp@example.com", result.Email);
+        Assert.Contains("viewer", result.Roles);
+    }
+
+    [Fact]
+    public void GetContext_ShouldNotThrow_WhenNotInTestModeAndHttpPrincipalExists()
+    {
+        BlocksContext.IsTestMode = false;
+
+        var identity = new ClaimsIdentity(
+        [
+            new Claim(BlocksContext.TENANT_ID_CLAIM, "tenant-http"),
+            new Claim(BlocksContext.USER_ID_CLAIM, "user-http")
+        ], "Bearer");
+
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(identity)
+        };
+
+        BlocksHttpContextAccessor.Instance = new HttpContextAccessor { HttpContext = httpContext };
+
+        var exception = Record.Exception(() => BlocksContext.GetContext());
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void GetContext_ShouldReturnAsyncLocal_WhenForceAsyncLocalIsTrue()
+    {
+        BlocksContext.IsTestMode = false;
+
+        var asyncContext = BlocksContext.Create(
+            "tenant-async", [], "user-async", true, "/", "", DateTime.MinValue,
+            "", [], "", "", "", "", "", "tenant-async");
+        BlocksContext.SetContext(asyncContext, changeContext: true);
+
+        var identity = new ClaimsIdentity(
+        [
+            new Claim(BlocksContext.TENANT_ID_CLAIM, "tenant-http"),
+            new Claim(BlocksContext.USER_ID_CLAIM, "user-http")
+        ], "Bearer");
+
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(identity)
+        };
+        BlocksHttpContextAccessor.Instance = new HttpContextAccessor { HttpContext = httpContext };
+
+        var result = BlocksContext.GetContext();
+
+        Assert.NotNull(result);
+        Assert.Equal("tenant-async", result!.TenantId);
+        Assert.Equal("user-async", result.UserId);
+    }
+
+    [Fact]
+    public void GetContext_ShouldFallbackToHttpClaims_WhenChangeContextIsFalse()
+    {
+        BlocksContext.IsTestMode = false;
+
+        var asyncContext = BlocksContext.Create(
+            "tenant-async", [], "user-async", true, "/", "", DateTime.MinValue,
+            "", [], "", "", "", "", "", "tenant-async");
+        BlocksContext.SetContext(asyncContext, changeContext: false);
+
+        var identity = new ClaimsIdentity(
+        [
+            new Claim(BlocksContext.TENANT_ID_CLAIM, "tenant-http"),
+            new Claim(BlocksContext.USER_ID_CLAIM, "user-http")
+        ], "Bearer");
+
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(identity)
+        };
+        BlocksHttpContextAccessor.Instance = new HttpContextAccessor { HttpContext = httpContext };
+
+        var result = BlocksContext.GetContext();
+
+        Assert.NotNull(result);
+        Assert.Equal("tenant-http", result!.TenantId);
+        Assert.Equal("user-http", result.UserId);
+    }
+
+    [Fact]
+    public void GetContext_ShouldReturnNull_WhenAccessorThrows()
+    {
+        BlocksContext.IsTestMode = false;
+        BlocksContext.ClearContext();
+        BlocksHttpContextAccessor.Instance = new ThrowingHttpContextAccessor();
+
+        var result = BlocksContext.GetContext();
+
+        Assert.Null(result);
+    }
+
+    private sealed class ThrowingHttpContextAccessor : IHttpContextAccessor
+    {
+        public HttpContext? HttpContext
+        {
+            get => throw new InvalidOperationException("Accessor failure");
+            set => throw new InvalidOperationException("Accessor failure");
+        }
     }
 }
