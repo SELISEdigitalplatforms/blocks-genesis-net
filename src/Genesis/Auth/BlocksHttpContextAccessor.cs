@@ -11,5 +11,22 @@ namespace Blocks.Genesis
         {
             Instance = serviceProvider.GetRequiredService<IHttpContextAccessor>();
         }
+
+        public static void EnsureInitialized(HttpContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            if (Instance != null)
+            {
+                return;
+            }
+
+            var requestServices = context.RequestServices;
+            if (requestServices == null)
+            {
+                return;
+            }
+
+            Instance = requestServices.GetService<IHttpContextAccessor>() ?? new HttpContextAccessor();
+        }
     }
 }

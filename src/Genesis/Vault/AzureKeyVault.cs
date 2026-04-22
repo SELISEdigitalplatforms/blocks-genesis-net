@@ -1,6 +1,7 @@
 ﻿using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.Configuration;
+using Serilog;
 
 namespace Blocks.Genesis
 {
@@ -13,7 +14,7 @@ namespace Blocks.Genesis
         {
             ExtractValuesFromGlobalConfig(GetVaultConfig());
             ConnectToAzureKeyVaultSecret();
-            return await GetSecretsFromVaultAsync(keys);
+            return await GetSecretsFromVaultAsync(keys).ConfigureAwait(false);
         }
 
         public static Dictionary<string, string> GetVaultConfig()
@@ -48,7 +49,7 @@ namespace Blocks.Genesis
 
             foreach (var key in keys)
             {
-                var secretValue = await GetSecretFromKeyVaultAsync(key);
+                var secretValue = await GetSecretFromKeyVaultAsync(key).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(secretValue))
                 {
                     secrets.Add(key, secretValue);
@@ -62,12 +63,12 @@ namespace Blocks.Genesis
         {
             try
             {
-                var secret = await _secretClient.GetSecretAsync(key);
+                var secret = await _secretClient.GetSecretAsync(key).ConfigureAwait(false);
                 return secret.Value.Value;
             }
             catch (Exception e)
             {
-                Console.WriteLine($"Error retrieving secret '{key}': {e.Message}");
+                Log.Warning(e, "Error retrieving secret '{Key}' from Key Vault.", key);
                 return string.Empty;
             }
         }

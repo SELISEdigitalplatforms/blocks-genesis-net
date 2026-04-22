@@ -1,6 +1,7 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Driver;
 using SeliseBlocks.LMT.Client;
+using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 
@@ -79,13 +80,13 @@ namespace Blocks.Genesis
 
             if (_serviceBusSender != null)
             {
-                await _serviceBusSender.SendLogsAsync(logDataList);
+                await _serviceBusSender.SendLogsAsync(logDataList).ConfigureAwait(false);
                 return;
             }
 
             if (_database != null)
             {
-                await SaveToMongoDBAsync(logDataList);
+                await SaveToMongoDBAsync(logDataList).ConfigureAwait(false);
             }
         }
 
@@ -116,11 +117,11 @@ namespace Blocks.Genesis
             try
             {
                 var bsonDocuments = logs.Select(ConvertToBsonDocument).ToList();
-                await collection.InsertManyAsync(bsonDocuments);
+                await collection.InsertManyAsync(bsonDocuments).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to insert log batch for service {_serviceName}: {ex.Message}");
+                Log.Error(ex, "Failed to insert log batch for service '{ServiceName}'.", _serviceName);
             }
         }
 

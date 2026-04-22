@@ -8,6 +8,7 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using OpenTelemetry;
 using StackExchange.Redis;
+using Serilog;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Json;
@@ -21,23 +22,29 @@ namespace Blocks.Genesis
     {
         private const string RequestAccessTokenItemKey = "blocks.auth.accessToken";
         private const string RequestTenantIdItemKey = "blocks.auth.tenantId";
+        private static ITenants? _compatTenants;
+        private static IDatabase? _compatCacheDb;
+        private static IHttpClientFactory? _compatHttpClientFactory;
 
         public static void JwtBearerAuthentication(this IServiceCollection services)
         {
+            services.AddHttpContextAccessor();
+            BlocksHttpContextAccessor.Instance ??= new HttpContextAccessor();
             services.AddHttpClient();
-
-            var serviceProvider = services.BuildServiceProvider();
-            var tenants = serviceProvider.GetRequiredService<ITenants>();
-            var cacheDb = serviceProvider.GetRequiredService<ICacheClient>().CacheDatabase();
-            var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
-
-            BlocksHttpContextAccessor.Init(serviceProvider);
-
-            ConfigureAuthentication(services, tenants, cacheDb, httpClientFactory);
+            ConfigureAuthenticationInternal(services);
             ConfigureAuthorization(services);
         }
 
+        // Compatibility overload kept for reflective test scaffolds.
         private static void ConfigureAuthentication(IServiceCollection services, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
+        {
+            _compatTenants = tenants;
+            _compatCacheDb = cacheDb;
+            _compatHttpClientFactory = httpClientFactory;
+            ConfigureAuthenticationInternal(services);
+        }
+
+        private static void ConfigureAuthenticationInternal(IServiceCollection services)
         {
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
@@ -46,6 +53,10 @@ namespace Blocks.Genesis
                     {
                         OnMessageReceived = async context =>
                         {
+                            BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
+                            var tenants = ResolveTenants(context.HttpContext);
+                            var cacheDb = ResolveCacheDatabase(context.HttpContext);
+                            var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
                             var tokenResult = TokenHelper.GetToken(context.Request, tenants);
                             SetRequestAccessToken(context.HttpContext, tokenResult.Token);
 
@@ -74,10 +85,12 @@ namespace Blocks.Genesis
 
                         OnTokenValidated = context =>
                         {
+                            BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
+                            var tenants = ResolveTenants(context.HttpContext);
                             var result = TokenHelper.GetToken(context.Request, tenants);
                             if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
                             {
-                                HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), result.Token);
+                                HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), string.Empty);
                                 StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
                             }
                             return Task.CompletedTask;
@@ -85,6 +98,9 @@ namespace Blocks.Genesis
 
                         OnAuthenticationFailed = async context =>
                         {
+                            BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
+                            var tenants = ResolveTenants(context.HttpContext);
+                            var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
                             var ex = context.Exception;
 
                             if (ex is SecurityTokenExpiredException)
@@ -110,6 +126,27 @@ namespace Blocks.Genesis
                         }
                     };
                 });
+        }
+
+        private static ITenants ResolveTenants(HttpContext context)
+        {
+            return context.RequestServices?.GetService<ITenants>()
+                ?? _compatTenants
+                ?? throw new ArgumentNullException("provider");
+        }
+
+        private static IDatabase ResolveCacheDatabase(HttpContext context)
+        {
+            return context.RequestServices?.GetService<ICacheClient>()?.CacheDatabase()
+                ?? _compatCacheDb
+                ?? throw new ArgumentNullException("provider");
+        }
+
+        private static IHttpClientFactory ResolveHttpClientFactory(HttpContext context)
+        {
+            return context.RequestServices?.GetService<IHttpClientFactory>()
+                ?? _compatHttpClientFactory
+                ?? throw new ArgumentNullException("provider");
         }
 
         private static async Task ConfigureTokenValidationAsync(
@@ -213,7 +250,7 @@ namespace Blocks.Genesis
                 exceptionType = ex?.GetType().Name
             };
 
-            Console.WriteLine($"[Security] {JsonSerializer.Serialize(payload)}");
+            Log.Information("[Security] {Payload}", JsonSerializer.Serialize(payload));
         }
 
         private static void SetRequestAccessToken(HttpContext context, string token)
@@ -266,14 +303,14 @@ namespace Blocks.Genesis
             var cert = await GetThirdPartyCertificateAsync(tenant, tenantId, httpClientFactory);
             if (cert == null)
             {
-                Console.WriteLine("[Fallback] ❌ No fallback certificate found.");
+                Log.Warning("[Fallback] No fallback certificate found.");
                 return new TokenValidationParameters();
             }
 
             var validationParams = tenant.ThirdPartyJwtTokenParameters;
             if (validationParams == null)
             {
-                Console.WriteLine("[Fallback] ❌ No validation parameters found.");
+                Log.Warning("[Fallback] No validation parameters found.");
                 return new TokenValidationParameters();
             }
 
@@ -297,7 +334,7 @@ namespace Blocks.Genesis
 
                 if (validatedPrincipal.Identity is ClaimsIdentity claimsIdentity)
                 {
-                    HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), token);
+                    HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), string.Empty);
                     await StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
                 }
 
@@ -305,12 +342,12 @@ namespace Blocks.Genesis
                 context.HttpContext.User = validatedPrincipal;
                 context.Success();
 
-                Console.WriteLine("[Fallback] ✅ Token validated via fallback certificate.");
+                Log.Information("[Fallback] Token validated via fallback certificate.");
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Fallback] ❌ Validation failed: {ex.Message}");
+                Log.Warning(ex, "[Fallback] Validation failed.");
                 return false;
             }
         }
@@ -358,7 +395,7 @@ namespace Blocks.Genesis
             }
             catch (Exception e)
             {
-                Console.WriteLine($"[Cert] ❌ Failed to load certificate: {e.Message}");
+                Log.Warning(e, "[Cert] Failed to load certificate.");
                 return null;
             }
         }
@@ -401,7 +438,7 @@ namespace Blocks.Genesis
                 ValidIssuer = parameters?.Issuer,
                 ValidAudiences = parameters?.Audiences,
                 ValidateAudience = parameters?.Audiences?.Count > 0,
-                SaveSigninToken = true
+                SaveSigninToken = false
             };
         }
 
@@ -440,9 +477,13 @@ namespace Blocks.Genesis
         {
             identity.AddClaims(
             [
-                new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri),
-                new Claim(BlocksContext.TOKEN_CLAIM, token)
+                new Claim(BlocksContext.REQUEST_URI_CLAIM, requestUri)
             ]);
+
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                identity.AddClaim(new Claim(BlocksContext.TOKEN_CLAIM, token));
+            }
         }
 
         private static async Task StoreThirdPartyBlocksContextActivity(ClaimsIdentity identity, TokenValidatedContext context)
@@ -461,7 +502,7 @@ namespace Blocks.Genesis
             var subClaim = identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
             var emailClaim = identity?.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
 
-            BlocksContext.SetContext(BlocksContext.Create(
+            var mappedContext = BlocksContext.Create(
                 tenantId: apiKey,
                 roles: roleClaim,
 
@@ -483,11 +524,14 @@ namespace Blocks.Genesis
 
                 phoneNumber: string.Empty,
                 displayName: ExtactClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
-                oauthToken: identity.FindFirst("oauth")?.Value,
+                oauthToken: string.Empty,
                 refreshToken: string.Empty,
-                actualTentId: apiKey));
+                actualTentId: apiKey);
 
-            context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] = JsonSerializer.Serialize(BlocksContext.GetContext());
+            BlocksContext.SetContext(mappedContext);
+            context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] =
+                JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(mappedContext));
+
         }
 
         private static string ExtactClaimProperty(string claimObject)

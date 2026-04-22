@@ -75,15 +75,13 @@ namespace Blocks.Genesis
                     ["TenantId"] = securityContext?.TenantId,
                     ["TraceId"] = activity?.TraceId.ToString(),
                     ["SpanId"] = activity?.SpanId.ToString(),
-                    ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
-                        ? JsonSerializer.Serialize(securityContext)
-                        : consumerMessage.Context,
+                    ["SecurityContext"] = BuildTransportContextJson(securityContext, consumerMessage.Context),
                     ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary())
                 }
             };
-            if (consumerMessage.SccheduledEnqueueTimeUtc is not null)
+            if (consumerMessage.ScheduledEnqueueTimeUtc is not null)
             {
-                await sender.ScheduleMessageAsync(message, consumerMessage.SccheduledEnqueueTimeUtc.Value);
+                await sender.ScheduleMessageAsync(message, consumerMessage.ScheduledEnqueueTimeUtc.Value);
             }
             else
             {
@@ -101,6 +99,23 @@ namespace Blocks.Genesis
             }
 
             return baggageDict;
+        }
+
+        private static string BuildTransportContextJson(BlocksContext? currentContext, string? providedContext)
+        {
+            if (!string.IsNullOrWhiteSpace(providedContext))
+            {
+                return providedContext;
+            }
+
+            try
+            {
+                return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
+            }
+            catch
+            {
+                return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
+            }
         }
 
         public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class
