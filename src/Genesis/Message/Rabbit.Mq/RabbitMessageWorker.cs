@@ -77,8 +77,16 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext, out var baggage);
 
-        BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
-        foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}"))
+        try
+        {
+            BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
+        }
+        catch (JsonException)
+        {
+            BlocksContext.SetContext(BlocksContext.CreateSanitizedForTransport(null));
+        }
+
+        foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}") ?? new Dictionary<string, string>())
         {
             Baggage.SetBaggage(kvp.Key, kvp.Value);
         }
@@ -102,9 +110,9 @@ public sealed class RabbitMessageWorker : BackgroundService
 
 
         var body = ea.Body.ToArray();
-        _logger.LogInformation("Received message: {Body}", Encoding.UTF8.GetString(body));
-        activity?.SetTag("message.body", Encoding.UTF8.GetString(body));
+        _logger.LogInformation("Received message for queue {Queue}", ea.RoutingKey);
 
+        var processedSuccessfully = false;
         try
         {
             var message = JsonSerializer.Deserialize<Message>(body);
@@ -115,7 +123,19 @@ public sealed class RabbitMessageWorker : BackgroundService
                 activity?.SetTag("response", "Successfully Completed");
                 activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
                 _logger.LogInformation("Message processed successfully.");
+                processedSuccessfully = true;
             }
+            else
+            {
+                _logger.LogWarning("Received empty or invalid message envelope for queue {Queue}. Message will be acknowledged.", ea.RoutingKey);
+                processedSuccessfully = true;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Invalid JSON payload received for queue {Queue}. Message will be acknowledged.", ea.RoutingKey);
+            activity?.SetStatus(ActivityStatusCode.Error, "Invalid JSON payload");
+            processedSuccessfully = true;
         }
         catch (Exception ex)
         {
@@ -125,7 +145,14 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
         finally
         {
-            await _channel!.BasicAckAsync(ea.DeliveryTag, multiple: false);
+            if (processedSuccessfully)
+            {
+                await _channel!.BasicAckAsync(ea.DeliveryTag, multiple: false);
+            }
+            else
+            {
+                await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
+            }
             activity?.Stop();
         }
 

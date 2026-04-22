@@ -1,4 +1,6 @@
 ﻿using Azure.Messaging.ServiceBus;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
@@ -16,16 +18,20 @@ namespace SeliseBlocks.LMT.Client
         private ServiceBusSender? _serviceBusSender;
         private readonly SemaphoreSlim _retrySemaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
+        private readonly ILogger<LmtServiceBusSender>? _logger;
+        private ILogger Logger => _logger ?? NullLogger<LmtServiceBusSender>.Instance;
 
         public LmtServiceBusSender(
             string serviceName,
             string serviceBusConnectionString,
             int maxRetries = 3,
-            int maxFailedBatches = 100)
+            int maxFailedBatches = 100,
+            ILogger<LmtServiceBusSender>? logger = null)
         {
             _serviceName = serviceName;
             _maxRetries = maxRetries;
             _maxFailedBatches = maxFailedBatches;
+            _logger = logger ?? NullLogger<LmtServiceBusSender>.Instance;
 
             _failedLogBatches = new ConcurrentQueue<FailedLogBatch>();
             _failedTraceBatches = new ConcurrentQueue<FailedTraceBatch>();
@@ -36,7 +42,7 @@ namespace SeliseBlocks.LMT.Client
                 _serviceBusSender = _serviceBusClient.CreateSender(LmtConstants.GetTopicName(serviceName));
             }
 
-            _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null,
+            _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync().ConfigureAwait(false), null,
                 TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
@@ -44,7 +50,7 @@ namespace SeliseBlocks.LMT.Client
         {
             if (_serviceBusSender == null)
             {
-                Console.WriteLine("Service Bus sender not initialized");
+                LmtServiceBusSenderLog.SenderNotInitialized(Logger);
                 return;
             }
 
@@ -79,12 +85,12 @@ namespace SeliseBlocks.LMT.Client
                         }
                     };
 
-                    await _serviceBusSender.SendMessageAsync(message);
+                    await _serviceBusSender.SendMessageAsync(message).ConfigureAwait(false);
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending logs to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    LmtServiceBusSenderLog.SendingLogsFailed(Logger, ex, currentRetry, _maxRetries);
                 }
 
                 currentRetry++;
@@ -92,7 +98,7 @@ namespace SeliseBlocks.LMT.Client
                 if (currentRetry <= _maxRetries)
                 {
                     var delay = TimeSpan.FromSeconds(Math.Pow(2, currentRetry - 1));
-                    await Task.Delay(delay);
+                    await Task.Delay(delay).ConfigureAwait(false);
                 }
             }
 
@@ -107,11 +113,11 @@ namespace SeliseBlocks.LMT.Client
                 };
 
                 _failedLogBatches.Enqueue(failedBatch);
-                Console.WriteLine($"Queued log batch for later retry. Failed batches in queue: {_failedLogBatches.Count}");
+                LmtServiceBusSenderLog.LogBatchQueuedForRetry(Logger, _failedLogBatches.Count);
             }
             else
             {
-                Console.WriteLine($"Failed log batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                LmtServiceBusSenderLog.LogBatchQueueFull(Logger, _maxFailedBatches);
             }
         }
 
@@ -119,7 +125,7 @@ namespace SeliseBlocks.LMT.Client
         {
             if (_serviceBusSender == null)
             {
-                Console.WriteLine("Service Bus sender not initialized");
+                LmtServiceBusSenderLog.SenderNotInitialized(Logger);
                 return;
             }
 
@@ -154,12 +160,12 @@ namespace SeliseBlocks.LMT.Client
                         }
                     };
 
-                    await _serviceBusSender.SendMessageAsync(message);
+                    await _serviceBusSender.SendMessageAsync(message).ConfigureAwait(false);
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending traces to Service Bus: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    LmtServiceBusSenderLog.SendingTracesFailed(Logger, ex, currentRetry, _maxRetries);
                 }
 
                 currentRetry++;
@@ -167,7 +173,7 @@ namespace SeliseBlocks.LMT.Client
                 if (currentRetry <= _maxRetries)
                 {
                     var delay = TimeSpan.FromSeconds(Math.Pow(2, currentRetry - 1));
-                    await Task.Delay(delay);
+                    await Task.Delay(delay).ConfigureAwait(false);
                 }
             }
 
@@ -182,17 +188,17 @@ namespace SeliseBlocks.LMT.Client
                 };
 
                 _failedTraceBatches.Enqueue(failedBatch);
-                Console.WriteLine($"Queued trace batch for later retry. Failed batches in queue: {_failedTraceBatches.Count}");
+                LmtServiceBusSenderLog.TraceBatchQueuedForRetry(Logger, _failedTraceBatches.Count);
             }
             else
             {
-                Console.WriteLine($"Failed trace batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                LmtServiceBusSenderLog.TraceBatchQueueFull(Logger, _maxFailedBatches);
             }
         }
 
         private async Task RetryFailedBatchesAsync()
         {
-            if (!await _retrySemaphore.WaitAsync(0))
+            if (!await _retrySemaphore.WaitAsync(0).ConfigureAwait(false))
                 return;
 
             try
@@ -200,10 +206,10 @@ namespace SeliseBlocks.LMT.Client
                 var now = DateTime.UtcNow;
 
                 // Retry failed logs
-                await RetryFailedLogsAsync(now);
+                await RetryFailedLogsAsync(now).ConfigureAwait(false);
 
                 // Retry failed traces
-                await RetryFailedTracesAsync(now);
+                await RetryFailedTracesAsync(now).ConfigureAwait(false);
             }
             finally
             {
@@ -233,12 +239,12 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Log batch exceeded max retries ({_maxRetries}). Dropping batch with {failedBatch.Logs.Count} logs.");
+                    LmtServiceBusSenderLog.LogBatchExceededRetries(Logger, _maxRetries, failedBatch.Logs.Count);
                     continue;
                 }
 
-                Console.WriteLine($"Retrying failed log batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
-                await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount);
+                LmtServiceBusSenderLog.RetryingLogBatch(Logger, failedBatch.RetryCount + 1, _maxRetries);
+                await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount).ConfigureAwait(false);
             }
         }
 
@@ -264,12 +270,12 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Trace batch exceeded max retries ({_maxRetries}). Dropping batch.");
+                    LmtServiceBusSenderLog.TraceBatchExceededRetries(Logger, _maxRetries);
                     continue;
                 }
 
-                Console.WriteLine($"Retrying failed trace batch (Attempt {failedBatch.RetryCount + 1}/{_maxRetries})");
-                await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
+                LmtServiceBusSenderLog.RetryingTraceBatch(Logger, failedBatch.RetryCount + 1, _maxRetries);
+                await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount).ConfigureAwait(false);
             }
         }
 
@@ -280,10 +286,47 @@ namespace SeliseBlocks.LMT.Client
             _retryTimer?.Dispose();
             RetryFailedBatchesAsync().GetAwaiter().GetResult();
             _retrySemaphore?.Dispose();
-            _serviceBusSender?.DisposeAsync().GetAwaiter().GetResult();
-            _serviceBusClient?.DisposeAsync().GetAwaiter().GetResult();
+            _serviceBusSender?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            _serviceBusClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
             _disposed = true;
+            GC.SuppressFinalize(this);
         }
+    }
+
+    internal static partial class LmtServiceBusSenderLog
+    {
+        [LoggerMessage(EventId = 5100, Level = LogLevel.Warning, Message = "Service Bus sender not initialized.")]
+        public static partial void SenderNotInitialized(ILogger logger);
+
+        [LoggerMessage(EventId = 5101, Level = LogLevel.Warning, Message = "Exception sending logs to Service Bus. Retry {CurrentRetry}/{MaxRetries}.")]
+        public static partial void SendingLogsFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+
+        [LoggerMessage(EventId = 5102, Level = LogLevel.Information, Message = "Queued log batch for retry. Failed batches in queue: {QueueCount}.")]
+        public static partial void LogBatchQueuedForRetry(ILogger logger, int queueCount);
+
+        [LoggerMessage(EventId = 5103, Level = LogLevel.Warning, Message = "Failed log batch queue is full ({MaxFailedBatches}). Dropping batch.")]
+        public static partial void LogBatchQueueFull(ILogger logger, int maxFailedBatches);
+
+        [LoggerMessage(EventId = 5104, Level = LogLevel.Warning, Message = "Exception sending traces to Service Bus. Retry {CurrentRetry}/{MaxRetries}.")]
+        public static partial void SendingTracesFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+
+        [LoggerMessage(EventId = 5105, Level = LogLevel.Information, Message = "Queued trace batch for retry. Failed batches in queue: {QueueCount}.")]
+        public static partial void TraceBatchQueuedForRetry(ILogger logger, int queueCount);
+
+        [LoggerMessage(EventId = 5106, Level = LogLevel.Warning, Message = "Failed trace batch queue is full ({MaxFailedBatches}). Dropping batch.")]
+        public static partial void TraceBatchQueueFull(ILogger logger, int maxFailedBatches);
+
+        [LoggerMessage(EventId = 5107, Level = LogLevel.Warning, Message = "Log batch exceeded max retries ({MaxRetries}). Dropping batch with {LogCount} logs.")]
+        public static partial void LogBatchExceededRetries(ILogger logger, int maxRetries, int logCount);
+
+        [LoggerMessage(EventId = 5108, Level = LogLevel.Information, Message = "Retrying failed log batch attempt {Attempt}/{MaxRetries}.")]
+        public static partial void RetryingLogBatch(ILogger logger, int attempt, int maxRetries);
+
+        [LoggerMessage(EventId = 5109, Level = LogLevel.Warning, Message = "Trace batch exceeded max retries ({MaxRetries}). Dropping batch.")]
+        public static partial void TraceBatchExceededRetries(ILogger logger, int maxRetries);
+
+        [LoggerMessage(EventId = 5110, Level = LogLevel.Information, Message = "Retrying failed trace batch attempt {Attempt}/{MaxRetries}.")]
+        public static partial void RetryingTraceBatch(ILogger logger, int attempt, int maxRetries);
     }
 }

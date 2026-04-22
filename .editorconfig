@@ -1,0 +1,34 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.cs]
+csharp_style_namespace_declarations = file_scoped:suggestion
+
+dotnet_naming_rule.private_fields_must_be_camel_case_with_underscore.severity = warning
+dotnet_naming_rule.private_fields_must_be_camel_case_with_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_must_be_camel_case_with_underscore.style = camel_case_underscore
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.camel_case_underscore.required_prefix = _
+dotnet_naming_style.camel_case_underscore.capitalization = camel_case
+
+dotnet_naming_rule.interfaces_must_start_with_i.severity = warning
+dotnet_naming_rule.interfaces_must_start_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_must_start_with_i.style = interface_prefix_i
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+
+dotnet_naming_style.interface_prefix_i.required_prefix = I
+dotnet_naming_style.interface_prefix_i.capitalization = pascal_case
+
+dotnet_diagnostic.CA1848.severity = warning
+dotnet_diagnostic.CA2007.severity = warning

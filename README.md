@@ -188,6 +188,7 @@ docker build -f Workers.Dockerfile -t blocks-genesis-worker --build-arg git_bran
 - `BlocksSecret__DatabaseConnectionString`
 - `BlocksSecret__RootDatabaseName`
 - `BlocksSecret__EnableHsts`
+- `BlocksSecret__AllowedCorsOrigins` (comma-separated absolute origins, required for cross-origin credentialed requests)
 
 ### KeyVault
 
@@ -204,3 +205,19 @@ If you want to access these environment variables from KeyVault then add the fol
 - `DatabaseConnectionString`
 - `RootDatabaseName`
 - `EnableHsts`
+- `AllowedCorsOrigins`
+
+
+## Architecture Overview
+
+Core Genesis pipeline:
+
+`HSTS -> SecurityHeaders -> RequestMetrics -> CORS -> Health -> Routing -> TenantValidation -> GlobalExceptionHandler -> AuthN/AuthZ -> Antiforgery -> Controllers`
+
+## Local Infra
+
+```bash
+docker-compose up -d
+```
+
+Use `.env.example` to bootstrap local configuration.

@@ -95,6 +95,7 @@ MaxFailedBatches=100
 
 # Other service configuration
 ASPNETCORE_ENVIRONMENT=Development
+BlocksSecret__AllowedCorsOrigins=https://app.example.com,https://admin.example.com
 ```
 
 **Important:** Add `.env` to your `.gitignore`:
@@ -143,3 +144,26 @@ export MaxFailedBatches=100
 | `MaxFailedBatches` | Optional | appsettings.json or Environment | `100` |
 
 *If not configured, logs will only write to console and MongoDB (Service Bus integration is disabled).
+
+
+## Architecture Overview
+
+Middleware pipeline (API):
+
+`HSTS -> SecurityHeaders -> RequestMetrics -> CORS -> Health endpoints -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> Antiforgery -> Controllers`
+
+## Local Development
+
+Start local infrastructure:
+
+```bash
+docker-compose up -d
+```
+
+Use `.env.example` as baseline for environment variables.
+
+## Migration Notes
+
+- `ConsumerMessage.ScheduledEnqueueTimeUtc` is the corrected property name.
+- `ConfigureAzureServiceBus` replaces `ConfigerAzureServiceBus`.
+- `SecretEndPointAttribute` replaces `SecretEnpPointAttribute`.

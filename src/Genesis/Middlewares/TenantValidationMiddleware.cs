@@ -3,6 +3,7 @@ using Microsoft.Extensions.Primitives;
 using OpenTelemetry;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Collections.Generic;
 
 namespace Blocks.Genesis
 {
@@ -21,18 +22,18 @@ namespace Blocks.Genesis
 
         public async Task InvokeAsync(HttpContext context)
         {
+            BlocksHttpContextAccessor.EnsureInitialized(context);
             var activity = Activity.Current;
 
             var endpoint = context.GetEndpoint();
             if (endpoint is null || (endpoint.DisplayName?.Contains("Controller") == false && endpoint.DisplayName?.Contains("GraphQL") == false))
             {
-                Console.WriteLine("Skipping tenant validation for controller-action");
-                await _next(context);
+                await _next(context).ConfigureAwait(false);
                 return;
             }
 
-            activity?.SetTag("http.headers", JsonSerializer.Serialize(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
-            activity?.SetTag("http.query", JsonSerializer.Serialize(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString())));
+            activity?.SetTag("http.headers", JsonSerializer.Serialize(SanitizeDictionary(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()))));
+            activity?.SetTag("http.query", JsonSerializer.Serialize(SanitizeDictionary(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString()))));
             var tenantId = TenantContextHelper.ResolveTenantId(context.Request);
 
             Tenant? tenant = null;
@@ -45,7 +46,7 @@ namespace Blocks.Genesis
 
                 if (tenant is null)
                 {
-                    await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
+                    await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
                     return;
                 }
             }
@@ -56,14 +57,14 @@ namespace Blocks.Genesis
 
             if (tenant is null || tenant.IsDisabled)
             {
-                await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found");
+                await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
                 return;
             }
 
 
             if (!IsValidOriginOrReferer(context, tenant))
             {
-                await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer");
+                await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer").ConfigureAwait(false);
                 return;
             }
 
@@ -75,7 +76,7 @@ namespace Blocks.Genesis
                 var hash = _cryptoService.Hash(tenant.TenantId, tenant.TenantSalt);
                 if (hash != grpcKey)
                 {
-                    await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key");
+                    await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key").ConfigureAwait(false);
                     return;
                 }
             }
@@ -88,12 +89,12 @@ namespace Blocks.Genesis
 
             try
             {
-                await _next(context);
+                await _next(context).ConfigureAwait(false);
 
                 var responseSize = countingStream.BytesWritten;
 
                 activity?.SetTag("response.status.code", context.Response.StatusCode);
-                activity?.SetTag("response.headers", JsonSerializer.Serialize(context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString())));
+                activity?.SetTag("response.headers", JsonSerializer.Serialize(SanitizeDictionary(context.Response.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()))));
                 activity?.SetTag("request.size.bytes", requestSize);
                 activity?.SetTag("response.size.bytes", responseSize);
                 activity?.SetTag("throughput.total.bytes", requestSize + responseSize);
@@ -200,10 +201,7 @@ namespace Blocks.Genesis
                 // The ASP.NET response stream is owned by the host and must remain open.
             }
 
-            public override async ValueTask DisposeAsync()
-            {
-                await Task.CompletedTask;
-            }
+            public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
 
         private static bool IsValidOriginOrReferer(HttpContext context, Tenant tenant)
@@ -289,6 +287,44 @@ namespace Blocks.Genesis
             }
         }
 
+        private static readonly HashSet<string> SensitiveKeys = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "authorization",
+            "cookie",
+            "set-cookie",
+            "secret",
+            "x-blocks-service-key",
+            "x-api-key",
+            "token",
+            "access_token",
+            "refresh_token",
+            "password"
+        };
+
+        private static Dictionary<string, string> SanitizeDictionary(Dictionary<string, string> source)
+        {
+            var sanitized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in source)
+            {
+                sanitized[entry.Key] = IsSensitiveKey(entry.Key) ? "[REDACTED]" : entry.Value;
+            }
+
+            return sanitized;
+        }
+
+        private static bool IsSensitiveKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                return false;
+            }
+
+            return SensitiveKeys.Contains(key)
+                   || key.Contains("token", StringComparison.OrdinalIgnoreCase)
+                   || key.Contains("secret", StringComparison.OrdinalIgnoreCase)
+                   || key.Contains("password", StringComparison.OrdinalIgnoreCase);
+        }
 
     }
 }

@@ -215,7 +215,7 @@ public class BlocksContextAdditionalTests : IDisposable
     }
 
     [Fact]
-    public void CreateFromClaimsIdentity_ShouldUseThirdPartyContextHeader_WhenPresent()
+    public void CreateFromClaimsIdentity_ShouldIgnoreThirdPartyContextHeader_WhenPresent()
     {
         var headerContext = BlocksContext.Create(
             "tenant-third-party", ["viewer"], "user-third-party", true, "/third-party", "org", DateTime.UtcNow,
@@ -229,10 +229,9 @@ public class BlocksContextAdditionalTests : IDisposable
 
         var result = BlocksContext.CreateFromClaimsIdentity(identity);
 
-        Assert.Equal("tenant-third-party", result.TenantId);
-        Assert.Equal("user-third-party", result.UserId);
-        Assert.Equal("tp@example.com", result.Email);
-        Assert.Contains("viewer", result.Roles);
+        Assert.Equal("tenant-claim", result.TenantId);
+        Assert.Equal(string.Empty, result.UserId);
+        Assert.Equal(string.Empty, result.Email);
     }
 
     [Fact]

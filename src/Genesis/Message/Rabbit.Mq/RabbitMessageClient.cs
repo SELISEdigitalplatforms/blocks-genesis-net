@@ -99,8 +99,6 @@ namespace Blocks.Genesis
                 var messageJson = JsonSerializer.Serialize(messageBody);
                 var body = Encoding.UTF8.GetBytes(messageJson);
 
-                activity?.SetTag("messaging.message.body", messageJson);
-
                 var properties = new BasicProperties
                 {
                     DeliveryMode = DeliveryModes.Persistent,
@@ -109,9 +107,7 @@ namespace Blocks.Genesis
                         ["TenantId"] = securityContext?.TenantId ?? string.Empty,
                         ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty,
                         ["SpanId"] = activity?.SpanId.ToString() ?? string.Empty,
-                        ["SecurityContext"] = string.IsNullOrWhiteSpace(consumerMessage.Context)
-                            ? JsonSerializer.Serialize(securityContext)
-                            : consumerMessage.Context,
+                        ["SecurityContext"] = BuildTransportContextJson(securityContext, consumerMessage.Context),
                         ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
                     }
                 };
@@ -145,5 +141,22 @@ namespace Blocks.Genesis
 
         public Task SendToMassConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class =>
             SendMessageToConsumerAsync(consumerMessage, isExchange: true);
+
+        private static string BuildTransportContextJson(BlocksContext? currentContext, string? providedContext)
+        {
+            if (!string.IsNullOrWhiteSpace(providedContext))
+            {
+                return providedContext;
+            }
+
+            try
+            {
+                return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
+            }
+            catch
+            {
+                return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
+            }
+        }
     }
 }

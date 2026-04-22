@@ -2,6 +2,7 @@
 using MongoDB.Driver;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
+using Serilog;
 using System.Text.Json;
 
 namespace Blocks.Genesis
@@ -68,7 +69,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error exporting metrics: {ex.Message}");
+                Log.Error(ex, "Error exporting metrics for service '{ServiceName}'.", _serviceName);
                 return ExportResult.Failure;
             }
             finally
