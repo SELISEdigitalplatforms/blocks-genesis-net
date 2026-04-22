@@ -11,9 +11,7 @@
     <PackageTags>Genesis, BlocksGenesis, SeliseBlocksGenesis</PackageTags>
     <RepositoryUrl>https://github.com/SELISEdigitalplatforms/blocks-genesis-net</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+      </PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Azure.Identity" Version="1.17.0" />
@@ -41,6 +39,10 @@
 		<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
 		<PackageReference Include="Serilog.Sinks.MongoDB" Version="7.1.0" />
 		<PackageReference Include="StackExchange.Redis" Version="2.9.25" />
+
+		<PackageReference Include="AspNetCore.HealthChecks.MongoDb" Version="9.0.0" />
+		<PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
+		<PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="9.0.0" PrivateAssets="all" />
 
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.6" />
 

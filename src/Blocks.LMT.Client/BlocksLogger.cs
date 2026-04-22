@@ -5,7 +5,7 @@ using System.Text.RegularExpressions; // For parsing message templates
 
 namespace SeliseBlocks.LMT.Client
 {
-    public class BlocksLogger : IBlocksLogger
+    public class BlocksLogger : IBlocksLogger, IDisposable
     {
         private readonly LmtOptions _options;
         private readonly ConcurrentQueue<LogData> _logBatch;
@@ -28,7 +28,7 @@ namespace SeliseBlocks.LMT.Client
             _serviceBusSender= LmtMessageSenderFactory.Create(_options);
 
             var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
-            _flushTimer = new Timer(async _ => await FlushBatchAsync(), null, flushInterval, flushInterval);
+            _flushTimer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, flushInterval, flushInterval);
         }
 
         public void Log(LmtLogLevel level, string messageTemplate, Exception? exception = null, params object?[] args)
@@ -122,7 +122,7 @@ namespace SeliseBlocks.LMT.Client
 
         private async Task FlushBatchAsync()
         {
-            await _semaphore.WaitAsync();
+            await _semaphore.WaitAsync().ConfigureAwait(false);
             try
             {
                 var logs = new List<LogData>();
@@ -133,7 +133,7 @@ namespace SeliseBlocks.LMT.Client
 
                 if (logs.Count > 0)
                 {
-                    await _serviceBusSender.SendLogsAsync(logs);
+                    await _serviceBusSender.SendLogsAsync(logs).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)

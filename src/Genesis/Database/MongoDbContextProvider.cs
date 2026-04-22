@@ -104,6 +104,10 @@ namespace Blocks.Genesis
             {
                 _logger.LogInformation("Creating new MongoClient for connection string.");
                 var settings = MongoClientSettings.FromConnectionString(conn);
+                settings.RetryReads = true;
+                settings.RetryWrites = true;
+                settings.ServerSelectionTimeout = TimeSpan.FromSeconds(15);
+                settings.ConnectTimeout = TimeSpan.FromSeconds(10);
                 settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
                 return new MongoClient(settings);
             });

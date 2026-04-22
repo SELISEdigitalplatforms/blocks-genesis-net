@@ -23,7 +23,7 @@ namespace SeliseBlocks.LMT.Client
             _serviceBusSender = LmtMessageSenderFactory.Create(_options);
 
             var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
-            _flushTimer = new Timer(async _ => await FlushBatchAsync(), null, flushInterval, flushInterval);
+            _flushTimer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, flushInterval, flushInterval);
         }
 
         public override void OnEnd(Activity activity)
@@ -60,7 +60,7 @@ namespace SeliseBlocks.LMT.Client
 
             if (_traceBatch.Count >= _options.TraceBatchSize)
             {
-                Task.Run(() => FlushBatchAsync());
+                _ = Task.Run(() => FlushBatchAsync());
             }
         }
 
@@ -76,23 +76,25 @@ namespace SeliseBlocks.LMT.Client
 
         private async Task FlushBatchAsync()
         {
-            await _semaphore.WaitAsync();
+            await _semaphore.WaitAsync().ConfigureAwait(false);
             try
             {
                 var tenantBatches = new Dictionary<string, List<TraceData>>();
 
                 while (_traceBatch.TryDequeue(out var trace))
                 {
-                    if (!tenantBatches.ContainsKey(trace.TenantId))
+                    if (!tenantBatches.TryGetValue(trace.TenantId, out var tenantBatch))
                     {
-                        tenantBatches[trace.TenantId] = new List<TraceData>();
+                        tenantBatch = new List<TraceData>();
+                        tenantBatches[trace.TenantId] = tenantBatch;
                     }
-                    tenantBatches[trace.TenantId].Add(trace);
+
+                    tenantBatch.Add(trace);
                 }
 
                 if (tenantBatches.Count > 0)
                 {
-                    await _serviceBusSender.SendTracesAsync(tenantBatches);
+                    await _serviceBusSender.SendTracesAsync(tenantBatches).ConfigureAwait(false);
                 }
             }
             finally

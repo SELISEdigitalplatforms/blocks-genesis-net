@@ -2,6 +2,7 @@
 using MongoDB.Driver;
 using OpenTelemetry;
 using SeliseBlocks.LMT.Client;
+using Serilog;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
@@ -37,7 +38,7 @@ namespace Blocks.Genesis
 
             _serviceBusSender = TryCreateTracesSender(serviceName);
 
-            _timer = new Timer(async _ => await FlushBatchAsync(), null, interval, interval);
+            _timer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, interval, interval);
         }
 
         private static LmtServiceBusSender? TryCreateTracesSender(string serviceName)
@@ -121,13 +122,13 @@ namespace Blocks.Genesis
 
                 if (_serviceBusSender != null)
                 {
-                    await _serviceBusSender.SendTracesAsync(tenantBatches);
+                    await _serviceBusSender.SendTracesAsync(tenantBatches).ConfigureAwait(false);
                     return;
                 }
 
                 if (_database != null)
                 {
-                    await SaveToMongoDBAsync(tenantBatches);
+                    await SaveToMongoDBAsync(tenantBatches).ConfigureAwait(false);
                 }
             }
             finally
@@ -145,11 +146,11 @@ namespace Blocks.Genesis
                 try
                 {
                     var bsonDocuments = tenantBatch.Value.Select(ConvertToBsonDocument).ToList();
-                    await collection.InsertManyAsync(bsonDocuments);
+                    await collection.InsertManyAsync(bsonDocuments).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Failed to insert batch for tenant {tenantBatch.Key}: {ex.Message}");
+                    Log.Error(ex, "Failed to insert trace batch for tenant '{TenantId}'.", tenantBatch.Key);
                 }
             }
         }

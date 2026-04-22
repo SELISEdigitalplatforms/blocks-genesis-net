@@ -91,7 +91,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         await events.OnTokenValidated(context);
 
-        Assert.Equal("token-123", identity.FindFirst(BlocksContext.TOKEN_CLAIM)?.Value);
+        Assert.Null(identity.FindFirst(BlocksContext.TOKEN_CLAIM));
         Assert.Contains("/api/orders", identity.FindFirst(BlocksContext.REQUEST_URI_CLAIM)?.Value);
     }
 
