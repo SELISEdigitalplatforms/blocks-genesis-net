@@ -240,14 +240,14 @@ public class ConfigerAzureServiceBusTests
 
     private static void SetPrivateStaticField(string fieldName, object value)
     {
-        var field = typeof(ConfigerAzureServiceBus).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static);
+        var field = typeof(ConfigureAzureServiceBus).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(field);
         field!.SetValue(null, value);
     }
 
     private static async Task InvokePrivateStaticAsync(string methodName, params object[] args)
     {
-        var method = typeof(ConfigerAzureServiceBus).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
+        var method = typeof(ConfigureAzureServiceBus).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
         var task = (Task)method!.Invoke(null, args)!;
         await task;
@@ -255,7 +255,7 @@ public class ConfigerAzureServiceBusTests
 
     private static async Task<T> InvokePrivateStaticAsync<T>(string methodName, params object[] args)
     {
-        var method = typeof(ConfigerAzureServiceBus).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
+        var method = typeof(ConfigureAzureServiceBus).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
         var task = (Task)method!.Invoke(null, args)!;

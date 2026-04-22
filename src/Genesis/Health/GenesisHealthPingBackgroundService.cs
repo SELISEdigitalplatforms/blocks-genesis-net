@@ -104,21 +104,21 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
                 // -----------------------------------------------------------------
                 if (config is null)
                 {
-                    Console.WriteLine($"[{_serviceName}] No configuration found, retrying in {DisabledPollInterval}");
+                    _logger.LogInformation("[{Service}] No configuration found, retrying in {Delay}", _serviceName, DisabledPollInterval);
                     await Task.Delay(DisabledPollInterval, stoppingToken);
                     continue;
                 }
 
                 if (!config.HealthCheckEnabled)
                 {
-                    Console.WriteLine($"[{_serviceName}] Health check disabled, retrying in {DisabledPollInterval}");
+                    _logger.LogInformation("[{Service}] Health check disabled, retrying in {Delay}", _serviceName, DisabledPollInterval);
                     await Task.Delay(DisabledPollInterval, stoppingToken);
                     continue;
                 }
 
                 if (string.IsNullOrWhiteSpace(config.Endpoint))
                 {
-                    Console.WriteLine($"[{_serviceName}] Endpoint is empty — skipping ping");
+                    _logger.LogWarning("[{Service}] Endpoint is empty - skipping ping", _serviceName);
                     await Task.Delay(DisabledPollInterval, stoppingToken);
                     continue;
                 }
@@ -252,7 +252,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
 
             if (response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"[{_serviceName}] Ping succeeded — Status={response.StatusCode}, Endpoint={MaskUrl(config.Endpoint)}");
+                _logger.LogInformation("[{Service}] Ping succeeded. Status={Status}, Endpoint={Endpoint}", _serviceName, response.StatusCode, MaskUrl(config.Endpoint));
                 return true;
             }
 

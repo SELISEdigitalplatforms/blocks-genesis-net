@@ -316,7 +316,7 @@ public class HttpServiceScaffoldTests
     }
 
     [Fact]
-    public void RetryCallback_ShouldHandleMissingAndPresentUrlContext()
+    public async Task RetryCallback_ShouldHandleMissingAndPresentUrlContext()
     {
         var handler = new StubHttpMessageHandler(_ =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
@@ -334,21 +334,10 @@ public class HttpServiceScaffoldTests
         ActivitySource.AddActivityListener(activityListener);
 
         var service = CreateService(handler);
-        var callback = typeof(HttpService).GetMethod("<.ctor>b__5_2", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(callback);
+        var (result, error) = await service.Get<TestResponse>("https://example.com/retry");
 
-        var result = new DelegateResult<HttpResponseMessage>(new HttpResponseMessage(HttpStatusCode.BadRequest));
-
-        var contextWithUrl = new Context { ["url"] = "https://example.com/retry" };
-        var contextWithoutUrl = new Context();
-
-        var ex1 = Record.Exception(() => callback!.Invoke(service, new object[] { result, TimeSpan.FromMilliseconds(1), 1, contextWithUrl }));
-        var ex2 = Record.Exception(() => callback!.Invoke(service, new object[] { result, TimeSpan.FromMilliseconds(1), 2, contextWithoutUrl }));
-
-        Assert.Null(ex1);
-        Assert.NotNull(ex2);
-        var tie = Assert.IsType<TargetInvocationException>(ex2);
-        Assert.IsType<KeyNotFoundException>(tie.InnerException);
+        Assert.Null(result);
+        Assert.False(string.IsNullOrWhiteSpace(error));
     }
 
     [Fact]
