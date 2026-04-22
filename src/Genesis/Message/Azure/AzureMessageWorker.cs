@@ -36,16 +36,16 @@ namespace Blocks.Genesis
             {
                 if (string.IsNullOrWhiteSpace(_messageConfiguration.Connection))
                 {
-                    _logger.LogError("Connection string missing");
+                    AzureMessageWorkerLog.ConnectionStringMissing(_logger);
                     return;
                 }
 
                 _serviceBusClient = new ServiceBusClient(_messageConfiguration.Connection);
-                _logger.LogInformation("Service Bus Client initialized at: {Time}", DateTimeOffset.Now);
+                AzureMessageWorkerLog.ClientInitialized(_logger, DateTimeOffset.Now);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during initialization");
+                AzureMessageWorkerLog.InitializationFailed(_logger, ex);
             }
         }
 
@@ -54,7 +54,7 @@ namespace Blocks.Genesis
             // Cancel all active message lock renewals
             foreach (var renewalPair in _activeMessageRenewals)
             {
-               await renewalPair.Value.CancelAsync();
+               await renewalPair.Value.CancelAsync().ConfigureAwait(false);
             }
             _activeMessageRenewals.Clear();
 
@@ -62,20 +62,20 @@ namespace Blocks.Genesis
             {
                 try
                 {
-                    await processor.StopProcessingAsync(cancellationToken);
+                    await processor.StopProcessingAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error stopping processor");
+                    AzureMessageWorkerLog.StopProcessorFailed(_logger, ex);
                 }
                 finally
                 {
-                    await processor.DisposeAsync();
+                    await processor.DisposeAsync().ConfigureAwait(false);
                 }
             }
 
-            await base.StopAsync(cancellationToken);
-            _logger.LogInformation("Worker stopped at: {Time}", DateTimeOffset.Now);
+            await base.StopAsync(cancellationToken).ConfigureAwait(false);
+            AzureMessageWorkerLog.WorkerStopped(_logger, DateTimeOffset.Now);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -84,23 +84,23 @@ namespace Blocks.Genesis
             {
                 if (_serviceBusClient == null)
                 {
-                    _logger.LogError("Service Bus Client is not initialized");
+                    AzureMessageWorkerLog.ClientNotInitialized(_logger);
                     throw new InvalidOperationException("Service Bus Client is not initialized");
                 }
 
                 MessageProcessingStarted += async (sender, e) =>
                 {
-                   await StartAutoRenewalTask(e.Args, e.Token);
+                   await StartAutoRenewalTask(e.Args, e.Token).ConfigureAwait(false);
                 };
 
                 var queueProcessingTask = ProcessQueues(stoppingToken);
                 var topicesProcessingTask = ProcessTopics(stoppingToken);
 
-                await Task.WhenAll(queueProcessingTask, topicesProcessingTask);
+                await Task.WhenAll(queueProcessingTask, topicesProcessingTask).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ExecuteAsync");
+                AzureMessageWorkerLog.ExecuteAsyncFailed(_logger, ex);
             }
         }
 
@@ -117,7 +117,7 @@ namespace Blocks.Genesis
                 processor.ProcessMessageAsync += MessageHandler;
                 processor.ProcessErrorAsync += ErrorHandler;
                 _processors.Add(processor);
-                await processor.StartProcessingAsync(stoppingToken);
+                await processor.StartProcessingAsync(stoppingToken).ConfigureAwait(false);
             }
         }
 
@@ -134,7 +134,7 @@ namespace Blocks.Genesis
                 processor.ProcessMessageAsync += MessageHandler;
                 processor.ProcessErrorAsync += ErrorHandler;
                 _processors.Add(processor);
-                await processor.StartProcessingAsync(stoppingToken);
+                await processor.StartProcessingAsync(stoppingToken).ConfigureAwait(false);
             }
         }
 
@@ -147,7 +147,14 @@ namespace Blocks.Genesis
             var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
             var baggageString = args.Message.ApplicationProperties.TryGetValue("Baggage", out var baggageObj) ? baggageObj.ToString() : "";
 
-            BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
+            try
+            {
+                BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
+            }
+            catch (JsonException)
+            {
+                BlocksContext.SetContext(BlocksContext.CreateSanitizedForTransport(null));
+            }
 
             foreach (var kvp in DeserializeBaggage(baggageString))
             {
@@ -168,7 +175,7 @@ namespace Blocks.Genesis
                 CancellationTokenSource = cancellationTokenSource
             });
 
-            _logger.LogInformation("Received message: {MessageBody} at: {ReceivedAt}", args.Message.Body.ToString(), DateTimeOffset.Now);
+            AzureMessageWorkerLog.MessageReceived(_logger, messageId, DateTimeOffset.Now);
 
             try
             {
@@ -188,47 +195,68 @@ namespace Blocks.Genesis
 
                 string body = args.Message.Body.ToString();
 
-                _logger.LogInformation("Message received: {Body}", body);
-
                 activity?.SetTag("messaging.system", "azure.servicebus");
-                activity?.SetTag("message.body", body);
                 activity?.SetTag("usage", true);
+
+                var isProcessedSuccessfully = false;
+                Exception? processingException = null;
 
                 try
                 {
                     // Start processing timer
                     var processingStopwatch = Stopwatch.StartNew();
-                    _logger.LogInformation("Started processing message {MessageId} at: {StartTime}", messageId, DateTimeOffset.Now);
+                    AzureMessageWorkerLog.MessageProcessingStarted(_logger, messageId, DateTimeOffset.Now);
 
                     var message = JsonSerializer.Deserialize<Message>(body);
-                    await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty);
+                    await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty).ConfigureAwait(false);
 
                     processingStopwatch.Stop();
-                    _logger.LogInformation("Completed processing message {MessageId} in {ProcessingTime}ms", messageId, processingStopwatch.ElapsedMilliseconds);
+                    AzureMessageWorkerLog.MessageProcessingCompleted(_logger, messageId, processingStopwatch.ElapsedMilliseconds);
 
                     activity?.SetTag("response", "Successfully Completed");
                     activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
+                    isProcessedSuccessfully = true;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing message {MessageId}: {ErrorMessage}", messageId, ex.Message);
+                    AzureMessageWorkerLog.MessageProcessingFailed(_logger, messageId, ex.Message, ex);
                     activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                     activity?.SetTag("error", ex.Message);
+                    processingException = ex;
                 }
                 finally
                 {
-                    await cancellationTokenSource.CancelAsync();
+                    await cancellationTokenSource.CancelAsync().ConfigureAwait(false);
                     linkedTokenSource.Dispose();
                     _activeMessageRenewals.TryRemove(messageId, out _);
-                    await args.CompleteMessageAsync(args.Message);
+
+                    if (isProcessedSuccessfully)
+                    {
+                        await args.CompleteMessageAsync(args.Message).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            await args.DeadLetterMessageAsync(
+                                args.Message,
+                                deadLetterReason: "processing_failed",
+                                deadLetterErrorDescription: processingException?.GetType().Name ?? "unknown_error").ConfigureAwait(false);
+                        }
+                        catch (Exception deadLetterException)
+                        {
+                            AzureMessageWorkerLog.DeadLetterFailed(_logger, messageId, deadLetterException);
+                        }
+                    }
+
                     activity?.Stop();
-                    _logger.LogInformation($"Message processing time: {activity?.Duration} ms");
+                    AzureMessageWorkerLog.MessageProcessingDuration(_logger, activity?.Duration ?? TimeSpan.Zero);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error processing message {MessageId}: {ErrorMessage}", messageId, ex.Message);
-                await cancellationTokenSource.CancelAsync();
+                AzureMessageWorkerLog.UnexpectedProcessingError(_logger, messageId, ex.Message, ex);
+                await cancellationTokenSource.CancelAsync().ConfigureAwait(false);
                 linkedTokenSource.Dispose();
                 _activeMessageRenewals.TryRemove(messageId, out _);
             }
@@ -260,47 +288,111 @@ namespace Blocks.Genesis
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    await Task.Delay(renewalInterval, cancellationToken);
+                    await Task.Delay(renewalInterval, cancellationToken).ConfigureAwait(false);
 
                     TimeSpan processingTime = DateTime.UtcNow - processingStartTime;
                     TimeSpan maxProcessingTime = TimeSpan.FromMinutes(_messageConfiguration?.AzureServiceBusConfiguration?.MaxMessageProcessingTimeInMinutes ?? 60);
                     if (processingTime > maxProcessingTime)
                     {
-                        _logger.LogWarning("Message {MessageId} exceeded maximum processing time of {MaxProcessingTimeMinutes} minutes. " +
-                                           "Stopping auto-renewal after {RenewalCount} renewals.", messageId, maxProcessingTime.TotalMinutes, renewalCount);
+                        AzureMessageWorkerLog.MaxProcessingExceeded(_logger, messageId, maxProcessingTime.TotalMinutes, renewalCount);
                         break;
                     }
 
                     try
                     {
-                        await args.RenewMessageLockAsync(message, cancellationToken);
+                        await args.RenewMessageLockAsync(message, cancellationToken).ConfigureAwait(false);
                         renewalCount++;
-                        _logger.LogInformation("Renewed lock for message {MessageId} (renewal #{RenewalCount}, processing time: {ProcessingTimeSeconds:F1}s)",
-                                                messageId, renewalCount, processingTime.TotalSeconds);
+                        AzureMessageWorkerLog.MessageLockRenewed(_logger, messageId, renewalCount, processingTime.TotalSeconds);
                     }
                     catch (Exception ex) when (ex is ServiceBusException or OperationCanceledException)
                     {
-                        _logger.LogWarning(ex, "Failed to renew lock for message {MessageId}: {ErrorMessage}", messageId, ex.Message);
+                        AzureMessageWorkerLog.RenewLockFailed(_logger, messageId, ex.Message, ex);
                         break;
                     }
                 }
 
-                _logger.LogInformation("Auto-renewal for message {MessageId} completed after {RenewalCount} renewals", messageId, renewalCount);
+                AzureMessageWorkerLog.AutoRenewCompleted(_logger, messageId, renewalCount);
             }
             catch (OperationCanceledException ex)
             {
-                _logger.LogInformation(ex, "Auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals", messageId, renewalCount);
+                AzureMessageWorkerLog.AutoRenewCancelled(_logger, messageId, renewalCount, ex);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in auto-renewal task for message {MessageId}", messageId);
+                AzureMessageWorkerLog.AutoRenewError(_logger, messageId, ex);
             }
         }
 
         private Task ErrorHandler(ProcessErrorEventArgs args)
         {
-            _logger.LogError(args.Exception, "Service Bus error: {ExceptionMessage} (Entity: {EntityPath})", args.Exception.Message, args.EntityPath);
+            AzureMessageWorkerLog.ServiceBusError(_logger, args.Exception.Message, args.EntityPath, args.Exception);
             return Task.CompletedTask;
         }
+    }
+
+    internal static partial class AzureMessageWorkerLog
+    {
+        [LoggerMessage(EventId = 3001, Level = LogLevel.Error, Message = "Connection string missing")]
+        public static partial void ConnectionStringMissing(ILogger logger);
+
+        [LoggerMessage(EventId = 3002, Level = LogLevel.Information, Message = "Service Bus Client initialized at: {Time}")]
+        public static partial void ClientInitialized(ILogger logger, DateTimeOffset time);
+
+        [LoggerMessage(EventId = 3003, Level = LogLevel.Error, Message = "Error during initialization")]
+        public static partial void InitializationFailed(ILogger logger, Exception exception);
+
+        [LoggerMessage(EventId = 3004, Level = LogLevel.Error, Message = "Error stopping processor")]
+        public static partial void StopProcessorFailed(ILogger logger, Exception exception);
+
+        [LoggerMessage(EventId = 3005, Level = LogLevel.Information, Message = "Worker stopped at: {Time}")]
+        public static partial void WorkerStopped(ILogger logger, DateTimeOffset time);
+
+        [LoggerMessage(EventId = 3006, Level = LogLevel.Error, Message = "Service Bus Client is not initialized")]
+        public static partial void ClientNotInitialized(ILogger logger);
+
+        [LoggerMessage(EventId = 3007, Level = LogLevel.Error, Message = "Error in ExecuteAsync")]
+        public static partial void ExecuteAsyncFailed(ILogger logger, Exception exception);
+
+        [LoggerMessage(EventId = 3008, Level = LogLevel.Information, Message = "Received message {MessageId} at: {ReceivedAt}")]
+        public static partial void MessageReceived(ILogger logger, string messageId, DateTimeOffset receivedAt);
+
+        [LoggerMessage(EventId = 3009, Level = LogLevel.Information, Message = "Started processing message {MessageId} at: {StartTime}")]
+        public static partial void MessageProcessingStarted(ILogger logger, string messageId, DateTimeOffset startTime);
+
+        [LoggerMessage(EventId = 3010, Level = LogLevel.Information, Message = "Completed processing message {MessageId} in {ProcessingTime}ms")]
+        public static partial void MessageProcessingCompleted(ILogger logger, string messageId, long processingTime);
+
+        [LoggerMessage(EventId = 3011, Level = LogLevel.Error, Message = "Error processing message {MessageId}: {ErrorMessage}")]
+        public static partial void MessageProcessingFailed(ILogger logger, string messageId, string errorMessage, Exception exception);
+
+        [LoggerMessage(EventId = 3012, Level = LogLevel.Error, Message = "Failed to dead-letter message {MessageId}.")]
+        public static partial void DeadLetterFailed(ILogger logger, string messageId, Exception exception);
+
+        [LoggerMessage(EventId = 3013, Level = LogLevel.Information, Message = "Message processing time: {Duration} ms")]
+        public static partial void MessageProcessingDuration(ILogger logger, TimeSpan duration);
+
+        [LoggerMessage(EventId = 3014, Level = LogLevel.Error, Message = "Unexpected error processing message {MessageId}: {ErrorMessage}")]
+        public static partial void UnexpectedProcessingError(ILogger logger, string messageId, string errorMessage, Exception exception);
+
+        [LoggerMessage(EventId = 3015, Level = LogLevel.Warning, Message = "Message {MessageId} exceeded maximum processing time of {MaxProcessingTimeMinutes} minutes. Stopping auto-renewal after {RenewalCount} renewals.")]
+        public static partial void MaxProcessingExceeded(ILogger logger, string messageId, double maxProcessingTimeMinutes, int renewalCount);
+
+        [LoggerMessage(EventId = 3016, Level = LogLevel.Information, Message = "Renewed lock for message {MessageId} (renewal #{RenewalCount}, processing time: {ProcessingTimeSeconds}s)")]
+        public static partial void MessageLockRenewed(ILogger logger, string messageId, int renewalCount, double processingTimeSeconds);
+
+        [LoggerMessage(EventId = 3017, Level = LogLevel.Warning, Message = "Failed to renew lock for message {MessageId}: {ErrorMessage}")]
+        public static partial void RenewLockFailed(ILogger logger, string messageId, string errorMessage, Exception exception);
+
+        [LoggerMessage(EventId = 3018, Level = LogLevel.Information, Message = "Auto-renewal for message {MessageId} completed after {RenewalCount} renewals")]
+        public static partial void AutoRenewCompleted(ILogger logger, string messageId, int renewalCount);
+
+        [LoggerMessage(EventId = 3019, Level = LogLevel.Information, Message = "Auto-renewal for message {MessageId} was cancelled after {RenewalCount} renewals")]
+        public static partial void AutoRenewCancelled(ILogger logger, string messageId, int renewalCount, Exception exception);
+
+        [LoggerMessage(EventId = 3020, Level = LogLevel.Error, Message = "Error in auto-renewal task for message {MessageId}")]
+        public static partial void AutoRenewError(ILogger logger, string messageId, Exception exception);
+
+        [LoggerMessage(EventId = 3021, Level = LogLevel.Error, Message = "Service Bus error: {ExceptionMessage} (Entity: {EntityPath})")]
+        public static partial void ServiceBusError(ILogger logger, string exceptionMessage, string entityPath, Exception exception);
     }
 }

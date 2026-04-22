@@ -1,4 +1,6 @@
-﻿using RabbitMQ.Client;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using RabbitMQ.Client;
 using SeliseBlocks.LMT.Client;
 using System;
 using System.Collections.Concurrent;
@@ -27,16 +29,20 @@ namespace SeliseBlocks.LMT.Client
         private IChannel? _channel;
         private bool _disposed;
         private readonly SemaphoreSlim _publishSemaphore = new(1, 1);
+        private readonly ILogger<LmtRabbitMqSender>? _logger;
+        private ILogger Logger => _logger ?? NullLogger<LmtRabbitMqSender>.Instance;
 
         public LmtRabbitMqSender(
             string serviceName,
             string rabbitMqConnectionString,
             int maxRetries = 3,
-            int maxFailedBatches = 100)
+            int maxFailedBatches = 100,
+            ILogger<LmtRabbitMqSender>? logger = null)
         {
             _serviceName = serviceName;
             _maxRetries = maxRetries;
             _maxFailedBatches = maxFailedBatches;
+            _logger = logger ?? NullLogger<LmtRabbitMqSender>.Instance;
 
             _factory = new ConnectionFactory
             {
@@ -46,7 +52,7 @@ namespace SeliseBlocks.LMT.Client
                 ClientProvidedName = $"seliseblocks-lmt-client-{serviceName}"
             };
 
-            _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync(), null,
+            _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync().ConfigureAwait(false), null,
                 TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
@@ -58,7 +64,7 @@ namespace SeliseBlocks.LMT.Client
             {
                 try
                 {
-                   await EnsureChannelAsync();
+                   await EnsureChannelAsync().ConfigureAwait(false);
 
                     var payload = new
                     {
@@ -71,13 +77,13 @@ namespace SeliseBlocks.LMT.Client
                         routingKey: LmtConstants.RabbitMqLogsRoutingKey,
                         payload: payload,
                         source: "LogsSender",
-                        type: "logs");
+                        type: "logs").ConfigureAwait(false);
 
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending logs to RabbitMQ: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    LmtRabbitMqSenderLog.SendingLogsFailed(Logger, ex, currentRetry, _maxRetries);
                 }
 
                 currentRetry++;
@@ -85,7 +91,7 @@ namespace SeliseBlocks.LMT.Client
                 if (currentRetry <= _maxRetries)
                 {
                     var delay = TimeSpan.FromSeconds(Math.Pow(2, currentRetry - 1));
-                    await Task.Delay(delay);
+                    await Task.Delay(delay).ConfigureAwait(false);
                 }
             }
 
@@ -100,7 +106,7 @@ namespace SeliseBlocks.LMT.Client
             }
             else
             {
-                Console.WriteLine($"Failed log batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                LmtRabbitMqSenderLog.LogBatchQueueFull(Logger, _maxFailedBatches);
             }
         }
 
@@ -112,7 +118,7 @@ namespace SeliseBlocks.LMT.Client
             {
                 try
                 {
-                    await EnsureChannelAsync();
+                    await EnsureChannelAsync().ConfigureAwait(false);
 
                     var payload = new
                     {
@@ -125,13 +131,13 @@ namespace SeliseBlocks.LMT.Client
                         routingKey: LmtConstants.RabbitMqTracesRoutingKey,
                         payload: payload,
                         source: "TracesSender",
-                        type: "traces");
+                        type: "traces").ConfigureAwait(false);
 
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception sending traces to RabbitMQ: {ex.Message}, Retry: {currentRetry}/{_maxRetries}");
+                    LmtRabbitMqSenderLog.SendingTracesFailed(Logger, ex, currentRetry, _maxRetries);
                 }
 
                 currentRetry++;
@@ -139,7 +145,7 @@ namespace SeliseBlocks.LMT.Client
                 if (currentRetry <= _maxRetries)
                 {
                     var delay = TimeSpan.FromSeconds(Math.Pow(2, currentRetry - 1));
-                    await Task.Delay(delay);
+                    await Task.Delay(delay).ConfigureAwait(false);
                 }
             }
 
@@ -154,7 +160,7 @@ namespace SeliseBlocks.LMT.Client
             }
             else
             {
-                Console.WriteLine($"Failed trace batch queue is full ({_maxFailedBatches}). Dropping batch.");
+                LmtRabbitMqSenderLog.TraceBatchQueueFull(Logger, _maxFailedBatches);
             }
         }
 
@@ -164,10 +170,10 @@ namespace SeliseBlocks.LMT.Client
                 return;
 
             _connection?.Dispose();
-            _connection = await _factory.CreateConnectionAsync();
+            _connection = await _factory.CreateConnectionAsync().ConfigureAwait(false);
 
             _channel?.Dispose();
-            _channel = await _connection.CreateChannelAsync();
+            _channel = await _connection.CreateChannelAsync().ConfigureAwait(false);
 
             var exchangeName = LmtConstants.GetRabbitMqExchangeName(_serviceName);
 
@@ -175,12 +181,12 @@ namespace SeliseBlocks.LMT.Client
                 exchange: exchangeName,
                 type: ExchangeType.Direct,
                 durable: true,
-                autoDelete: false);
+                autoDelete: false).ConfigureAwait(false);
         }
 
         private async Task PublishAsync(string routingKey, object payload, string source, string type)
         {
-            await _publishSemaphore.WaitAsync();
+            await _publishSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
                 if (_channel == null)
@@ -210,14 +216,14 @@ namespace SeliseBlocks.LMT.Client
                     }
                 };
 
-                Console.WriteLine($"[APP PUBLISH] exchange='{exchangeName}', routingKey='{routingKey}', messageId='{messageId}'");
+                LmtRabbitMqSenderLog.PublishingMessage(Logger, exchangeName, routingKey, messageId);
 
                 await _channel.BasicPublishAsync(
                     exchange: exchangeName,
                     routingKey: routingKey,
                     mandatory: true,
                     basicProperties: properties,
-                    body: body);
+                    body: body).ConfigureAwait(false);
             }
             finally
             {
@@ -227,14 +233,14 @@ namespace SeliseBlocks.LMT.Client
 
         private async Task RetryFailedBatchesAsync()
         {
-            if (!await _retrySemaphore.WaitAsync(0))
+            if (!await _retrySemaphore.WaitAsync(0).ConfigureAwait(false))
                 return;
 
             try
             {
                 var now = DateTime.UtcNow;
-                await RetryFailedLogsAsync(now);
-                await RetryFailedTracesAsync(now);
+                await RetryFailedLogsAsync(now).ConfigureAwait(false);
+                await RetryFailedTracesAsync(now).ConfigureAwait(false);
             }
             finally
             {
@@ -262,11 +268,11 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Log batch exceeded max retries ({_maxRetries}). Dropping batch with {failedBatch.Logs.Count} logs.");
+                    LmtRabbitMqSenderLog.LogBatchExceededRetries(Logger, _maxRetries, failedBatch.Logs.Count);
                     continue;
                 }
 
-                await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount);
+                await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount).ConfigureAwait(false);
             }
         }
 
@@ -290,11 +296,11 @@ namespace SeliseBlocks.LMT.Client
             {
                 if (failedBatch.RetryCount >= _maxRetries)
                 {
-                    Console.WriteLine($"Trace batch exceeded max retries ({_maxRetries}). Dropping batch.");
+                    LmtRabbitMqSenderLog.TraceBatchExceededRetries(Logger, _maxRetries);
                     continue;
                 }
 
-                await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount);
+                await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount).ConfigureAwait(false);
             }
         }
 
@@ -309,7 +315,31 @@ namespace SeliseBlocks.LMT.Client
             _connection?.Dispose();
 
             _disposed = true;
+            GC.SuppressFinalize(this);
         }
     }
-    
+
+    internal static partial class LmtRabbitMqSenderLog
+    {
+        [LoggerMessage(EventId = 5000, Level = LogLevel.Warning, Message = "Exception sending logs to RabbitMQ. Retry {CurrentRetry}/{MaxRetries}.")]
+        public static partial void SendingLogsFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+
+        [LoggerMessage(EventId = 5001, Level = LogLevel.Warning, Message = "Failed log batch queue is full ({MaxFailedBatches}). Dropping batch.")]
+        public static partial void LogBatchQueueFull(ILogger logger, int maxFailedBatches);
+
+        [LoggerMessage(EventId = 5002, Level = LogLevel.Warning, Message = "Exception sending traces to RabbitMQ. Retry {CurrentRetry}/{MaxRetries}.")]
+        public static partial void SendingTracesFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+
+        [LoggerMessage(EventId = 5003, Level = LogLevel.Warning, Message = "Failed trace batch queue is full ({MaxFailedBatches}). Dropping batch.")]
+        public static partial void TraceBatchQueueFull(ILogger logger, int maxFailedBatches);
+
+        [LoggerMessage(EventId = 5004, Level = LogLevel.Debug, Message = "Publishing RabbitMQ message exchange={ExchangeName}, routingKey={RoutingKey}, messageId={MessageId}.")]
+        public static partial void PublishingMessage(ILogger logger, string exchangeName, string routingKey, string messageId);
+
+        [LoggerMessage(EventId = 5005, Level = LogLevel.Warning, Message = "Log batch exceeded max retries ({MaxRetries}). Dropping batch with {LogCount} logs.")]
+        public static partial void LogBatchExceededRetries(ILogger logger, int maxRetries, int logCount);
+
+        [LoggerMessage(EventId = 5006, Level = LogLevel.Warning, Message = "Trace batch exceeded max retries ({MaxRetries}). Dropping batch.")]
+        public static partial void TraceBatchExceededRetries(ILogger logger, int maxRetries);
+    }
 }

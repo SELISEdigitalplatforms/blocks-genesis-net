@@ -10,6 +10,7 @@ namespace Blocks.Genesis
         private readonly ActivitySource _activitySource;
         private readonly ISubscriber _subscriber;
         private readonly ConcurrentDictionary<string, Action<RedisChannel, RedisValue>> _subscriptions = new();
+        private readonly IConnectionMultiplexer _connectionMultiplexer;
 
         private bool _disposed = false;
         private const string _valueLength = "ValueLength";
@@ -21,10 +22,14 @@ namespace Blocks.Genesis
 
         public RedisClient(IBlocksSecret blocksSecret, ActivitySource activitySource)
         {
-            IConnectionMultiplexer connectionMultiplexer = ConnectionMultiplexer.Connect(blocksSecret.CacheConnectionString);
-            _database = connectionMultiplexer.GetDatabase();
+            var options = ConfigurationOptions.Parse(blocksSecret.CacheConnectionString, true);
+            options.AbortOnConnectFail = false;
+            options.ConnectRetry = 3;
+
+            _connectionMultiplexer = ConnectionMultiplexer.Connect(options);
+            _database = _connectionMultiplexer.GetDatabase();
             _activitySource = activitySource;
-            _subscriber = connectionMultiplexer.GetSubscriber();
+            _subscriber = _connectionMultiplexer.GetSubscriber();
         }
 
         public IDatabase CacheDatabase() => _database;
@@ -293,6 +298,7 @@ namespace Blocks.Genesis
                 _subscriber.Unsubscribe(channel);
             }
             _subscriptions.Clear();
+            _connectionMultiplexer?.Dispose();
             _disposed = true;
         }
 

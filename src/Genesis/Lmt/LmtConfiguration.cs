@@ -1,6 +1,7 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
+using Serilog;
 
 namespace Blocks.Genesis
 {
@@ -39,7 +40,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Log.Error(ex, "Failed to create trace collection/index for {CollectionName}.", collectionName);
             }
         }
 
@@ -58,7 +59,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Log.Error(ex, "Failed to create metrics collection/index for {CollectionName}.", collectionName);
             }
         }
 
@@ -82,7 +83,7 @@ namespace Blocks.Genesis
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Log.Error(ex, "Failed to create log collection/index for {CollectionName}.", collectionName);
             }
         }
 
@@ -96,19 +97,19 @@ namespace Blocks.Genesis
                 if (!collectionExists)
                 {
                     database.CreateCollection(collectionName, options);
-                    Console.WriteLine($"Created collection '{collectionName}' in database '{databaseName}'");
+                    Log.Information("Created collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
                 }
                 else if (!IsTimeSeriesCollection(database, collectionName))
                 {
-                    Console.WriteLine($"Collection '{collectionName}' in database '{databaseName}' is a normal collection. Dropping and recreating as time series.");
+                    Log.Warning("Collection '{CollectionName}' in database '{DatabaseName}' is not time-series. Recreating.", collectionName, databaseName);
                     database.DropCollection(collectionName);
                     database.CreateCollection(collectionName, options);
-                    Console.WriteLine($"Recreated collection '{collectionName}' as time series in database '{databaseName}'");
+                    Log.Information("Recreated collection '{CollectionName}' as time-series in database '{DatabaseName}'.", collectionName, databaseName);
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                Log.Error(ex, "Failed to create or verify collection '{CollectionName}' in '{DatabaseName}'.", collectionName, databaseName);
                 throw;
             }
         }
@@ -173,17 +174,17 @@ namespace Blocks.Genesis
                 {
                     var indexModel = new CreateIndexModel<BsonDocument>(indexKeys, indexOptions);
                     collection.Indexes.CreateOne(indexModel);
-                    Console.WriteLine($"Created index on collection '{collectionName}' in database '{databaseName}'");
+                    Log.Information("Created index on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
                 }
             }
             catch (MongoCommandException ex) when (ex.Message.Contains("Index already exists with a different name"))
             {
                 // Handle specific case where the index exists with a different name
-                Console.WriteLine($"Cannot create index: An index with the same key pattern already exists with a different name on collection '{collectionName}' in database '{databaseName}'");
+                Log.Warning("Cannot create index: equivalent key-pattern already exists with a different name on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error creating index on collection '{collectionName}': {ex.Message}");
+                Log.Error(ex, "Error creating index on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
                 throw;
             }
         }

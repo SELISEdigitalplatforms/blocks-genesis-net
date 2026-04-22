@@ -40,8 +40,8 @@ set_env_variable() {
 }
 
 # Set all the environment variables
-set_env_variable "BlocksSecret__CacheConnectionString" "10.5.25.160:6379,password=vmU4MaY4N21PyuCh,abortConnect=false,connectTimeout=50000,syncTimeout=50000"
-set_env_variable "BlocksSecret__MessageConnectionString" "amqp://test:test@10.5.25.160:5672/"
+set_env_variable "BlocksSecret__CacheConnectionString" "your_redis_connection_string"
+set_env_variable "BlocksSecret__MessageConnectionString" "your_message_broker_connection_string"
 set_env_variable "BlocksSecret__LogConnectionString" "mongodb://localhost:27017/"
 set_env_variable "BlocksSecret__MetricConnectionString" "mongodb://localhost:27017/"
 set_env_variable "BlocksSecret__TraceConnectionString" "mongodb://localhost:27017/"
@@ -51,6 +51,7 @@ set_env_variable "BlocksSecret__TraceDatabaseName" "Traces"
 set_env_variable "BlocksSecret__DatabaseConnectionString" "mongodb://localhost:27017/"
 set_env_variable "BlocksSecret__RootDatabaseName" "ROOT_DB"
 set_env_variable "BlocksSecret__EnableHsts" "true"
+set_env_variable "BlocksSecret__AllowedCorsOrigins" "https://app.example.com,https://admin.example.com"
 
 echo "Environment variables have been set for the current session."
 

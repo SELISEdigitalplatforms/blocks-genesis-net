@@ -15,6 +15,7 @@ permissions:
 
 env:
   RUN_UNIT_TEST: "true"
+  RUN_SECURITY: "true"
   RUN_SONARQUBE: "true"
 
 jobs:
@@ -23,21 +24,28 @@ jobs:
     outputs:
       envvalue1: ${{ steps.setvar.outputs.envvar1 }}
       envvalue2: ${{ steps.setvar.outputs.envvar2 }}
+      envvalue3: ${{ steps.setvar.outputs.envvar3 }}
     steps:
       - name: Set values
         id: setvar
         run: |
           echo "envvar1=$RUN_UNIT_TEST" >> $GITHUB_OUTPUT
-          echo "envvar2=$RUN_SONARQUBE" >> $GITHUB_OUTPUT
+          echo "envvar2=$RUN_SECURITY" >> $GITHUB_OUTPUT
+          echo "envvar3=$RUN_SONARQUBE" >> $GITHUB_OUTPUT
 
   test-job:
     if: ${{ needs.initialization.outputs.envvalue1 == 'true' }}
     needs: [initialization]
     uses: ./.github/workflows/1_test.yml
 
-  sonarqube-job:
+  security-job:
     if: ${{ needs.initialization.outputs.envvalue2 == 'true' }}
     needs: [test-job]
+    uses: ./.github/workflows/3_security.yml
+
+  sonarqube-job:
+    if: ${{ needs.initialization.outputs.envvalue3 == 'true' }}
+    needs: [security-job]
     uses: ./.github/workflows/2_sonar.yml
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_GLOBAL }}

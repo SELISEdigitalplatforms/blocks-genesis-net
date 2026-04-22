@@ -1,0 +1,46 @@
+name: Security Gates
+on:
+  workflow_call
+
+jobs:
+  dependency-vulnerability-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set Environment Variables
+        uses: ./.github/actions/setvars
+        with:
+          varFilePath: ./.github/variables/vars.env
+
+      - name: Initialize dotnet
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            9.0.x
+            8.0.x
+
+      - name: Restore
+        working-directory: ./src
+        env:
+          SOLUTION: ${{ env.SOLUTION_NAME }}
+        run: dotnet restore "./${SOLUTION}" -s https://api.nuget.org/v3/index.json -s https://nuget.selise.biz/nuget
+
+      - name: Scan NuGet Vulnerabilities
+        working-directory: ./src
+        env:
+          SOLUTION: ${{ env.SOLUTION_NAME }}
+        run: |
+          dotnet list "./${SOLUTION}" package --vulnerable --include-transitive --format json > vulnerable-packages.json
+          if jq -e '[.. | objects | select(has("severity")) | .severity | ascii_downcase | select(. == "high" or . == "critical")] | length > 0' vulnerable-packages.json > /dev/null; then
+            echo "High or critical package vulnerabilities detected."
+            jq '[.. | objects | select(has("severity")) | select((.severity | ascii_downcase) == "high" or (.severity | ascii_downcase) == "critical")]' vulnerable-packages.json
+            exit 1
+          fi
+          echo "No high/critical package vulnerabilities detected."
