@@ -22,5 +22,6 @@
         public string LmtMessageConnectionString { get; set; }
         public string LmtBlobStorageConnectionString { get; set; }
         public string ProdVaultUrl { get; set; }
+        public string AllowedCorsOrigins { get; set; }
     }
 }

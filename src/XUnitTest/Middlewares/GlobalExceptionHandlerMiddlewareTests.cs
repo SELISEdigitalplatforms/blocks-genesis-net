@@ -41,8 +41,9 @@ public class GlobalExceptionHandlerMiddlewareTests
         var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
 
         Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
-        Assert.Equal("application/json", context.Response.ContentType);
-        Assert.Contains("An error occurred while processing your request.", body);
+        Assert.Equal("application/problem+json", context.Response.ContentType);
+        Assert.Contains("Internal Server Error", body);
+        Assert.Contains("boom", body);
         Assert.Contains(context.TraceIdentifier, body);
     }
 

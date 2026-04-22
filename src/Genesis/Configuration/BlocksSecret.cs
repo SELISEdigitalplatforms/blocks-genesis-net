@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Serilog;
 using System.Reflection;
 
 namespace Blocks.Genesis
@@ -25,6 +26,7 @@ namespace Blocks.Genesis
         public string LmtMessageConnectionString { get ; set ; }
         public string LmtBlobStorageConnectionString { get ; set ; }
         public string ProdVaultUrl { get ; set ; }
+        public string AllowedCorsOrigins { get; set; }
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
         {
@@ -62,7 +64,7 @@ namespace Blocks.Genesis
             }
             else
             {
-                Console.WriteLine($"Property '{propertyName}' not found or is read-only.");
+                Log.Warning("Property {PropertyName} not found or is read-only.", propertyName);
             }
         }
 
@@ -76,7 +78,7 @@ namespace Blocks.Genesis
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e.Message);
+                    Log.Warning(e, "Failed to convert secret value.");
                 }
             }
             return value;
