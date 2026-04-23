@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
@@ -100,7 +101,17 @@ public static class ApplicationConfigurations
         services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
 
         var objectSerializer = new ObjectSerializer(_ => true);
-        BsonSerializer.RegisterSerializer(objectSerializer);
+        try
+        {
+            BsonSerializer.RegisterSerializer(objectSerializer);
+        }
+        catch (BsonSerializationException)
+        {
+            // An ObjectSerializer has already been registered for this process
+            // (e.g. re-entrant configuration or previous host bootstrap).
+            // MongoDB's registry is process-global and rejects duplicates; the
+            // existing registration is equivalent for our purposes.
+        }
 
         services.AddLogging(builder =>
         {
