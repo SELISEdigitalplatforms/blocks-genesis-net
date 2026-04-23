@@ -19,6 +19,7 @@ namespace SeliseBlocks.LMT.Client
 
         public static IServiceCollection AddLmtClient(this IServiceCollection services, IConfiguration configuration)
         {
+            //issue resolve here
             var options = new LmtOptions();
             configuration.GetSection("Lmt").Bind(options);
 
