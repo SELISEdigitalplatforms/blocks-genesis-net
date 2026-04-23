@@ -311,6 +311,230 @@ public class ApplicationConfigurationsTests
         }
     }
 
+    // ConfigureServices / ConfigureWorker register the MongoDB ObjectSerializer globally,
+    // which fails on the second call in the same process. We therefore invoke the pipeline
+    // exactly once via a class fixture and share the resulting ServiceCollection across
+    // multiple assertions. This covers ConfigureServices (all lines), the Rabbit branch
+    // of ConfigureMessageClient, the Rabbit branch of ConfigureWorker, and the swagger
+    // `!= null` branch in ConfigureServices.
+    [Fact]
+    public void ConfigureWorker_ShouldRegisterCoreAndRabbitMqServices_WhenRabbitMqAndSwaggerConfigured()
+    {
+        var fixture = ConfigureWorkerFixture.Instance;
+
+        Assert.Null(fixture.Exception);
+        var services = fixture.Services;
+        Assert.Contains(services, d => d.ServiceType == typeof(IBlocksSecret));
+        Assert.Contains(services, d => d.ServiceType == typeof(ICacheClient));
+        Assert.Contains(services, d => d.ServiceType == typeof(ITenants));
+        Assert.Contains(services, d => d.ServiceType == typeof(IDbContextProvider));
+        Assert.Contains(services, d => d.ServiceType == typeof(IHttpService));
+        Assert.Contains(services, d => d.ServiceType == typeof(ICryptoService));
+        Assert.Contains(services, d => d.ServiceType == typeof(IGrpcClientFactory));
+        Assert.Contains(services, d => d.ServiceType == typeof(MessageConfiguration));
+        Assert.Contains(services, d => d.ServiceType == typeof(IRabbitMqService));
+        Assert.Contains(services, d => d.ServiceType == typeof(IMessageClient));
+        Assert.Contains(services, d => d.ServiceType == typeof(Consumer));
+        Assert.Contains(services, d => d.ServiceType == typeof(RoutingTable));
+        Assert.Contains(services, d => d.ImplementationType == typeof(RabbitMessageWorker));
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("not-a-uri", false)]
+    public void IsOriginAllowed_ShouldReturnFalse_ForInvalidOrigin(string? origin, bool expected)
+    {
+        var tenants = new Mock<ITenants>(MockBehavior.Strict);
+        var env = CreateHostEnvironment("Production");
+
+        var result = InvokeIsOriginAllowed(origin, tenants.Object, env, Array.Empty<string>());
+
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("http://localhost:3000", true)]
+    [InlineData("https://127.0.0.1", true)]
+    public void IsOriginAllowed_ShouldAllow_LocalDevelopmentOrigins(string origin, bool expected)
+    {
+        var tenants = new Mock<ITenants>(MockBehavior.Strict);
+        var env = CreateHostEnvironment("Development");
+
+        var result = InvokeIsOriginAllowed(origin, tenants.Object, env, Array.Empty<string>());
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void IsOriginAllowed_ShouldAllow_WhenOriginIsInExplicitList()
+    {
+        var tenants = new Mock<ITenants>(MockBehavior.Strict);
+        var env = CreateHostEnvironment("Production");
+        var allowedOrigins = new[] { "https://example.com" };
+
+        var result = InvokeIsOriginAllowed("https://example.com", tenants.Object, env, allowedOrigins);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsOriginAllowed_ShouldAllow_WhenTenantMatchesApplicationDomain()
+    {
+        var tenants = new Mock<ITenants>();
+        tenants.Setup(t => t.GetTenantByApplicationDomain("https://tenant.app"))
+               .Returns(CreateTenantStub("https://tenant.app"));
+        var env = CreateHostEnvironment("Production");
+
+        var result = InvokeIsOriginAllowed("https://tenant.app", tenants.Object, env, Array.Empty<string>());
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsOriginAllowed_ShouldReturnFalse_WhenNothingMatches()
+    {
+        var tenants = new Mock<ITenants>();
+        tenants.Setup(t => t.GetTenantByApplicationDomain(It.IsAny<string>()))
+               .Returns((Blocks.Genesis.Tenant?)null);
+        var env = CreateHostEnvironment("Production");
+
+        var result = InvokeIsOriginAllowed("https://unknown.app", tenants.Object, env, Array.Empty<string>());
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsOriginAllowed_ShouldNotAllowLocalhost_InNonDevelopmentEnvironment()
+    {
+        var tenants = new Mock<ITenants>();
+        tenants.Setup(t => t.GetTenantByApplicationDomain(It.IsAny<string>()))
+               .Returns((Blocks.Genesis.Tenant?)null);
+        var env = CreateHostEnvironment("Production");
+
+        var result = InvokeIsOriginAllowed("http://localhost:3000", tenants.Object, env, Array.Empty<string>());
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void ParseAllowedCorsOrigins_ShouldReturnFilteredDistinctList()
+    {
+        SetPrivateStaticField("_blocksSecret", new BlocksSecret
+        {
+            AllowedCorsOrigins = "https://a.com, https://b.com , not-a-uri, https://A.com"
+        });
+
+        var result = InvokeParseAllowedCorsOrigins();
+
+        Assert.Contains("https://a.com", result);
+        Assert.Contains("https://b.com", result);
+        Assert.DoesNotContain("not-a-uri", result);
+        Assert.Equal(2, result.Count); // "https://A.com" is a duplicate under OrdinalIgnoreCase
+    }
+
+    [Fact]
+    public void ParseAllowedCorsOrigins_ShouldReturnEmpty_WhenSecretHasNoOrigins()
+    {
+        SetPrivateStaticField("_blocksSecret", new BlocksSecret { AllowedCorsOrigins = null! });
+
+        var result = InvokeParseAllowedCorsOrigins();
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ConfigureRateLimiting_ShouldHonourCustomPermitLimit()
+    {
+        var previous = Environment.GetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE");
+        try
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE", "50");
+
+            var services = new ServiceCollection();
+            InvokeConfigureRateLimiting(services);
+
+            Assert.Contains(services, d => d.ServiceType.FullName!.Contains("RateLimiter", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE", previous);
+        }
+    }
+
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("0")]
+    [InlineData(null)]
+    public void ConfigureRateLimiting_ShouldFallBackToDefault_WhenInvalidOrMissingEnv(string? value)
+    {
+        var previous = Environment.GetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE");
+        try
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE", value);
+
+            var services = new ServiceCollection();
+            var ex = Record.Exception(() => InvokeConfigureRateLimiting(services));
+
+            Assert.Null(ex);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE", previous);
+        }
+    }
+
+    private static Blocks.Genesis.Tenant CreateTenantStub(string applicationDomain) => new()
+    {
+        ApplicationDomain = applicationDomain,
+        DbConnectionString = "mongodb://localhost:27017",
+        JwtTokenParameters = new JwtTokenParameters
+        {
+            Issuer = "issuer",
+            Subject = "subject",
+            Audiences = ["aud"],
+            PublicCertificatePath = "path",
+            PublicCertificatePassword = "pwd",
+            PrivateCertificatePassword = "private",
+            IssueDate = DateTime.UtcNow
+        }
+    };
+
+    private static BlocksSecret CreateValidSecret() => new()
+    {
+        DatabaseConnectionString = "mongodb://localhost:27017/genesis-tests",
+        CacheConnectionString = "localhost:6379,abortConnect=false",
+        MessageConnectionString = "amqp://guest:guest@localhost:5672",
+        AllowedCorsOrigins = string.Empty,
+        ServiceName = "svc-core"
+    };
+
+    private static IHostEnvironment CreateHostEnvironment(string environmentName)
+    {
+        var env = new Mock<IHostEnvironment>();
+        env.SetupGet(e => e.EnvironmentName).Returns(environmentName);
+        return env.Object;
+    }
+
+    private static bool InvokeIsOriginAllowed(string? origin, ITenants tenants, IHostEnvironment env, IReadOnlyCollection<string> allowedOrigins)
+    {
+        var method = typeof(ApplicationConfigurations).GetMethod("IsOriginAllowed", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (bool)method.Invoke(null, new object?[] { origin, tenants, env, allowedOrigins })!;
+    }
+
+    private static List<string> InvokeParseAllowedCorsOrigins()
+    {
+        var method = typeof(ApplicationConfigurations).GetMethod("ParseAllowedCorsOrigins", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (List<string>)method.Invoke(null, null)!;
+    }
+
+    private static void InvokeConfigureRateLimiting(IServiceCollection services)
+    {
+        var method = typeof(ApplicationConfigurations).GetMethod("ConfigureRateLimiting", BindingFlags.NonPublic | BindingFlags.Static)!;
+        method.Invoke(null, new object?[] { services });
+    }
+
     private static string InvokeGetAppSettingsFileName()
     {
         var method = typeof(ApplicationConfigurations).GetMethod("GetAppSettingsFileName", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -384,5 +608,55 @@ public class ApplicationConfigurationsTests
         }
 
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+    }
+}
+
+// Lazily invokes ConfigureWorker exactly once per test process (MongoDB ObjectSerializer
+// registration is global state and can only be performed once).
+internal sealed class ConfigureWorkerFixture
+{
+    private static readonly Lazy<ConfigureWorkerFixture> _instance = new(() => new ConfigureWorkerFixture());
+    public static ConfigureWorkerFixture Instance => _instance.Value;
+
+    public IServiceCollection Services { get; }
+    public Exception? Exception { get; }
+
+    private ConfigureWorkerFixture()
+    {
+        SetPrivateStaticField("_blocksSecret", new BlocksSecret
+        {
+            DatabaseConnectionString = "mongodb://localhost:27017/genesis-tests",
+            CacheConnectionString = "localhost:6379,abortConnect=false",
+            MessageConnectionString = "amqp://guest:guest@localhost:5672",
+            AllowedCorsOrigins = string.Empty,
+            ServiceName = "svc-worker-fixture"
+        });
+        SetPrivateStaticField("_serviceName", "svc-worker-fixture");
+        SetPrivateStaticField("_blocksSwaggerOptions", new BlocksSwaggerOptions
+        {
+            ServiceName = "svc",
+            Version = "v1",
+            XmlCommentsFilePath = "swagger-enabled.xml",
+            EnableBearerAuth = false
+        });
+
+        Services = new ServiceCollection();
+        try
+        {
+            ApplicationConfigurations.ConfigureWorker(Services, new MessageConfiguration
+            {
+                RabbitMqConfiguration = new RabbitMqConfiguration()
+            });
+        }
+        catch (Exception ex)
+        {
+            Exception = ex;
+        }
+    }
+
+    private static void SetPrivateStaticField(string fieldName, object? value)
+    {
+        var field = typeof(ApplicationConfigurations).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static)!;
+        field.SetValue(null, value);
     }
 }

@@ -218,6 +218,63 @@ public class ChangeControllerContextTests : IDisposable
         Assert.Null(Baggage.GetBaggage("TenantId"));
     }
 
+    [Fact]
+    public void ChangeContext_ShouldNotSwitch_WhenCurrentContextIsNullAndProjectKeyNonEmpty()
+    {
+        var tenants = new Mock<ITenants>();
+        var dbContextProvider = new Mock<IDbContextProvider>();
+
+        var collection = new Mock<IMongoCollection<BsonDocument>>();
+        collection
+            .Setup(c => c.FindSync(
+                It.IsAny<FilterDefinition<BsonDocument>>(),
+                It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(CreateCursorWithFirstDocument(null).Object);
+        dbContextProvider.Setup(d => d.GetCollection<BsonDocument>("ProjectPeoples")).Returns(collection.Object);
+
+        // bc?.TenantId is null -> GetTenantByID(null) returns null -> isRoot=false -> does not enter if-block
+        tenants.Setup(t => t.GetTenantByID("project-x")).Returns(CreateTenant("any", isRoot: false));
+        tenants.Setup(t => t.GetTenantByID(null!)).Returns((Blocks.Genesis.Tenant?)null);
+
+        var sut = new ChangeControllerContext(tenants.Object, dbContextProvider.Object, Mock.Of<IHttpContextAccessor>());
+        BlocksContext.ClearContext();
+
+        sut.ChangeContext(new ProjectKeyStub { ProjectKey = "project-x" });
+
+        Assert.Null(BlocksContext.GetContext());
+        Assert.True(string.IsNullOrEmpty(Baggage.GetBaggage("ActualTenantId")));
+        Assert.Null(Baggage.GetBaggage("TenantId"));
+    }
+
+    [Fact]
+    public void ChangeContext_ShouldNotSwitch_WhenRootAndNeitherCreatorNorShared_AndTenantIsNull()
+    {
+        var tenants = new Mock<ITenants>();
+        var dbContextProvider = new Mock<IDbContextProvider>();
+
+        var collection = new Mock<IMongoCollection<BsonDocument>>();
+        collection
+            .Setup(c => c.FindSync(
+                It.IsAny<FilterDefinition<BsonDocument>>(),
+                It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(CreateCursorWithFirstDocument(null).Object);
+        dbContextProvider.Setup(d => d.GetCollection<BsonDocument>("ProjectPeoples")).Returns(collection.Object);
+
+        tenants.Setup(t => t.GetTenantByID("project-missing")).Returns((Blocks.Genesis.Tenant?)null);
+        tenants.Setup(t => t.GetTenantByID("root-tenant")).Returns(CreateTenant("root-owner", isRoot: true));
+
+        var sut = new ChangeControllerContext(tenants.Object, dbContextProvider.Object, Mock.Of<IHttpContextAccessor>());
+        BlocksContext.SetContext(CreateContext("root-tenant", "user-1"));
+
+        sut.ChangeContext(new ProjectKeyStub { ProjectKey = "project-missing" });
+
+        // tenant==null AND sharedProject==null → stays on root-tenant
+        Assert.Equal("root-tenant", BlocksContext.GetContext()?.TenantId);
+        Assert.Null(Baggage.GetBaggage("TenantId"));
+    }
+
     private static Mock<IAsyncCursor<BsonDocument>> CreateCursorWithFirstDocument(BsonDocument? firstDocument)
     {
         var cursor = new Mock<IAsyncCursor<BsonDocument>>();
