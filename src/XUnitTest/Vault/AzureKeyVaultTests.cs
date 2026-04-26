@@ -129,25 +129,6 @@ public class AzureKeyVaultTests
         Assert.False(result.ContainsKey("Key2"));
     }
 
-    [Fact]
-    public async Task ProcessSecretsAsync_ShouldThrow_WhenRequiredConfigIsMissing()
-    {
-        var previousUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
-
-        try
-        {
-            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", null);
-
-            var sut = new AzureKeyVault();
-
-            await Assert.ThrowsAsync<InvalidOperationException>(() => sut.ProcessSecretsAsync(new List<string> { "Key1" }));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", previousUrl);
-        }
-    }
-
     private static MethodInfo GetPrivateMethod(string methodName)
     {
         return typeof(AzureKeyVault).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance)!;

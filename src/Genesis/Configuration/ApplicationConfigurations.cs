@@ -1,4 +1,6 @@
 ﻿using Blocks.Genesis.Health;
+using Blocks.Genesis.Utilities;
+using DotNetEnv;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
@@ -20,17 +22,36 @@ namespace Blocks.Genesis
     {
         private static string _serviceName = string.Empty;
         private static IBlocksSecret _blocksSecret;
+        private static IConfiguration _configuration;
         private static BlocksSwaggerOptions _blocksSwaggerOptions;
+
+        public static void Initialize(IConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
 
 
         public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName, VaultType vaultType)
         {
-            LoadDotEnvFile();
+            try
+            {
+                LoadDotEnvFile();
+                //var secretManagerType = Environment.GetEnvironmentVariable("SecretManagerType");
+
+                var config = _configuration.GetSection("SecretManager").Get<SecretManager>();
+                Enum.TryParse<VaultType>(config.SecretManagerType, ignoreCase: true, out vaultType);
+                vaultType = (vaultType == VaultType.Unknown) ? VaultType.Azure : vaultType;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Invalid SecretManagerType : {ex.Message}");
+                vaultType = VaultType.Azure;
+            }
+
             _serviceName = serviceName;
 
-            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(vaultType);
+            _blocksSecret = await BlocksSecret.ProcessBlocksSecret(vaultType, _configuration);
             _blocksSecret.ServiceName = _serviceName;
-
 
             if (!string.IsNullOrWhiteSpace(_blocksSecret.LogConnectionString))
             {
@@ -69,6 +90,8 @@ namespace Blocks.Genesis
 
         public static void ConfigureApiEnv(IHostApplicationBuilder builder, string[] args)
         {
+            var envFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+            Env.Load(envFilePath);
 
             builder.Configuration
                 .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false)
@@ -80,7 +103,7 @@ namespace Blocks.Genesis
 
             // Initialize LMT configuration provider
             LmtConfigurationProvider.Initialize(builder.Configuration);
-
+            Initialize(builder.Configuration);
         }
 
         public static void ConfigureWorkerEnv(IConfigurationBuilder builder, string[] args)
@@ -308,26 +331,19 @@ namespace Blocks.Genesis
 
         private static void LoadDotEnvFile()
         {
-            try
-            {
                 var envFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
 
                 if (File.Exists(envFilePath))
                 {
-                    DotNetEnv.Env.Load(envFilePath);
+                    Env.Load(envFilePath);
                     Console.WriteLine($"✓ Loaded environment variables from .env file");
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Warning: Failed to load .env file: {ex.Message}");
-            }
         }
 
         private static string GetAppSettingsFileName()
         {
             var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-            return string.IsNullOrWhiteSpace(currentEnvironment) ? "appsettings.json" : $"appsettings.{currentEnvironment}.json";
+            return currentEnvironment == "Development" ? $"appsettings.{currentEnvironment}.json": string.Empty;
         }
     }
 }

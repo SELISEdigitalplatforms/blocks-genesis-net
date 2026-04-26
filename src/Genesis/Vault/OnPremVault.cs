@@ -1,23 +1,25 @@
-﻿using DotNetEnv;
+﻿using Blocks.Genesis.Utilities;
+using DotNetEnv;
 using Microsoft.Extensions.Configuration;
 
 namespace Blocks.Genesis
 {
     public class OnPremVault : IVault
     {
-        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
+        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys, IConfiguration configuration)
         {
-            return await Task.FromResult(GetVaultValues());
+            return await Task.FromResult(GetVaultValues(configuration));
         }
 
-        public static Dictionary<string, string> GetVaultValues()
+        public static Dictionary<string, string> GetVaultValues(IConfiguration configuration)
         {
-            var envPath = Environment.GetEnvironmentVariable("envPath");
-            Env.Load(envPath);
-
-            var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+            var config = configuration.GetSection("SecretManager").Get<SecretManager>();
+           // var envPath = Environment.GetEnvironmentVariable(config.SecretManagerPath);
+            Env.Load(config.SecretManagerPath);
+            var envConfiguration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+            
             var keyVaultConfig = new Dictionary<string, string>();
-            configuration.GetSection("BlocksSecret").Bind(keyVaultConfig);
+            envConfiguration.GetSection("BlocksSecret").Bind(keyVaultConfig);
 
             return keyVaultConfig;
         }

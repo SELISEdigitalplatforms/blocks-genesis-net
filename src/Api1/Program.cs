@@ -5,12 +5,11 @@ using TestDriver;
 
 const string _serviceName = "Service-API-Test_One";
 
-var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
 var builder = WebApplication.CreateBuilder(args);
-
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
-var services = builder.Services;
 
+var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
+var services = builder.Services;
 
 ApplicationConfigurations.ConfigureServices(services, ApiConstant.GetMessageConfiguration(secret.MessageConnectionString));
 

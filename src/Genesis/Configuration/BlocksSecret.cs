@@ -27,15 +27,13 @@ namespace Blocks.Genesis
         public string LmtBlobStorageConnectionString { get ; set ; }
         public string ProdVaultUrl { get ; set ; }
 
-        public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
+        public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure, IConfiguration? configuration = null)
         {
-            var secretManagerType = Environment.GetEnvironmentVariable("SecretManagerType");
-            vaultType = (VaultType)Convert.ToInt32(secretManagerType);
             IVault cloudVault = Vault.GetCloudVault(vaultType);
 
             var blocksSecret = new BlocksSecret();
             PropertyInfo[] properties = typeof(BlocksSecret).GetProperties();
-            var blocksSecretVault = await cloudVault.ProcessSecretsAsync(properties.Select(x => x.Name).ToList());
+            var blocksSecretVault = await cloudVault.ProcessSecretsAsync(properties.Select(x => x.Name).ToList(), configuration);
 
             foreach (PropertyInfo property in properties)
             {
@@ -49,7 +47,6 @@ namespace Blocks.Genesis
                     UpdateProperty(blocksSecret, propertyName, convertedValue);
                 }
             }
-
 
             return blocksSecret;
         }

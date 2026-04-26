@@ -9,7 +9,7 @@ namespace Blocks.Genesis
         private SecretClient _secretClient;
         private string _keyVaultUrl;
 
-        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
+        public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys, IConfiguration configuration)
         {
             ExtractValuesFromGlobalConfig(GetVaultConfig());
             ConnectToAzureKeyVaultSecret();

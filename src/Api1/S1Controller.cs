@@ -17,10 +17,11 @@ namespace ApiOne
         private readonly IDbContextProvider _dbContextProvider;
         private readonly IGrpcClient _grpcClient;
         private readonly ChangeControllerContext _changeControllerContext;
+        private readonly IConfiguration _configuration;
 
         public S1Controller(ILogger<S1Controller> logger, IHttpService httpService, 
             IMessageClient messageClient, IDbContextProvider dbContextProvider, 
-            IGrpcClient grpcClient, ChangeControllerContext changeControllerContext)
+            IGrpcClient grpcClient, ChangeControllerContext changeControllerContext, IConfiguration configuration)
         {
             _logger = logger;
             _httpService = httpService;
@@ -28,6 +29,7 @@ namespace ApiOne
             _dbContextProvider = dbContextProvider;
             _grpcClient = grpcClient;
             _changeControllerContext = changeControllerContext;
+            _configuration = configuration;
         }
 
         [Authorize]
@@ -59,6 +61,7 @@ namespace ApiOne
         [HttpGet("Hello")]
         public async Task<IActionResult> Get()
         {       
+            var value = _configuration["uri"];
             return Ok("Hello From Blocks");
         }
 
