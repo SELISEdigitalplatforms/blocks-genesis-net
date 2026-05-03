@@ -17,9 +17,9 @@ public class AuthAttributesAndSecretHandlerTests
     }
 
     [Fact]
-    public void SecretEnpPointAttribute_ShouldUseSecretPolicy()
+    public void SecretEndPointAttribute_ShouldUseSecretPolicy()
     {
-        var attribute = new SecretEnpPointAttribute();
+        var attribute = new SecretEndPointAttribute();
         Assert.Equal("Secret", attribute.Policy);
     }
 
@@ -46,7 +46,7 @@ public class AuthAttributesAndSecretHandlerTests
             BlocksContext.SetContext(BlocksContext.Create("tenant-a", [], "", false, "", "", DateTime.MinValue, "", [], "", "", "", "", "", "tenant-a"));
 
             var crypto = new Mock<ICryptoService>();
-            crypto.Setup(c => c.Hash("tenant-a", "salt-a")).Returns("expected-secret");
+            crypto.Setup(c => c.ComputeHmacSha256("tenant-a", "salt-a", false)).Returns("expected-secret");
 
             var tenants = new Mock<ITenants>();
             tenants.Setup(t => t.GetTenantByID("tenant-a")).Returns(CreateTenant("tenant-a", "salt-a"));
@@ -87,7 +87,8 @@ public class AuthAttributesAndSecretHandlerTests
             BlocksContext.SetContext(BlocksContext.Create("tenant-b", [], "", false, "", "", DateTime.MinValue, "", [], "", "", "", "", "", "tenant-b"));
 
             var crypto = new Mock<ICryptoService>();
-            crypto.Setup(c => c.Hash("tenant-b", "salt-b")).Returns("expected-secret");
+            crypto.Setup(c => c.ComputeHmacSha256("tenant-b", "salt-b", false)).Returns("expected-secret");
+            crypto.Setup(c => c.ConstantTimeEquals("expected-secret", "expected-secret")).Returns(true);
 
             var tenants = new Mock<ITenants>();
             tenants.Setup(t => t.GetTenantByID("tenant-b")).Returns(CreateTenant("tenant-b", "salt-b"));

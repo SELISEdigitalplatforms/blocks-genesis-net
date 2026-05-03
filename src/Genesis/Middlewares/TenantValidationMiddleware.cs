@@ -73,7 +73,7 @@ namespace Blocks.Genesis
 
             if (context.Request.ContentType == "application/grpc" && context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
             {
-                var hash = _cryptoService.Hash(tenant.TenantId, tenant.TenantSalt);
+                var hash = _cryptoService.Hash(tenant.TenantId, tenant?.TenantSalt);
                 if (hash != grpcKey)
                 {
                     await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key").ConfigureAwait(false);

@@ -1,7 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace Blocks.Genesis
 {
@@ -24,11 +22,8 @@ namespace Blocks.Genesis
                 var tenantId = BlocksContext.GetContext()?.TenantId;
                 var salt = _tenants.GetTenantByID(tenantId)?.TenantSalt;
                 var actualSecret = _cryptoService.ComputeHmacSha256(tenantId ?? string.Empty, salt ?? string.Empty);
-                var legacySecret = _cryptoService.Hash(tenantId ?? string.Empty, salt ?? string.Empty);
-
                 var isValid = !string.IsNullOrEmpty(secret)
-                    && (ConstantTimeEquals(secret, actualSecret)
-                        || ConstantTimeEquals(secret, legacySecret));
+                    && _cryptoService.ConstantTimeEquals(secret, actualSecret);
 
                 if (!isValid)
                 {
@@ -41,13 +36,6 @@ namespace Blocks.Genesis
             }
 
             return Task.CompletedTask;
-        }
-
-        private static bool ConstantTimeEquals(string left, string right)
-        {
-            var leftBytes = Encoding.UTF8.GetBytes(left ?? string.Empty);
-            var rightBytes = Encoding.UTF8.GetBytes(right ?? string.Empty);
-            return CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
         }
     }
 }
