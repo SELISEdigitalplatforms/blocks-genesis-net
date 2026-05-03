@@ -182,7 +182,6 @@ public static class ApplicationConfigurations
         {
             options.Interceptors.Add<GrpcServerInterceptor>();
         });
-        services.AddSingleton<ChangeControllerContext>();
         services.AddAntiforgery();
     }
 

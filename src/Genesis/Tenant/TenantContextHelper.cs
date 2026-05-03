@@ -6,20 +6,38 @@ namespace Blocks.Genesis
 {
     internal static class TenantContextHelper
     {
-        public static string? ResolveTenantId(HttpRequest request, string? token = null)
+        private const string TenantIdParameterName = "tenant_id";
+        private static readonly string[] TenantResolutionKeys = [TenantIdParameterName, BlocksConstants.BlocksKey];
+
+        public static async Task<string?> ResolveTenantIdAsync(HttpRequest request, string? token = null)
         {
-            request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var headerTenantId);
-            var tenantId = headerTenantId.ToString();
+            var tenantId = ResolveTenantIdFromHeaders(request);
             if (!string.IsNullOrWhiteSpace(tenantId))
             {
                 return tenantId;
             }
 
-            request.Query.TryGetValue(BlocksConstants.BlocksKey, out var queryTenantId);
-            tenantId = queryTenantId.ToString();
+            tenantId = ResolveTenantIdFromQuery(request);
             if (!string.IsNullOrWhiteSpace(tenantId))
             {
                 return tenantId;
+            }
+
+            if (request.HasFormContentType)
+            {
+                try
+                {
+                    var form = await request.ReadFormAsync().ConfigureAwait(false);
+                    tenantId = ResolveTenantIdFromForm(form);
+                    if (!string.IsNullOrWhiteSpace(tenantId))
+                    {
+                        return tenantId;
+                    }
+                }
+                catch
+                {
+                    // Ignore form parsing issues here and continue to token-based resolution.
+                }
             }
 
             if (string.IsNullOrWhiteSpace(token))
@@ -37,6 +55,53 @@ namespace Blocks.Genesis
             {
                 return null;
             }
+        }
+
+        private static string? ResolveTenantIdFromHeaders(HttpRequest request)
+        {
+            foreach (var key in TenantResolutionKeys)
+            {
+                request.Headers.TryGetValue(key, out var value);
+                var tenantId = value.ToString();
+                if (!string.IsNullOrWhiteSpace(tenantId))
+                {
+                    return tenantId;
+                }
+            }
+
+            return null;
+        }
+
+        private static string? ResolveTenantIdFromQuery(HttpRequest request)
+        {
+            foreach (var key in TenantResolutionKeys)
+            {
+                request.Query.TryGetValue(key, out var value);
+                var tenantId = value.ToString();
+                if (!string.IsNullOrWhiteSpace(tenantId))
+                {
+                    return tenantId;
+                }
+            }
+
+            return null;
+        }
+
+        private static string? ResolveTenantIdFromForm(IFormCollection form)
+        {
+            foreach (var key in TenantResolutionKeys)
+            {
+                if (form.TryGetValue(key, out var value))
+                {
+                    var tenantId = value.ToString();
+                    if (!string.IsNullOrWhiteSpace(tenantId))
+                    {
+                        return tenantId;
+                    }
+                }
+            }
+
+            return null;
         }
 
         public static void EnsureTenantContext(HttpContext context, string? tenantId)
