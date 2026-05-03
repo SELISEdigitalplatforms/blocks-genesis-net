@@ -152,7 +152,7 @@ public class GrpcInterceptorTests
         var tenants = new Mock<ITenants>();
 
         tenants.Setup(t => t.GetTenantByID("tenant-2")).Returns((Blocks.Genesis.Tenant?)null);
-        crypto.Setup(c => c.Hash("tenant-2", string.Empty)).Returns("hash-tenant-2");
+        crypto.Setup(c => c.Hash("tenant-2", null)).Returns("hash-tenant-2");
 
         var interceptor = new GrpcClientInterceptor(activitySource, crypto.Object, tenants.Object);
         var method = CreateStringMethod();
@@ -184,7 +184,7 @@ public class GrpcInterceptorTests
             Assert.Equal("tenant-2", actualContext.Options.Headers!.GetValue(BlocksConstants.BlocksKey));
             Assert.Equal("hash-tenant-2", actualContext.Options.Headers.GetValue(BlocksConstants.BlocksGrpcKey));
 
-            crypto.Verify(c => c.Hash("tenant-2", string.Empty), Times.Once);
+            crypto.Verify(c => c.Hash("tenant-2", null), Times.Once);
             tenants.Verify(t => t.GetTenantByID("tenant-2"), Times.Once);
         }
         finally

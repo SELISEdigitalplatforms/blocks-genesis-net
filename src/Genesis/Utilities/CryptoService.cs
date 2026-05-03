@@ -5,12 +5,11 @@ namespace Blocks.Genesis
 {
     public class CryptoService : ICryptoService
     {
-        public string Hash(string value, string salt)
+        public string Hash(string value, string? optionalSalt = null, bool makeBase64 = false)
         {
-            var valueBytes = Encoding.UTF8.GetBytes(value);
-            var saltedValue = valueBytes.Concat(Encoding.UTF8.GetBytes(salt ?? string.Empty)).ToArray();
-
-            return Hash(saltedValue);
+            var saltedValue = value + (optionalSalt ?? string.Empty);
+            var valueBytes = Encoding.UTF8.GetBytes(saltedValue);
+            return Hash(valueBytes, makeBase64);
         }
 
         public string Hash(byte[] value, bool makeBase64 = false)

@@ -53,7 +53,7 @@ public class TenantValidationMiddlewareTests
         var tenant = CreateTenant("tenant-1", "app.local");
 
         tenants.Setup(t => t.GetTenantByID("tenant-1")).Returns(tenant);
-        crypto.Setup(c => c.Hash("tenant-1", tenant.TenantSalt)).Returns("expected-hash");
+        crypto.Setup(c => c.Hash("tenant-1", null)).Returns("expected-hash");
 
         var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
         var context = CreateHttpContext("app.local");
