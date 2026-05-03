@@ -94,6 +94,8 @@ public static class ApplicationConfigurations
 
     public static void ConfigureServices(IServiceCollection services, MessageConfiguration messageConfiguration)
     {
+        EnsureRequiredSecretsConfigured();
+
         services.AddSingleton(typeof(IBlocksSecret), _blocksSecret);
         services.AddSingleton<ICacheClient, RedisClient>();
         services.AddSingleton<ITenants, Tenants>();
@@ -150,6 +152,25 @@ public static class ApplicationConfigurations
         services.AddHostedService<GenesisHealthPingBackgroundService>();
     }
 
+    private static void EnsureRequiredSecretsConfigured()
+    {
+        var missing = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(_blocksSecret.DatabaseConnectionString))
+            missing.Add(nameof(_blocksSecret.DatabaseConnectionString));
+
+        if (string.IsNullOrWhiteSpace(_blocksSecret.CacheConnectionString))
+            missing.Add(nameof(_blocksSecret.CacheConnectionString));
+
+        if (missing.Count == 0)
+            return;
+
+        throw new InvalidOperationException(
+            $"Missing required Blocks secret configuration: {string.Join(", ", missing)}. " +
+            "Provide values via vault or environment (.env)."
+        );
+    }
+
     public static void ConfigureApi(IServiceCollection services)
     {
         services.JwtBearerAuthentication();
@@ -161,7 +182,6 @@ public static class ApplicationConfigurations
         {
             options.Interceptors.Add<GrpcServerInterceptor>();
         });
-
         services.AddSingleton<ChangeControllerContext>();
         services.AddAntiforgery();
     }

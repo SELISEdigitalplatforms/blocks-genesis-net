@@ -102,7 +102,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var nextCalled = false;
 
         tenants.Setup(t => t.GetTenantByID("tenant-grpc")).Returns(tenant);
-        crypto.Setup(c => c.Hash("tenant-grpc", tenant.TenantSalt)).Returns("correct-hash");
+        crypto.Setup(c => c.Hash("tenant-grpc", null)).Returns("correct-hash");
 
         RequestDelegate next = ctx =>
         {

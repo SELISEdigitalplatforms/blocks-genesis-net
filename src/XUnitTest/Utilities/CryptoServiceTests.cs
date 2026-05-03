@@ -7,25 +7,25 @@ namespace XUnitTest.Utilities;
 public class CryptoServiceTests
 {
     [Fact]
-    public void Hash_WithStringAndSalt_ShouldReturnExpectedHexHash()
+    public void Hash_WithString_ShouldReturnExpectedHexHash()
     {
         var service = new CryptoService();
-        var expected = ComputeHex("hello" + "salt");
+        var expected = ComputeHex("hello");
 
-        var actual = service.Hash("hello", "salt");
+        var actual = service.Hash("hello");
 
         Assert.Equal(expected, actual);
     }
 
     [Fact]
-    public void Hash_WithNullSalt_ShouldBehaveLikeEmptySalt()
+    public void Hash_WithStringBase64_ShouldReturnExpectedBase64()
     {
         var service = new CryptoService();
+        var expected = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("hello")));
 
-        var withNullSalt = service.Hash("hello", null!);
-        var withEmptySalt = service.Hash("hello", string.Empty);
+        var actual = service.Hash("hello", makeBase64: true);
 
-        Assert.Equal(withEmptySalt, withNullSalt);
+        Assert.Equal(expected, actual);
     }
 
     [Fact]
