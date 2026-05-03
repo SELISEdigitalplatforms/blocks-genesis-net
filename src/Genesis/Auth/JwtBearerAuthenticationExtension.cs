@@ -65,7 +65,7 @@ namespace Blocks.Genesis
                                 return;
                             }
 
-                            var tenantId = TenantContextHelper.ResolveTenantId(context.Request, tokenResult.Token);
+                            var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request, tokenResult.Token);
                             SetRequestTenantId(context.HttpContext, tenantId);
                             TenantContextHelper.EnsureTenantContext(context.HttpContext, tenantId);
 
@@ -213,7 +213,7 @@ namespace Blocks.Genesis
                     return false;
                 }
 
-                tenantId ??= TenantContextHelper.ResolveTenantId(context.Request, token);
+                tenantId ??= await TenantContextHelper.ResolveTenantIdAsync(context.Request, token);
                 if (string.IsNullOrWhiteSpace(tenantId))
                 {
                     SecurityLog("fallback_missing_tenant_context", "Tenant context is missing for fallback validation.");
