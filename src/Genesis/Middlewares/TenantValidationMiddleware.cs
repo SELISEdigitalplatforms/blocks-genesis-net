@@ -34,7 +34,7 @@ namespace Blocks.Genesis
 
             activity?.SetTag("http.headers", JsonSerializer.Serialize(SanitizeDictionary(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()))));
             activity?.SetTag("http.query", JsonSerializer.Serialize(SanitizeDictionary(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString()))));
-            var tenantId = TenantContextHelper.ResolveTenantId(context.Request);
+            var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request).ConfigureAwait(false);
 
             Tenant? tenant = null;
 
