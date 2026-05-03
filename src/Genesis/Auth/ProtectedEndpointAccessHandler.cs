@@ -161,10 +161,19 @@ namespace Blocks.Genesis
         private async Task<bool> CheckPermission(string resource, IEnumerable<string> roles, IEnumerable<string> permissions)
         {
             var collection = _dbContextProvider.GetCollection<BsonDocument>("Permissions");
+            var organizationId = BlocksContext.GetContext()?.OrganizationId;
+            if (string.IsNullOrWhiteSpace(organizationId))
+            {
+                organizationId = "default";
+            }
 
-            var filter = Builders<BsonDocument>.Filter.In("Resource", permissions) |
-                          ((Builders<BsonDocument>.Filter.In("Roles", roles) &
-                          Builders<BsonDocument>.Filter.Eq("Resource", resource)));
+            var directPermissionFilter = Builders<BsonDocument>.Filter.In("Resource", permissions);
+            var roleFilter = Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.In($"Roles.{organizationId}", roles),
+                Builders<BsonDocument>.Filter.In("Roles", roles));
+
+            var filter = directPermissionFilter |
+                         (roleFilter & Builders<BsonDocument>.Filter.Eq("Resource", resource));
 
             return await collection.CountDocumentsAsync(filter) > 0;
         }
