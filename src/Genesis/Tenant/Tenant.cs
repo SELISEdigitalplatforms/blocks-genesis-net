@@ -17,11 +17,11 @@ namespace Blocks.Genesis
         public required string DbConnectionString { get; set; }
         public string TenantSalt { get; set; } = Guid.NewGuid().ToString("n");
         public required JwtTokenParameters JwtTokenParameters { get; set; }
-        public ThirdPartyJwtTokenParameters ThirdPartyJwtTokenParameters { get; set; }
+        public ThirdPartyJwtTokenParameters ThirdPartyJwtTokenParameters { get; set; } = new();
         public bool IsRootTenant { get; set; }
         public bool IsDomainVerified { get; set; }
-        public string Environment { get; set; }
-        public string TenantGroupId { get; set; }
-        public string CustomDomain { get; set; }
+        public string Environment { get; set; } = string.Empty;
+        public string TenantGroupId { get; set; } = string.Empty;
+        public string CustomDomain { get; set; } = string.Empty;
     }
 }

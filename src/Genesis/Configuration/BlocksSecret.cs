@@ -6,27 +6,27 @@ namespace Blocks.Genesis
 {
     public sealed class BlocksSecret : IBlocksSecret
     {
-        public string CacheConnectionString { get; set; }
-        public string MessageConnectionString { get; set; }
-        public string LogConnectionString { get; set; }
-        public string MetricConnectionString { get; set; }
-        public string TraceConnectionString { get; set; }
-        public string LogDatabaseName { get; set; }
-        public string MetricDatabaseName { get; set; }
-        public string TraceDatabaseName { get; set; }
-        public string ServiceName { get; set; }
-        public string DatabaseConnectionString { get ; set ; }
-        public string RootDatabaseName { get ; set ; }
+        public string CacheConnectionString { get; set; } = string.Empty;
+        public string MessageConnectionString { get; set; } = string.Empty;
+        public string LogConnectionString { get; set; } = string.Empty;
+        public string MetricConnectionString { get; set; } = string.Empty;
+        public string TraceConnectionString { get; set; } = string.Empty;
+        public string LogDatabaseName { get; set; } = string.Empty;
+        public string MetricDatabaseName { get; set; } = string.Empty;
+        public string TraceDatabaseName { get; set; } = string.Empty;
+        public string ServiceName { get; set; } = string.Empty;
+        public string DatabaseConnectionString { get ; set ; } = string.Empty;
+        public string RootDatabaseName { get ; set ; } = string.Empty;
         public bool EnableHsts { get; set; }
-        public string SshHost { get; set; }
-        public string SshUsername { get; set; }
-        public string SshPassword { get; set; }
-        public string SshNginxTemplate { get; set; }
-        public string ProdDatabaseConnectionString { get;set; }
-        public string LmtMessageConnectionString { get ; set ; }
-        public string LmtBlobStorageConnectionString { get ; set ; }
-        public string ProdVaultUrl { get ; set ; }
-        public string AllowedCorsOrigins { get; set; }
+        public string SshHost { get; set; } = string.Empty;
+        public string SshUsername { get; set; } = string.Empty;
+        public string SshPassword { get; set; } = string.Empty;
+        public string SshNginxTemplate { get; set; } = string.Empty;
+        public string ProdDatabaseConnectionString { get;set; } = string.Empty;
+        public string LmtMessageConnectionString { get ; set ; } = string.Empty;
+        public string LmtBlobStorageConnectionString { get ; set ; } = string.Empty;
+        public string ProdVaultUrl { get ; set ; } = string.Empty;
+        public string AllowedCorsOrigins { get; set; } = string.Empty;
 
         public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
         {

@@ -12,12 +12,14 @@ namespace Blocks.Genesis
         private readonly RequestDelegate _next;
         private readonly ITenants _tenants;
         private readonly ICryptoService _cryptoService;
+        private readonly HashSet<string> _tenantValidationPrefixes;
 
-        public TenantValidationMiddleware(RequestDelegate next, ITenants tenants, ICryptoService cryptoService)
+        public TenantValidationMiddleware(RequestDelegate next, ITenants tenants, ICryptoService cryptoService, string[] tenantValidationPrefixes)
         {
             _next = next ?? throw new ArgumentNullException(nameof(next));
             _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
             _cryptoService = cryptoService ?? throw new ArgumentNullException(nameof(cryptoService));
+            _tenantValidationPrefixes = BuildTenantValidationPrefixes(tenantValidationPrefixes);
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -27,6 +29,12 @@ namespace Blocks.Genesis
 
             var endpoint = context.GetEndpoint();
             if (endpoint is null || (endpoint.DisplayName?.Contains("Controller") == false && endpoint.DisplayName?.Contains("GraphQL") == false))
+            {
+                await _next(context).ConfigureAwait(false);
+                return;
+            }
+
+            if (!RequiresTenantValidation(context.Request.Path))
             {
                 await _next(context).ConfigureAwait(false);
                 return;
@@ -324,6 +332,58 @@ namespace Blocks.Genesis
                    || key.Contains("token", StringComparison.OrdinalIgnoreCase)
                    || key.Contains("secret", StringComparison.OrdinalIgnoreCase)
                    || key.Contains("password", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static HashSet<string> BuildTenantValidationPrefixes(IEnumerable<string>? configuredPrefixes)
+        {
+            var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "api"
+            };
+
+            if (configuredPrefixes != null)
+            {
+                foreach (var prefix in configuredPrefixes)
+                {
+                    AddPrefix(prefixes, prefix);
+                }
+            }
+
+            return prefixes;
+        }
+
+        private bool RequiresTenantValidation(PathString requestPath)
+        {
+            var normalizedPath = requestPath.Value?.Trim('/') ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                return false;
+            }
+
+            foreach (var prefix in _tenantValidationPrefixes)
+            {
+                if (normalizedPath.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+                    || normalizedPath.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void AddPrefix(HashSet<string> target, string? rawPrefix)
+        {
+            if (string.IsNullOrWhiteSpace(rawPrefix))
+            {
+                return;
+            }
+
+            var trimmed = rawPrefix.Trim().Trim('/');
+            if (!string.IsNullOrWhiteSpace(trimmed))
+            {
+                target.Add(trimmed);
+            }
         }
 
     }
