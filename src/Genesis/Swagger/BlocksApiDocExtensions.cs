@@ -1,7 +1,6 @@
-﻿using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.OpenApi.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System.Reflection;
 
@@ -50,17 +49,18 @@ namespace Blocks.Genesis
                 In = ParameterLocation.Header,
                 Type = SecuritySchemeType.Http,
                 Scheme = "bearer",
-                BearerFormat = "JWT",
-                Reference = new OpenApiReference
-                {
-                    Id = JwtBearerDefaults.AuthenticationScheme,
-                    Type = ReferenceType.SecurityScheme
-                }
+                BearerFormat = "JWT"
             };
-            options.AddSecurityDefinition(securityScheme.Reference.Id, securityScheme);
-            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+
+            var securitySchemeReference = new OpenApiSecuritySchemeReference(
+                JwtBearerDefaults.AuthenticationScheme,
+                hostDocument: null,
+                externalResource: null);
+
+            options.AddSecurityDefinition(JwtBearerDefaults.AuthenticationScheme, securityScheme);
+            options.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
             {
-                { securityScheme, Array.Empty<string>() }
+                { securitySchemeReference, new List<string>() }
             });
         }
 
@@ -72,18 +72,18 @@ namespace Blocks.Genesis
                 Description = description,
                 In = ParameterLocation.Header,
                 Type = SecuritySchemeType.ApiKey,
-                Scheme = headerName,
-                Reference = new OpenApiReference
-                {
-                    Id = headerName,
-                    Type = ReferenceType.SecurityScheme
-                }
+                Scheme = headerName
             };
 
+            var securitySchemeReference = new OpenApiSecuritySchemeReference(
+                headerName,
+                hostDocument: null,
+                externalResource: null);
+
             options.AddSecurityDefinition(headerName, securityScheme);
-            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+            options.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
             {
-                { securityScheme, Array.Empty<string>() }
+                { securitySchemeReference, new List<string>() }
             });
         }
     }
