@@ -7,8 +7,8 @@ namespace Blocks.Genesis
 {
     public class AzureKeyVault : IVault
     {
-        private SecretClient _secretClient;
-        private string _keyVaultUrl;
+        private SecretClient _secretClient = default!;
+        private string _keyVaultUrl = string.Empty;
 
         public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
         {
@@ -28,10 +28,12 @@ namespace Blocks.Genesis
 
         private void ExtractValuesFromGlobalConfig(Dictionary<string, string> cloudConfig)
         {
-            if (!cloudConfig.TryGetValue("KeyVaultUrl", out _keyVaultUrl) || string.IsNullOrWhiteSpace(_keyVaultUrl))
+            if (!cloudConfig.TryGetValue("KeyVaultUrl", out var keyVaultUrl) || string.IsNullOrWhiteSpace(keyVaultUrl))
             {
                 throw new InvalidOperationException("Required Azure config value 'KeyVaultUrl' is missing. Please check your environment configuration.");
             }
+
+            _keyVaultUrl = keyVaultUrl;
         }
 
         private void ConnectToAzureKeyVaultSecret()

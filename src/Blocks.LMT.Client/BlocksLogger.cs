@@ -66,26 +66,26 @@ namespace SeliseBlocks.LMT.Client
             }
         }
 
-        public void LogTrace(string messageTemplate, params object?[] args)
-            => Log(LmtLogLevel.Trace, messageTemplate, null, args);
+        public void LogTrace(string message, params object?[] args)
+            => Log(LmtLogLevel.Trace, message, null, args);
 
-        public void LogDebug(string messageTemplate, params object?[] args)
-            => Log(LmtLogLevel.Debug, messageTemplate, null, args);
+        public void LogDebug(string message, params object?[] args)
+            => Log(LmtLogLevel.Debug, message, null, args);
 
-        public void LogInformation(string messageTemplate, params object?[] args)
-            => Log(LmtLogLevel.Information, messageTemplate, null, args);
+        public void LogInformation(string message, params object?[] args)
+            => Log(LmtLogLevel.Information, message, null, args);
 
-        public void LogWarning(string messageTemplate, params object?[] args)
-            => Log(LmtLogLevel.Warning, messageTemplate, null, args);
+        public void LogWarning(string message, params object?[] args)
+            => Log(LmtLogLevel.Warning, message, null, args);
 
         public void LogError(string messageTemplate, Exception? exception = null, params object?[] args)
             => Log(LmtLogLevel.Error, messageTemplate, exception, args);
 
-        public void LogCritical(string messageTemplate, Exception? exception = null, params object?[] args)
-            => Log(LmtLogLevel.Critical, messageTemplate, exception, args);
+        public void LogCritical(string message, Exception? exception = null, params object?[] args)
+            => Log(LmtLogLevel.Critical, message, exception, args);
 
 
-        private string FormatLogMessage(string messageTemplate, object?[] args, Dictionary<string, object> properties)
+        private static string FormatLogMessage(string messageTemplate, object?[] args, Dictionary<string, object> properties)
         {
             if (args.Length > 0)
             {

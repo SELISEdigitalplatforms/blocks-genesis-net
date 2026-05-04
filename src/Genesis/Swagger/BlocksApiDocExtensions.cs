@@ -24,6 +24,9 @@ namespace Blocks.Genesis
 
                 options.SwaggerDoc(blocksSwaggerOptions.Version, openApiInfo);
 
+                // Use fully qualified type names to avoid collisions when DTO names repeat across namespaces.
+                options.CustomSchemaIds(type => type.FullName?.Replace("+", ".") ?? type.Name);
+
                 var xmlFilename = string.IsNullOrWhiteSpace(blocksSwaggerOptions.XmlCommentsFilePath)
                     ? $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"
                     : blocksSwaggerOptions.XmlCommentsFilePath;
@@ -32,9 +35,6 @@ namespace Blocks.Genesis
 
                 EnableAuthorization(options, blocksSwaggerOptions.EnableBearerAuth);
                 AddCustomHeader(options, BlocksConstants.BlocksKey, "API key needed to access the endpoints.");
-
-                if(!string.IsNullOrEmpty(blocksSwaggerOptions.ServiceName))
-                     options.DocumentFilter<AddServiceVersionToPathsFilter>(blocksSwaggerOptions);
             });
 
         }

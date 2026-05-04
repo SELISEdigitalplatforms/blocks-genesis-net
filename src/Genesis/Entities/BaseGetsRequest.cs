@@ -10,7 +10,7 @@
 
     public class BaseSortRequest
     {
-        public string Property { get; set; }
+        public string Property { get; set; } = string.Empty;
         public bool IsDescending { get; set; }
     }
 }
