@@ -3,11 +3,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.OpenApi.Models;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
@@ -49,6 +49,53 @@ public static class ApplicationConfigurations
         return _blocksSecret;
     }
 
+    public static VaultType ResolveVaultType(VaultType defaultVaultType = VaultType.Azure)
+    {
+        LoadDotEnvFile();
+
+        var configuredVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
+        if (!string.IsNullOrWhiteSpace(configuredVaultType) &&
+            Enum.TryParse<VaultType>(configuredVaultType, true, out var parsedVaultType))
+        {
+            return parsedVaultType;
+        }
+
+        return defaultVaultType;
+    }
+
+    public static string ResolveServiceName(string? codeOverride = null)
+    {
+        LoadDotEnvFile();
+
+        if (!string.IsNullOrWhiteSpace(codeOverride))
+        {
+            return codeOverride.Trim();
+        }
+
+        var configuredServiceName = Environment.GetEnvironmentVariable("ServiceName");
+
+        if (!string.IsNullOrWhiteSpace(configuredServiceName))
+        {
+            return configuredServiceName.Trim();
+        }
+
+        var bootstrapConfiguration = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddJsonFile(GetEnvironmentAppSettingsFileName(), optional: true, reloadOnChange: false)
+            .AddEnvironmentVariables()
+            .Build();
+
+        var serviceName = bootstrapConfiguration["ServiceName"];
+        if (!string.IsNullOrWhiteSpace(serviceName))
+        {
+            return serviceName.Trim();
+        }
+
+        throw new InvalidOperationException(
+            "Missing required ServiceName configuration. Set ServiceName in appsettings or environment variables.");
+    }
+
     public static void ConfigureKestrel(WebApplicationBuilder builder)
     {
         var httpPort = Environment.GetEnvironmentVariable("HTTP1_PORT") ?? "5000";
@@ -73,7 +120,8 @@ public static class ApplicationConfigurations
     public static void ConfigureApiEnv(IHostApplicationBuilder builder, string[] args)
     {
         builder.Configuration
-            .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false)
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+            .AddJsonFile(GetEnvironmentAppSettingsFileName(), optional: true, reloadOnChange: false)
             .AddEnvironmentVariables()
             .AddCommandLine(args);
 
@@ -86,7 +134,8 @@ public static class ApplicationConfigurations
         builder
             .AddCommandLine(args)
             .AddEnvironmentVariables()
-            .AddJsonFile(GetAppSettingsFileName(), optional: false, reloadOnChange: false);
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+            .AddJsonFile(GetEnvironmentAppSettingsFileName(), optional: true, reloadOnChange: false);
 
         var configuration = builder.Build();
         LmtConfigurationProvider.Initialize(configuration);
@@ -171,10 +220,17 @@ public static class ApplicationConfigurations
         );
     }
 
-    public static void ConfigureApi(IServiceCollection services)
+    public static void ConfigureApi(IServiceCollection services, string? apiRoutePrefix = "api")
     {
         services.JwtBearerAuthentication();
-        services.AddControllers();
+
+        var normalizedPrefix = NormalizeApiRoutePrefixValue(apiRoutePrefix);
+        var normalizedServiceSegment = NormalizeServiceSegment(null, _serviceName);
+        services.AddControllers(options =>
+        {
+            options.Conventions.Insert(0, new ApiRoutePrefixConvention(normalizedPrefix, normalizedServiceSegment));
+        });
+
         services.AddHttpClient();
         ConfigureRateLimiting(services);
 
@@ -185,9 +241,9 @@ public static class ApplicationConfigurations
         services.AddAntiforgery();
     }
 
-    public static void ConfigureMiddleware(WebApplication app)
+    public static void ConfigureMiddleware(WebApplication app, IEnumerable<string>? tenantValidationPrefixes = null)
     {
-        ConfigureMicroserviceMiddleware(app);
+        ConfigureMicroserviceMiddleware(app, tenantValidationPrefixes: tenantValidationPrefixes);
     }
 
     public static void ConfigureMicroserviceMiddleware(
@@ -195,7 +251,8 @@ public static class ApplicationConfigurations
         Action<IApplicationBuilder>? beforeAuthentication = null,
         Action<IApplicationBuilder>? afterAuthorization = null,
         Action<WebApplication>? beforeControllerMapping = null,
-        Action<WebApplication>? afterControllerMapping = null)
+        Action<WebApplication>? afterControllerMapping = null,
+        IEnumerable<string>? tenantValidationPrefixes = null)
     {
         ArgumentNullException.ThrowIfNull(app);
 
@@ -203,6 +260,12 @@ public static class ApplicationConfigurations
         if (enableHsts)
         {
             app.UseHsts();
+        }
+
+        var pathBase = NormalizePathBase(_blocksSwaggerOptions?.PathBase);
+        if (!string.IsNullOrWhiteSpace(pathBase))
+        {
+            app.UsePathBase(pathBase);
         }
 
         app.UseMiddleware<SecurityHeadersMiddleware>();
@@ -239,8 +302,34 @@ public static class ApplicationConfigurations
 
         if (_blocksSwaggerOptions != null)
         {
-            app.UseSwagger();
-            app.UseSwaggerUI();
+            app.UseSwagger(options =>
+            {
+                if (!string.IsNullOrWhiteSpace(pathBase))
+                {
+                    options.PreSerializeFilters.Add((swaggerDoc, _) =>
+                    {
+                        swaggerDoc.Servers =
+                        [
+                            new OpenApiServer { Url = pathBase }
+                        ];
+                    });
+                }
+            });
+
+            app.UseSwaggerUI(options =>
+            {
+                var endpointUrl = _blocksSwaggerOptions.EndpointUrl;
+                if (!string.IsNullOrWhiteSpace(pathBase) && endpointUrl.StartsWith('/'))
+                {
+                    endpointUrl = $"{pathBase}{endpointUrl}";
+                }
+
+                var version = string.IsNullOrWhiteSpace(_blocksSwaggerOptions.Version)
+                    ? "v1"
+                    : _blocksSwaggerOptions.Version;
+
+                options.SwaggerEndpoint(endpointUrl, $"{_blocksSwaggerOptions.Title} {version}");
+            });
         }
 
         app.UseRouting();
@@ -248,7 +337,8 @@ public static class ApplicationConfigurations
         ConfigureApiBranchMiddleware(
             app,
             beforeAuthentication: beforeAuthentication,
-            afterAuthorization: afterAuthorization);
+            afterAuthorization: afterAuthorization,
+            tenantValidationPrefixes: tenantValidationPrefixes);
 
         app.UseAntiforgery();
 
@@ -260,11 +350,12 @@ public static class ApplicationConfigurations
     public static void ConfigureApiBranchMiddleware(
         IApplicationBuilder app,
         Action<IApplicationBuilder>? beforeAuthentication = null,
-        Action<IApplicationBuilder>? afterAuthorization = null)
+        Action<IApplicationBuilder>? afterAuthorization = null,
+        IEnumerable<string>? tenantValidationPrefixes = null)
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.UseMiddleware<TenantValidationMiddleware>();
+        app.UseMiddleware<TenantValidationMiddleware>(tenantValidationPrefixes?.ToArray() ?? Array.Empty<string>());
         app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
         app.UseRateLimiter();
 
@@ -319,12 +410,12 @@ public static class ApplicationConfigurations
     {
         try
         {
-            var envFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+            var envFilePath = FindDotEnvFile();
 
-            if (File.Exists(envFilePath))
+            if (!string.IsNullOrWhiteSpace(envFilePath))
             {
                 DotNetEnv.Env.Load(envFilePath);
-                Log.Information("Loaded environment variables from .env file");
+                Log.Information("Loaded environment variables from .env file: {EnvFilePath}", envFilePath);
             }
         }
         catch (Exception ex)
@@ -333,9 +424,44 @@ public static class ApplicationConfigurations
         }
     }
 
-    private static string GetAppSettingsFileName()
+    private static string? FindDotEnvFile()
     {
-        var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var currentDirectory = new DirectoryInfo(Directory.GetCurrentDirectory());
+        var directories = new List<DirectoryInfo>();
+
+        while (currentDirectory is not null)
+        {
+            directories.Add(currentDirectory);
+            currentDirectory = currentDirectory.Parent;
+        }
+
+        directories.Reverse();
+
+        foreach (var directory in directories)
+        {
+            var rootEnvPath = Path.Combine(directory.FullName, ".env");
+            if (File.Exists(rootEnvPath))
+            {
+                return rootEnvPath;
+            }
+        }
+
+        foreach (var directory in directories)
+        {
+            var nestedEnvPath = Path.Combine(directory.FullName, "server", ".env");
+            if (File.Exists(nestedEnvPath))
+            {
+                return nestedEnvPath;
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetEnvironmentAppSettingsFileName()
+    {
+        var currentEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
         return string.IsNullOrWhiteSpace(currentEnvironment) ? "appsettings.json" : $"appsettings.{currentEnvironment}.json";
     }
 
@@ -401,5 +527,51 @@ public static class ApplicationConfigurations
                     });
             });
         });
+    }
+
+    private static string NormalizePathBase(string? rawPathBase)
+    {
+        if (string.IsNullOrWhiteSpace(rawPathBase))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = rawPathBase.Trim();
+        trimmed = trimmed.StartsWith('/') ? trimmed : $"/{trimmed}";
+        return trimmed.TrimEnd('/');
+    }
+
+    public static string NormalizeApiRoutePrefixValue(string? apiRoutePrefix)
+    {
+        if (string.IsNullOrWhiteSpace(apiRoutePrefix))
+        {
+            return "api";
+        }
+
+        var trimmed = apiRoutePrefix.Trim().Trim('/');
+
+        if (string.Equals(trimmed, "off", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "none", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        return string.IsNullOrWhiteSpace(trimmed) ? "api" : trimmed;
+    }
+
+    public static string NormalizeServiceSegment(string? configuredServiceName, string fallbackServiceName)
+    {
+        var source = string.IsNullOrWhiteSpace(configuredServiceName)
+            ? fallbackServiceName
+            : configuredServiceName;
+
+        var trimmed = (source ?? string.Empty).Trim().Trim('/');
+        if (trimmed.EndsWith("-api", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed[..^4];
+        }
+
+        return string.IsNullOrWhiteSpace(trimmed) ? "service" : trimmed;
     }
 }
