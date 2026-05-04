@@ -63,39 +63,6 @@ public static class ApplicationConfigurations
         return defaultVaultType;
     }
 
-    public static string ResolveServiceName(string? codeOverride = null)
-    {
-        LoadDotEnvFile();
-
-        if (!string.IsNullOrWhiteSpace(codeOverride))
-        {
-            return codeOverride.Trim();
-        }
-
-        var configuredServiceName = Environment.GetEnvironmentVariable("ServiceName");
-
-        if (!string.IsNullOrWhiteSpace(configuredServiceName))
-        {
-            return configuredServiceName.Trim();
-        }
-
-        var bootstrapConfiguration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddJsonFile(GetEnvironmentAppSettingsFileName(), optional: true, reloadOnChange: false)
-            .AddEnvironmentVariables()
-            .Build();
-
-        var serviceName = bootstrapConfiguration["ServiceName"];
-        if (!string.IsNullOrWhiteSpace(serviceName))
-        {
-            return serviceName.Trim();
-        }
-
-        throw new InvalidOperationException(
-            "Missing required ServiceName configuration. Set ServiceName in appsettings or environment variables.");
-    }
-
     public static void ConfigureKestrel(WebApplicationBuilder builder)
     {
         var httpPort = Environment.GetEnvironmentVariable("HTTP1_PORT") ?? "5000";
@@ -220,15 +187,15 @@ public static class ApplicationConfigurations
         );
     }
 
-    public static void ConfigureApi(IServiceCollection services, string? apiRoutePrefix = "api")
+    public static void ConfigureApi(IServiceCollection services, string serviceName, string? apiRoutePrefix = "api")
     {
         services.JwtBearerAuthentication();
 
         var normalizedPrefix = NormalizeApiRoutePrefixValue(apiRoutePrefix);
-        var normalizedServiceSegment = NormalizeServiceSegment(null, _serviceName);
+        var serviceSegment = serviceName;
         services.AddControllers(options =>
         {
-            options.Conventions.Insert(0, new ApiRoutePrefixConvention(normalizedPrefix, normalizedServiceSegment));
+            options.Conventions.Insert(0, new ApiRoutePrefixConvention(normalizedPrefix, serviceSegment));
         });
 
         services.AddHttpClient();
@@ -389,7 +356,7 @@ public static class ApplicationConfigurations
     private static async Task ConfigureMessageClient(IServiceCollection services, MessageConfiguration messageConfiguration)
     {
         messageConfiguration.Connection ??= _blocksSecret.MessageConnectionString;
-        messageConfiguration.ServiceName ??= _serviceName;
+        // Note: messageConfiguration.ServiceName should be set by the caller before calling this method
 
         services.AddSingleton(messageConfiguration);
 
@@ -560,18 +527,4 @@ public static class ApplicationConfigurations
         return string.IsNullOrWhiteSpace(trimmed) ? "api" : trimmed;
     }
 
-    public static string NormalizeServiceSegment(string? configuredServiceName, string fallbackServiceName)
-    {
-        var source = string.IsNullOrWhiteSpace(configuredServiceName)
-            ? fallbackServiceName
-            : configuredServiceName;
-
-        var trimmed = (source ?? string.Empty).Trim().Trim('/');
-        if (trimmed.EndsWith("-api", StringComparison.OrdinalIgnoreCase))
-        {
-            trimmed = trimmed[..^4];
-        }
-
-        return string.IsNullOrWhiteSpace(trimmed) ? "service" : trimmed;
-    }
 }
