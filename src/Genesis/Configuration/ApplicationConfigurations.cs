@@ -7,7 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
@@ -322,7 +322,8 @@ public static class ApplicationConfigurations
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.UseMiddleware<TenantValidationMiddleware>(tenantValidationPrefixes?.ToArray() ?? Array.Empty<string>());
+        var tenantPrefixes = tenantValidationPrefixes?.ToArray() ?? Array.Empty<string>();
+        app.UseMiddleware<TenantValidationMiddleware>((object)tenantPrefixes);
         app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
         app.UseRateLimiter();
 
