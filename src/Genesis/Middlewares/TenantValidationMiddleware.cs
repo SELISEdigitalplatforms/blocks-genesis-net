@@ -4,6 +4,7 @@ using OpenTelemetry;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Collections.Generic;
+using System.Net;
 
 namespace Blocks.Genesis
 {
@@ -48,7 +49,13 @@ namespace Blocks.Genesis
 
             if (string.IsNullOrWhiteSpace(tenantId))
             {
-                var baseUrl = context.Request.Host.Value;
+                if (IsLocalhostHost(context.Request.Host.Host))
+                {
+                    await RejectRequest(context, StatusCodes.Status400BadRequest, "BadRequest: Missing_Tenant_Key_Or_Id").ConfigureAwait(false);
+                    return;
+                }
+
+                var baseUrl = NormalizeDomain(context.Request.Host.Host);
 
                 tenant = _tenants.GetTenantByApplicationDomain(baseUrl);
 
@@ -217,7 +224,22 @@ namespace Blocks.Genesis
             var originHeader = context.Request.Headers.Origin.FirstOrDefault();
             var refererHeader = context.Request.Headers.Referer.FirstOrDefault();
 
-            return IsDomainAllowed(originHeader, tenant) || IsDomainAllowed(refererHeader, tenant);
+            if (string.IsNullOrWhiteSpace(originHeader) && string.IsNullOrWhiteSpace(refererHeader))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(originHeader) && !IsDomainAllowed(originHeader, tenant))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(refererHeader) && !IsDomainAllowed(refererHeader, tenant))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static bool IsDomainAllowed(string? headerValue, Tenant tenant)
@@ -227,14 +249,11 @@ namespace Blocks.Genesis
             try
             {
                 var uri = new Uri(headerValue);
-                var host = uri.Host;
+                var host = NormalizeDomain(uri.Host);
 
-                var normalizedApplicationDomain = NormalizeDomain(tenant.ApplicationDomain);
                 var allowedDomains = tenant.AllowedDomains?.Select(NormalizeDomain) ?? [];
 
-                return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-                       host.Equals(normalizedApplicationDomain, StringComparison.OrdinalIgnoreCase) ||
-                       allowedDomains.Contains(host, StringComparer.OrdinalIgnoreCase);
+                return allowedDomains.Contains(host, StringComparer.OrdinalIgnoreCase);
             }
             catch (UriFormatException)
             {
@@ -250,6 +269,21 @@ namespace Blocks.Genesis
                  .Replace("https://", "")
                  .Split(":")[0]
                  .Trim();
+        }
+
+        private static bool IsLocalhostHost(string? host)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return false;
+            }
+
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return IPAddress.TryParse(host, out var ipAddress) && IPAddress.IsLoopback(ipAddress);
         }
 
         private static Task RejectRequest(HttpContext context, int statusCode, string message)
