@@ -15,6 +15,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using System.Linq;
 
 namespace Blocks.Genesis
 {
@@ -90,6 +91,12 @@ namespace Blocks.Genesis
                             var result = TokenHelper.GetToken(context.Request, tenants);
                             if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
                             {
+                                if (!HasServiceAccess(claimsIdentity, context.HttpContext))
+                                {
+                                    context.Fail("Token does not grant access to this service.");
+                                    return Task.CompletedTask;
+                                }
+
                                 HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), string.Empty);
                                 StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
                             }
@@ -251,6 +258,31 @@ namespace Blocks.Genesis
             };
 
             Log.Information("[Security] {Payload}", JsonSerializer.Serialize(payload));
+        }
+
+        private static bool HasServiceAccess(ClaimsIdentity identity, HttpContext httpContext)
+        {
+            var blocksSecret = httpContext.RequestServices.GetService<IBlocksSecret>();
+            var serviceName = blocksSecret?.ServiceName?.Trim();
+
+            if (string.IsNullOrWhiteSpace(serviceName))
+            {
+                // If service name is not configured, keep existing behavior and avoid blocking requests unexpectedly.
+                return true;
+            }
+
+            var resourceClaims = identity.FindAll("service_access").Select(claim => claim.Value)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (resourceClaims.Count == 0)
+            {
+                return false;
+            }
+
+            return resourceClaims.Contains(serviceName, StringComparer.OrdinalIgnoreCase);
         }
 
         private static void SetRequestAccessToken(HttpContext context, string token)

@@ -3,10 +3,9 @@ using Microsoft.AspNetCore.Mvc.ApplicationModels;
 
 namespace Blocks.Genesis;
 
-internal sealed class ApiRoutePrefixConvention(string routePrefix, string serviceSegment) : IApplicationModelConvention
+internal sealed class ApiRoutePrefixConvention(string routePrefix) : IApplicationModelConvention
 {
     private readonly string _routePrefix = routePrefix;
-    private readonly string _serviceSegment = serviceSegment;
 
     public void Apply(ApplicationModel application)
     {
@@ -21,26 +20,20 @@ internal sealed class ApiRoutePrefixConvention(string routePrefix, string servic
 
                 var currentTemplate = selector.AttributeRouteModel.Template ?? string.Empty;
                 var routeWithoutApiPrefix = RemoveLeadingApiPrefix(currentTemplate);
-                var routeWithoutServicePrefix = RemoveLeadingServiceSegment(routeWithoutApiPrefix, _serviceSegment);
-                var finalTemplate = BuildFinalTemplate(_routePrefix, _serviceSegment, routeWithoutServicePrefix);
+                var finalTemplate = BuildFinalTemplate(_routePrefix, routeWithoutApiPrefix);
 
                 selector.AttributeRouteModel = new AttributeRouteModel(new RouteAttribute(finalTemplate));
             }
         }
     }
 
-    private static string BuildFinalTemplate(string routePrefix, string serviceSegment, string routeWithoutApiPrefix)
+    private static string BuildFinalTemplate(string routePrefix, string routeWithoutApiPrefix)
     {
         var segments = new List<string>();
 
         if (!string.IsNullOrWhiteSpace(routePrefix))
         {
             segments.Add(routePrefix);
-        }
-
-        if (!string.IsNullOrWhiteSpace(serviceSegment))
-        {
-            segments.Add(serviceSegment);
         }
 
         if (!string.IsNullOrWhiteSpace(routeWithoutApiPrefix))
@@ -68,25 +61,4 @@ internal sealed class ApiRoutePrefixConvention(string routePrefix, string servic
         return trimmed;
     }
 
-    private static string RemoveLeadingServiceSegment(string template, string serviceSegment)
-    {
-        var trimmed = (template ?? string.Empty).Trim('/');
-
-        if (string.IsNullOrWhiteSpace(serviceSegment))
-        {
-            return trimmed;
-        }
-
-        if (trimmed.Equals(serviceSegment, StringComparison.OrdinalIgnoreCase))
-        {
-            return string.Empty;
-        }
-
-        if (trimmed.StartsWith($"{serviceSegment}/", StringComparison.OrdinalIgnoreCase))
-        {
-            return trimmed[(serviceSegment.Length + 1)..];
-        }
-
-        return trimmed;
-    }
 }

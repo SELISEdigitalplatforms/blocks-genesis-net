@@ -192,10 +192,9 @@ public static class ApplicationConfigurations
         services.JwtBearerAuthentication();
 
         var normalizedPrefix = NormalizeApiRoutePrefixValue(apiRoutePrefix);
-        var serviceSegment = serviceName;
         services.AddControllers(options =>
         {
-            options.Conventions.Insert(0, new ApiRoutePrefixConvention(normalizedPrefix, serviceSegment));
+            options.Conventions.Insert(0, new ApiRoutePrefixConvention(normalizedPrefix));
         });
 
         services.AddHttpClient();

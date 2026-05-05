@@ -277,6 +277,70 @@ public class TenantValidationMiddlewareAdditionalTests
     }
 
     [Fact]
+    public async Task InvokeAsync_ShouldReject_WhenOriginIsInvalid_AndRefererMissing()
+    {
+        var tenants = new Mock<ITenants>();
+        var crypto = new Mock<ICryptoService>();
+        var tenant = CreateTenant("tenant-origin-invalid", "app.local");
+
+        tenants.Setup(t => t.GetTenantByID("tenant-origin-invalid")).Returns(tenant);
+
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var context = CreateHttpContextWithEndpoint("app.local");
+        context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-origin-invalid";
+        context.Request.Headers.Origin = "::::invalid-origin::::";
+
+        using var activity = new Activity("origin-invalid").Start();
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status406NotAcceptable, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldReject_WhenRefererIsInvalid_AndOriginMissing()
+    {
+        var tenants = new Mock<ITenants>();
+        var crypto = new Mock<ICryptoService>();
+        var tenant = CreateTenant("tenant-referer-invalid", "app.local");
+
+        tenants.Setup(t => t.GetTenantByID("tenant-referer-invalid")).Returns(tenant);
+
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var context = CreateHttpContextWithEndpoint("app.local");
+        context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-referer-invalid";
+        context.Request.Headers.Referer = "::::invalid-referer::::";
+
+        using var activity = new Activity("referer-invalid").Start();
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status406NotAcceptable, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldResolveTenantByDomain_WithPortInHost()
+    {
+        var tenants = new Mock<ITenants>();
+        var crypto = new Mock<ICryptoService>();
+        var tenant = CreateTenant("tenant-domain-port", "app.local");
+        var nextCalled = false;
+
+        tenants.Setup(t => t.GetTenantByApplicationDomain("app.local")).Returns(tenant);
+
+        var middleware = new TenantValidationMiddleware(ctx =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        }, tenants.Object, crypto.Object);
+
+        var context = CreateHttpContextWithEndpoint("app.local:5001");
+
+        using var activity = new Activity("domain-port").Start();
+        await middleware.InvokeAsync(context);
+
+        Assert.True(nextCalled);
+    }
+
+    [Fact]
     public async Task InvokeAsync_ShouldProcessGraphQLEndpoint()
     {
         var tenants = new Mock<ITenants>();
@@ -329,6 +393,21 @@ public class TenantValidationMiddlewareAdditionalTests
         await middleware.InvokeAsync(context);
 
         Assert.True(nextCalled);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldRejectLocalhost_WhenTenantIdIsMissing()
+    {
+        var tenants = new Mock<ITenants>();
+        var crypto = new Mock<ICryptoService>();
+
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var context = CreateHttpContextWithEndpoint("localhost:5173");
+
+        using var activity = new Activity("localhost-missing-tenant").Start();
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
     }
 
     [Fact]
