@@ -11,6 +11,7 @@
         public const string Bearer = "Bearer ";
         public const string Miscellaneous = "miscellaneous";
         internal const string KeyVault = "KeyVault";
+        internal const string ProtectedResourceName = "ProtectedResourceName";
 
     }
 }
