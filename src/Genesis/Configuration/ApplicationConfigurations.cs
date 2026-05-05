@@ -195,6 +195,7 @@ public static class ApplicationConfigurations
         services.AddControllers(options =>
         {
             options.Conventions.Insert(0, new ApiRoutePrefixConvention(normalizedPrefix));
+            options.Filters.Add<ProtectedEndPointResourceFilter>();
         });
 
         services.AddHttpClient();
