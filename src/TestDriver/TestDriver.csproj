@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <SonarQubeExclude>true</SonarQubeExclude>
   </PropertyGroup>
 
@@ -13,7 +13,7 @@
 		<Protobuf Include="Protos\greet.proto" GrpcServices="Client" />
 	</ItemGroup>
 	<ItemGroup>
-		<PackageReference Include="Grpc.Tools" Version="2.71.0">
+		<PackageReference Include="Grpc.Tools" Version="2.80.0">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
