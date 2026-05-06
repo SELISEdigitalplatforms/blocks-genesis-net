@@ -22,8 +22,11 @@ namespace Blocks.Genesis;
 public static class ApplicationConfigurations
 {
     private static string _serviceName = string.Empty;
+    private static string? _serviceAccessResourceName;
     private static IBlocksSecret _blocksSecret = null!;
     private static BlocksSwaggerOptions? _blocksSwaggerOptions;
+
+    internal static string? ServiceAccessResourceName => _serviceAccessResourceName;
 
     public static async Task<IBlocksSecret> ConfigureLogAndSecretsAsync(string serviceName, VaultType vaultType)
     {
@@ -187,8 +190,24 @@ public static class ApplicationConfigurations
         );
     }
 
-    public static void ConfigureApi(IServiceCollection services, string serviceName, string? apiRoutePrefix = "api")
+    public static void ConfigureApi(
+        IServiceCollection services,
+        string serviceName,
+        string? apiRoutePrefix = "api",
+        string? serviceAccessResourceName = null)
     {
+        ArgumentNullException.ThrowIfNull(services);
+
+        if (string.IsNullOrWhiteSpace(serviceName))
+        {
+            throw new ArgumentException("Service name is required.", nameof(serviceName));
+        }
+
+        _serviceName = serviceName.Trim();
+        _serviceAccessResourceName = string.IsNullOrWhiteSpace(serviceAccessResourceName)
+            ? _serviceName
+            : serviceAccessResourceName.Trim();
+
         services.JwtBearerAuthentication();
 
         var normalizedPrefix = NormalizeApiRoutePrefixValue(apiRoutePrefix);
