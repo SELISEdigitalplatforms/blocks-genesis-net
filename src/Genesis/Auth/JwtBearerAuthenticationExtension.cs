@@ -262,27 +262,19 @@ namespace Blocks.Genesis
 
         private static bool HasServiceAccess(ClaimsIdentity identity, HttpContext httpContext)
         {
-            var blocksSecret = httpContext.RequestServices.GetService<IBlocksSecret>();
-            var serviceName = blocksSecret?.ServiceName?.Trim();
+            var requiredResource = ApplicationConfigurations.ServiceAccessResourceName;
 
-            if (string.IsNullOrWhiteSpace(serviceName))
+            if (string.IsNullOrWhiteSpace(requiredResource))
             {
-                // If service name is not configured, keep existing behavior and avoid blocking requests unexpectedly.
                 return true;
             }
 
-            var resourceClaims = identity.FindAll("service_access").Select(claim => claim.Value)
+            return identity.FindAll(BlocksContext.SERVICE_ACCESS_CLAIM)
+                .Select(claim => claim.Value)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (resourceClaims.Count == 0)
-            {
-                return false;
-            }
-
-            return resourceClaims.Contains(serviceName, StringComparer.OrdinalIgnoreCase);
+                .SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Any(resource => string.Equals(resource, requiredResource, StringComparison.OrdinalIgnoreCase));
         }
 
         private static void SetRequestAccessToken(HttpContext context, string token)

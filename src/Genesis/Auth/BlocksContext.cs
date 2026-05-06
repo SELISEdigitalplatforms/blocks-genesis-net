@@ -23,6 +23,7 @@ namespace Blocks.Genesis
         public const string REQUEST_URI_CLAIM = "request_uri";
         public const string TOKEN_CLAIM = "oauth";
         public const string PERMISSION_CLAIM = "permissions";
+        public const string SERVICE_ACCESS_CLAIM = "service_access";
         public const string ORGANIZATION_ID_CLAIM = "org_id";
         public const string EMAIL_CLAIM = "email";
         public const string USER_NAME_CLAIM = "user_name";
