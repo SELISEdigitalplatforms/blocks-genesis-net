@@ -224,6 +224,12 @@ namespace Blocks.Genesis
             var originHeader = context.Request.Headers.Origin.FirstOrDefault();
             var refererHeader = context.Request.Headers.Referer.FirstOrDefault();
 
+            // Allow local development origins in tenant middleware.
+            if (IsLocalhostHeader(originHeader) || IsLocalhostHeader(refererHeader))
+            {
+                return true;
+            }
+
             if (string.IsNullOrWhiteSpace(originHeader) && string.IsNullOrWhiteSpace(refererHeader))
             {
                 return true;
@@ -240,6 +246,21 @@ namespace Blocks.Genesis
             }
 
             return true;
+        }
+
+        private static bool IsLocalhostHeader(string? headerValue)
+        {
+            if (string.IsNullOrWhiteSpace(headerValue))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(headerValue, UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+
+            return IsLocalhostHost(uri.Host);
         }
 
         private static bool IsDomainAllowed(string? headerValue, Tenant tenant)
