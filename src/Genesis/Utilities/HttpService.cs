@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
@@ -15,20 +16,27 @@ public class HttpService : IHttpService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<HttpService> _logger;
     private readonly ActivitySource _activitySource;
+    private readonly IOptions<HttpServiceOptions> _options;
     private readonly ResiliencePipeline<HttpResponseMessage> _pipeline;
 
     private const string ContentType = "application/json";
 
-    public HttpService(IHttpClientFactory httpClientFactory, ILogger<HttpService> logger, ActivitySource activitySource)
+    public HttpService(
+        IHttpClientFactory httpClientFactory,
+        ILogger<HttpService> logger,
+        ActivitySource activitySource,
+        IOptions<HttpServiceOptions>? options = null)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
         _activitySource = activitySource;
+        _options = options ?? Options.Create(new HttpServiceOptions());
 
+        var opts = _options.Value;
         var retryOptions = new RetryStrategyOptions<HttpResponseMessage>
         {
-            MaxRetryAttempts = 3,
-            Delay = TimeSpan.FromSeconds(2),
+            MaxRetryAttempts = opts.MaxRetryAttempts,
+            Delay = TimeSpan.FromSeconds(opts.RetryDelaySeconds),
             BackoffType = DelayBackoffType.Exponential,
             UseJitter = true,
             ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
@@ -49,10 +57,10 @@ public class HttpService : IHttpService
 
         var circuitBreakerOptions = new CircuitBreakerStrategyOptions<HttpResponseMessage>
         {
-            FailureRatio = 0.5,
-            SamplingDuration = TimeSpan.FromSeconds(30),
-            BreakDuration = TimeSpan.FromSeconds(15),
-            MinimumThroughput = 8,
+            FailureRatio = opts.CircuitBreakerFailureRatio,
+            SamplingDuration = TimeSpan.FromSeconds(opts.CircuitBreakerSamplingDurationSeconds),
+            BreakDuration = TimeSpan.FromSeconds(opts.CircuitBreakerBreakDurationSeconds),
+            MinimumThroughput = opts.CircuitBreakerMinimumThroughput,
             ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
                 .Handle<HttpRequestException>()
                 .Handle<TimeoutRejectedException>()
@@ -72,39 +80,39 @@ public class HttpService : IHttpService
         };
 
         _pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
-            .AddTimeout(TimeSpan.FromSeconds(30))
+            .AddTimeout(TimeSpan.FromSeconds(opts.RequestTimeoutSeconds))
             .AddRetry(retryOptions)
             .AddCircuitBreaker(circuitBreakerOptions)
             .Build();
     }
 
-    public Task<(T, string)> Post<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(HttpMethod.Post, url, payload, contentType, headers, cancellationToken);
+    public Task<(T, string)> Post<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(HttpMethod.Post, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
 
-    public Task<(T, string)> Get<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(HttpMethod.Get, url, null, null, headers, cancellationToken);
+    public Task<(T, string)> Get<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(HttpMethod.Get, url, null, null, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
 
-    public Task<(T, string)> Put<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(HttpMethod.Put, url, payload, contentType, headers, cancellationToken);
+    public Task<(T, string)> Put<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(HttpMethod.Put, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
 
-    public Task<(T, string)> Delete<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(HttpMethod.Delete, url, null, null, headers, cancellationToken);
+    public Task<(T, string)> Delete<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(HttpMethod.Delete, url, null, null, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
 
-    public Task<(T, string)> Patch<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, headers, cancellationToken);
+    public Task<(T, string)> Patch<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
 
-    public Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object? payload = null, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(method, url, payload, contentType, headers, cancellationToken);
+    public Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object? payload = null, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(method, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
 
-    public Task<(T, string)> PostFormUrlEncoded<T>(Dictionary<string, string> formData, string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(HttpMethod.Post, url, formData, "application/x-www-form-urlencoded", headers, cancellationToken, isFormUrlEncoded: true);
+    public Task<(T, string)> PostFormUrlEncoded<T>(Dictionary<string, string> formData, string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(HttpMethod.Post, url, formData, "application/x-www-form-urlencoded", headers, cancellationToken, isFormUrlEncoded: true, timeoutSeconds: timeoutSeconds);
 
-    public Task<(T, string)> SendFormUrlEncoded<T>(HttpMethod method, Dictionary<string, string> formData, string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) where T : class
-        => MakeRequest<T>(method, url, formData, "application/x-www-form-urlencoded", headers, cancellationToken, isFormUrlEncoded: true);
+    public Task<(T, string)> SendFormUrlEncoded<T>(HttpMethod method, Dictionary<string, string> formData, string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(method, url, formData, "application/x-www-form-urlencoded", headers, cancellationToken, isFormUrlEncoded: true, timeoutSeconds: timeoutSeconds);
 
     private async Task<(T, string)> MakeRequest<T>(HttpMethod method, string url, object? payload = null,
         string? contentType = ContentType, Dictionary<string, string>? headers = null,
-        CancellationToken cancellationToken = default, bool isFormUrlEncoded = false) where T : class
+        CancellationToken cancellationToken = default, bool isFormUrlEncoded = false, int? timeoutSeconds = null) where T : class
     {
         using var client = _httpClientFactory.CreateClient();
         using var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client, Activity.Current?.Context ?? default);
@@ -114,15 +122,25 @@ public class HttpService : IHttpService
         requestActivity?.SetTag("http.request.method", method.Method);
         requestActivity?.SetTag("content.type", contentType ?? string.Empty);
 
+        // Log if per-request timeout is being used
+        if (timeoutSeconds.HasValue)
+        {
+            requestActivity?.SetTag("http.timeout.override_seconds", timeoutSeconds.Value);
+            HttpServiceLog.RequestTimeoutOverride(_logger, timeoutSeconds.Value);
+        }
+
         try
         {
             requestActivity?.Start();
 
-            var response = await _pipeline.ExecuteAsync(async token =>
-            {
-                using var request = CreateHttpRequest(method, url, payload, contentType, headers, isFormUrlEncoded);
-                return await client.SendAsync(request, token).ConfigureAwait(false);
-            }, cancellationToken).ConfigureAwait(false);
+            // Use per-request timeout if specified, otherwise use the default pipeline
+            var response = timeoutSeconds.HasValue
+                ? await ExecuteWithCustomTimeout<T>(method, url, payload, contentType, headers, cancellationToken, isFormUrlEncoded, timeoutSeconds.Value)
+                : await _pipeline.ExecuteAsync(async token =>
+                {
+                    using var request = CreateHttpRequest(method, url, payload, contentType, headers, isFormUrlEncoded);
+                    return await client.SendAsync(request, token).ConfigureAwait(false);
+                }, cancellationToken).ConfigureAwait(false);
 
             requestActivity?.SetTag("http.response.status_code", (int)response.StatusCode);
             requestActivity?.SetTag("http.response.size", response.Content.Headers.ContentLength ?? 0);
@@ -166,6 +184,65 @@ public class HttpService : IHttpService
         {
             requestActivity?.Stop();
         }
+    }
+
+    /// <summary>
+    /// Executes an HTTP request with a custom timeout by creating a dedicated resilience pipeline.
+    /// This allows per-request timeout overrides without affecting the shared pipeline.
+    /// </summary>
+    private async Task<HttpResponseMessage> ExecuteWithCustomTimeout<T>(
+        HttpMethod method, string url, object? payload, string? contentType,
+        Dictionary<string, string>? headers, CancellationToken cancellationToken,
+        bool isFormUrlEncoded, int timeoutSeconds) where T : class
+    {
+        using var client = _httpClientFactory.CreateClient();
+        
+        var opts = _options.Value;
+        var retryOptions = new RetryStrategyOptions<HttpResponseMessage>
+        {
+            MaxRetryAttempts = opts.MaxRetryAttempts,
+            Delay = TimeSpan.FromSeconds(opts.RetryDelaySeconds),
+            BackoffType = DelayBackoffType.Exponential,
+            UseJitter = true,
+            ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                .Handle<HttpRequestException>()
+                .Handle<TimeoutRejectedException>()
+                .HandleResult(response =>
+                    response.StatusCode == HttpStatusCode.TooManyRequests ||
+                    (int)response.StatusCode >= 500),
+            OnRetry = args =>
+            {
+                HttpServiceLog.HttpRetry(_logger, args.AttemptNumber + 1, args.RetryDelay);
+                return ValueTask.CompletedTask;
+            }
+        };
+
+        var circuitBreakerOptions = new CircuitBreakerStrategyOptions<HttpResponseMessage>
+        {
+            FailureRatio = opts.CircuitBreakerFailureRatio,
+            SamplingDuration = TimeSpan.FromSeconds(opts.CircuitBreakerSamplingDurationSeconds),
+            BreakDuration = TimeSpan.FromSeconds(opts.CircuitBreakerBreakDurationSeconds),
+            MinimumThroughput = opts.CircuitBreakerMinimumThroughput,
+            ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                .Handle<HttpRequestException>()
+                .Handle<TimeoutRejectedException>()
+                .HandleResult(response =>
+                    response.StatusCode == HttpStatusCode.TooManyRequests ||
+                    (int)response.StatusCode >= 500),
+        };
+
+        // Create a custom pipeline with the override timeout
+        var customPipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+            .AddTimeout(TimeSpan.FromSeconds(timeoutSeconds))
+            .AddRetry(retryOptions)
+            .AddCircuitBreaker(circuitBreakerOptions)
+            .Build();
+
+        return await customPipeline.ExecuteAsync(async token =>
+        {
+            using var request = CreateHttpRequest(method, url, payload, contentType, headers, isFormUrlEncoded);
+            return await client.SendAsync(request, token).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static HttpRequestMessage CreateHttpRequest(HttpMethod method, string url, object? payload,
@@ -226,4 +303,7 @@ internal static partial class HttpServiceLog
 
     [LoggerMessage(EventId = 5007, Level = LogLevel.Error, Message = "Exception during HTTP request")]
     public static partial void RequestException(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 5008, Level = LogLevel.Information, Message = "HTTP request using custom timeout override: {TimeoutSeconds} seconds")]
+    public static partial void RequestTimeoutOverride(ILogger logger, int timeoutSeconds);
 }
