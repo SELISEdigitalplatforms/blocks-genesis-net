@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,16 +16,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.20.1" />
+	<PackageReference Include="Azure.Core" Version="1.47.1" />
+	<PackageReference Include="Azure.Messaging.ServiceBus" Version="7.20.1" />
 	  <PackageReference Include="RabbitMQ.Client" Version="7.2.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.7" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
-    <PackageReference Include="OpenTelemetry" Version="1.15.3" />
-    <PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
+	<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.7" />
+	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
+	<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+	<PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
+	<PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+	<PackageReference Include="OpenTelemetry" Version="1.15.3" />
+	<PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
   </ItemGroup>
 
   <ItemGroup>
