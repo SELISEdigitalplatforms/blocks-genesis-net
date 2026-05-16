@@ -26,7 +26,7 @@ public class TenantsTests
         Assert.NotNull(tenant.TenantId);
         Assert.NotNull(tenant.DBName);
         Assert.NotNull(tenant.TenantSalt);
-        Assert.Empty(tenant.AllowedDomains);
+        Assert.Empty(tenant.Applications);
         Assert.False(tenant.IsRootTenant);
     }
 
@@ -64,7 +64,7 @@ public class TenantsTests
             Name = "Tenant One",
             DBName = "tenantdb",
             ApplicationDomain = "https://tenant.app",
-            AllowedDomains = ["https://tenant.app", "https://api.tenant.app"],
+            Applications = [new Blocks.Genesis.Applications { Domain = "https://tenant.app" }, new Blocks.Genesis.Applications { Domain = "https://api.tenant.app" }],
             CookieDomain = ".tenant.app",
             IsDisabled = true,
             DbConnectionString = "mongodb://localhost:27017",
@@ -92,7 +92,7 @@ public class TenantsTests
         Assert.Equal("Tenant One", tenant.Name);
         Assert.Equal("tenantdb", tenant.DBName);
         Assert.Equal("https://tenant.app", tenant.ApplicationDomain);
-        Assert.Equal(2, tenant.AllowedDomains.Count);
+        Assert.Equal(2, tenant.Applications.Count);
         Assert.Equal(".tenant.app", tenant.CookieDomain);
         Assert.True(tenant.IsDisabled);
         Assert.Equal("mongodb://localhost:27017", tenant.DbConnectionString);
