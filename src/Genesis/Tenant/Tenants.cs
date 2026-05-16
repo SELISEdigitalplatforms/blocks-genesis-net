@@ -252,9 +252,7 @@ namespace Blocks.Genesis
 
             appName = appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? appName : $"https://{appName}";
 
-            var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant =>
-                string.Equals(tenant.ApplicationDomain, appName, StringComparison.OrdinalIgnoreCase)
-                || tenant.AllowedDomains.Any(domain => string.Equals(domain, appName, StringComparison.OrdinalIgnoreCase)));
+            var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => tenant.Applications.Any(a => string.Equals(a.Domain, appName, StringComparison.OrdinalIgnoreCase)));
 
             if (cachedTenant != null)
             {
@@ -265,9 +263,7 @@ namespace Blocks.Genesis
             {
                 var builder = Builders<Tenant>.Filter;
 
-                var domainMatch = builder.Or(
-                    builder.Eq(t => t.ApplicationDomain, appName),
-                    builder.AnyEq(t => t.AllowedDomains, appName));
+                var domainMatch = builder.ElemMatch(t => t.Applications, a => a.Domain == appName);
 
                 var tenant = _database
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)

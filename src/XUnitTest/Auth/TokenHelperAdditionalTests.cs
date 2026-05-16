@@ -65,16 +65,35 @@ public class TokenHelperAdditionalTests : IDisposable
     {
         var ctx = BlocksContext.Create(
             "tenant-cookie", [], "", false, "", "",
-            DateTime.MinValue, "", [], "", "", "", "", "", "");
+            DateTime.MinValue, "", [], "", "", "", "", "", "", "tenant-cookie");
         BlocksContext.SetContext(ctx);
 
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers.Append("Cookie", "access_token_tenant-cookie=mytoken123");
+        httpContext.Request.Headers.Origin = "https://app.local";
+        httpContext.Request.Headers.Append("Cookie", "app.local=mytoken123");
         var tenants = new Mock<ITenants>();
 
         var result = TokenHelper.GetTokenFromCookie(httpContext.Request, tenants.Object);
 
         Assert.Equal("mytoken123", result.Token);
+        Assert.False(result.IsThirdPartyToken);
+    }
+
+    [Fact]
+    public void GetTokenFromCookie_ShouldReturnEmpty_WhenOriginAndRefererAreMissing()
+    {
+        var ctx = BlocksContext.Create(
+            "tenant-cookie", [], "", false, "", "",
+            DateTime.MinValue, "", [], "", "", "", "", "", "", "app.local");
+        BlocksContext.SetContext(ctx);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers.Append("Cookie", "app.local=mytoken123");
+        var tenants = new Mock<ITenants>();
+
+        var result = TokenHelper.GetTokenFromCookie(httpContext.Request, tenants.Object);
+
+        Assert.Equal(string.Empty, result.Token);
         Assert.False(result.IsThirdPartyToken);
     }
 

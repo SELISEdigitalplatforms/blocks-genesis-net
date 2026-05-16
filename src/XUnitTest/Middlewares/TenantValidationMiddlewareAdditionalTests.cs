@@ -180,7 +180,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var tenants = new Mock<ITenants>();
         var crypto = new Mock<ICryptoService>();
         var tenant = CreateTenant("tenant-ad", "app.local");
-        tenant.AllowedDomains = ["extra.local"];
+        tenant.Applications = [new Blocks.Genesis.Applications { Domain = "extra.local" }];
         var nextCalled = false;
 
         tenants.Setup(t => t.GetTenantByID("tenant-ad")).Returns(tenant);

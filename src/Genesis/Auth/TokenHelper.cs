@@ -24,7 +24,13 @@ namespace Blocks.Genesis
                 return (string.Empty, false);
             }
 
-            var blocksToken = request.Cookies.TryGetValue($"access_token_{bc.TenantId}", out string token);
+            // Domain comes only from browser headers (Origin/Referer).
+            var applicationDomain = BlocksContext.ResolveApplicationDomain(request);
+
+            // Use ApplicationDomain for cookie name (professional naming)
+            var cookieName = applicationDomain;
+
+            var blocksToken = request.Cookies.TryGetValue(cookieName, out var token);
 
             if (blocksToken && !string.IsNullOrWhiteSpace(token))
                 return (token, false);
@@ -37,8 +43,7 @@ namespace Blocks.Genesis
                 return (string.Empty, false);
             }
 
-            request.Cookies.TryGetValue(cookieKey, out string thirdPartyToken);
-
+            request.Cookies.TryGetValue(cookieKey, out var thirdPartyToken);
 
             return (thirdPartyToken ?? string.Empty, !string.IsNullOrWhiteSpace(thirdPartyToken));
         }

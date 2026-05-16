@@ -10,18 +10,23 @@ namespace Blocks.Genesis
         public bool IsUseBlocksExclusively { get; set; }
         public string? Name { get; set; }
         public string DBName { get; set; } = Guid.NewGuid().ToString("n");
-        public required string ApplicationDomain { get; set; }
-        public List<string> AllowedDomains { get; set; } = new List<string>();
-        public string CookieDomain { get; set; } = string.Empty;
+        public List<Applications> Applications { get; set; } = new List<Applications>();
         public bool IsDisabled { get; set; }
         public required string DbConnectionString { get; set; }
         public string TenantSalt { get; set; } = Guid.NewGuid().ToString("n");
         public required JwtTokenParameters JwtTokenParameters { get; set; }
         public ThirdPartyJwtTokenParameters ThirdPartyJwtTokenParameters { get; set; } = new();
         public bool IsRootTenant { get; set; }
-        public bool IsDomainVerified { get; set; }
         public string Environment { get; set; } = string.Empty;
         public string TenantGroupId { get; set; } = string.Empty;
-        public string CustomDomain { get; set; } = string.Empty;
     }
+
+    [BsonIgnoreExtraElements]
+    public class Applications
+    {
+        public string Domain { get; set; } = string.Empty;
+        public string CookieDomain { get; set; } = string.Empty;
+        public bool IsDomainVerified { get; set; }
+    }
+
 }

@@ -1,7 +1,6 @@
-﻿using Azure.Core;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Primitives;
 using System.Security.Claims;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Blocks.Genesis
@@ -51,6 +50,7 @@ namespace Blocks.Genesis
         public string PhoneNumber { get; private init; } = string.Empty;
         public string DisplayName { get; private init; } = string.Empty;
         public string ActualTenantId { get; private init; } = string.Empty;
+        public string ApplicationDomain { get; private init; } = string.Empty;
 
         // Thread-safe test mode property
         public static bool IsTestMode
@@ -75,7 +75,8 @@ namespace Blocks.Genesis
             string displayName,
             string oauthToken,
             string refreshToken,
-            string actualTenantId)
+            string actualTenantId,
+            string applicationDomain = "")
         {
             TenantId = tenantId ?? string.Empty;
             Roles = roles ?? Array.Empty<string>();
@@ -92,6 +93,7 @@ namespace Blocks.Genesis
             OAuthToken = oauthToken ?? string.Empty;
             RefreshToken = refreshToken ?? string.Empty;
             ActualTenantId = actualTenantId ?? string.Empty;
+            ApplicationDomain = applicationDomain ?? string.Empty;
         }
 
 
@@ -101,6 +103,10 @@ namespace Blocks.Genesis
         public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
+
+            // Try to get domain from Origin/Referer headers for consistent cookie naming
+            var httpContext = GetHttpContext();
+            var domain = ResolveApplicationDomain(httpContext?.Request);
 
             return new BlocksContext(
                 tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
@@ -117,7 +123,8 @@ namespace Blocks.Genesis
                 displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
                 oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
                 actualTenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty,
-                refreshToken: GetHttpContext()?.Request?.Cookies[$"refresh_token_{claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value}"]
+                refreshToken: GetHttpContext()?.Request?.Cookies[$"rt_{domain}"],
+                applicationDomain: domain
             );
         }
 
@@ -159,10 +166,11 @@ namespace Blocks.Genesis
             string? displayName,
             string? oauthToken,
             string? refreshToken,
-            string? actualTentId)
+            string? actualTentId,
+            string? applicationDomain = null)
         {
             return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTentId);
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTentId, applicationDomain);
         }
 
         /// <summary>
@@ -261,6 +269,37 @@ namespace Blocks.Genesis
             {
                 return null;
             }
+        }
+
+        public static string ResolveApplicationDomain(HttpRequest? request)
+        {
+            if (request?.Headers == null)
+            {
+                return string.Empty;
+            }
+
+            if (request.Headers.TryGetValue("Origin", out var origin) && !StringValues.IsNullOrEmpty(origin))
+            {
+                return NormalizeDomain(origin.ToString());
+            }
+
+            if (request.Headers.TryGetValue("Referer", out var referer) && !StringValues.IsNullOrEmpty(referer))
+            {
+                return NormalizeDomain(referer.ToString());
+            }
+
+            return string.Empty;
+        }
+
+        public static string NormalizeDomain(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+
+            return url.Replace("https://", "")
+                     .Replace("http://", "")
+                     .Split("/")[0]
+                     .Split(":")[0]
+                     .Trim();
         }
 
         public static void Cleanup()
