@@ -77,13 +77,16 @@ namespace Blocks.Genesis
             }
 
 
-            if (!IsValidOriginOrReferer(context, tenant))
+            var origin = context.Request.Headers.Origin.FirstOrDefault();
+            var referer = context.Request.Headers.Referer.FirstOrDefault();
+
+            if (!IsValidOriginOrReferer(origin, referer, tenant))
             {
                 await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer").ConfigureAwait(false);
                 return;
             }
 
-            AttachTenantDataToActivity(tenant);
+            AttachTenantDataToActivity(tenant, origin, referer);
             TenantContextHelper.EnsureTenantContext(context, tenant.TenantId);
 
             if (context.Request.ContentType == "application/grpc" && context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
@@ -219,28 +222,25 @@ namespace Blocks.Genesis
             public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
 
-        private static bool IsValidOriginOrReferer(HttpContext context, Tenant tenant)
+        private static bool IsValidOriginOrReferer(string? origin, string? referer, Tenant tenant)
         {
-            var originHeader = context.Request.Headers.Origin.FirstOrDefault();
-            var refererHeader = context.Request.Headers.Referer.FirstOrDefault();
-
             // Allow local development origins in tenant middleware.
-            if (IsLocalhostHeader(originHeader) || IsLocalhostHeader(refererHeader))
+            if (IsLocalhostHeader(origin) || IsLocalhostHeader(referer))
             {
                 return true;
             }
 
-            if (string.IsNullOrWhiteSpace(originHeader) && string.IsNullOrWhiteSpace(refererHeader))
+            if (string.IsNullOrWhiteSpace(origin) && string.IsNullOrWhiteSpace(referer))
             {
                 return true;
             }
 
-            if (!string.IsNullOrWhiteSpace(originHeader) && !IsDomainAllowed(originHeader, tenant))
+            if (!string.IsNullOrWhiteSpace(origin) && !IsDomainAllowed(origin, tenant))
             {
                 return false;
             }
 
-            if (!string.IsNullOrWhiteSpace(refererHeader) && !IsDomainAllowed(refererHeader, tenant))
+            if (!string.IsNullOrWhiteSpace(referer) && !IsDomainAllowed(referer, tenant))
             {
                 return false;
             }
@@ -272,7 +272,10 @@ namespace Blocks.Genesis
                 var uri = new Uri(headerValue);
                 var host = NormalizeDomain(uri.Host);
 
-                var allowedDomains = tenant.AllowedDomains?.Select(NormalizeDomain) ?? [];
+                var allowedDomains = tenant.Applications?
+                    .Select(a => NormalizeDomain(a.Domain))
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    ?? [];
 
                 return allowedDomains.Contains(host, StringComparer.OrdinalIgnoreCase);
             }
@@ -282,15 +285,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private static string NormalizeDomain(string domain)
-        {
-            if (string.IsNullOrWhiteSpace(domain)) return string.Empty;
-
-            return domain.Replace("http://", "")
-                 .Replace("https://", "")
-                 .Split(":")[0]
-                 .Trim();
-        }
+        private static string NormalizeDomain(string domain) => BlocksContext.NormalizeDomain(domain);
 
         private static bool IsLocalhostHost(string? host)
         {
@@ -317,14 +312,44 @@ namespace Blocks.Genesis
             }));
         }
 
-        private static void AttachTenantDataToActivity(Tenant tenant)
+        private static string ResolveApplicationDomain(Tenant tenant, string? origin, string? referer)
         {
+            var browserHost = string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(origin) && !IsLocalhostHeader(origin))
+            {
+                if (Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+                    browserHost = NormalizeDomain(originUri.Host);
+            }
+            else if (!string.IsNullOrWhiteSpace(referer) && !IsLocalhostHeader(referer))
+            {
+                if (Uri.TryCreate(referer, UriKind.Absolute, out var refererUri))
+                    browserHost = NormalizeDomain(refererUri.Host);
+            }
+
+            // Browser call: return the exact matching domain from Applications
+            if (!string.IsNullOrWhiteSpace(browserHost))
+            {
+                var match = tenant.Applications?
+                    .FirstOrDefault(a => NormalizeDomain(a.Domain).Equals(browserHost, StringComparison.OrdinalIgnoreCase));
+
+                if (match != null) return match.Domain;
+            }
+
+            // Non-browser call
+            return string.Empty;
+        }
+
+        private static void AttachTenantDataToActivity(Tenant tenant, string? origin, string? referer)
+        {
+            var applicationDomain = ResolveApplicationDomain(tenant, origin, referer);
+
             var securityData = BlocksContext.Create(
                 tenant.TenantId,
                 Array.Empty<string>(),
                 string.Empty,
                 false,
-                tenant.ApplicationDomain,
+                string.Empty,
                 string.Empty,
                 DateTime.MinValue,
                 string.Empty,
@@ -334,7 +359,8 @@ namespace Blocks.Genesis
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                tenant.TenantId
+                tenant.TenantId,
+                applicationDomain
             );
 
             BlocksContext.SetContext(securityData, false);
@@ -346,7 +372,7 @@ namespace Blocks.Genesis
             if (current != null)
             {
                 current.SetTag("SecurityContext", JsonSerializer.Serialize(securityData));
-                current.SetTag("ApplicationDomain", tenant.ApplicationDomain);
+                current.SetTag("ApplicationDomain", applicationDomain);
             }
         }
 

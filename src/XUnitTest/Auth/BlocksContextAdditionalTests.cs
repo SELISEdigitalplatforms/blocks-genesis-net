@@ -327,6 +327,27 @@ public class BlocksContextAdditionalTests : IDisposable
         Assert.Null(result);
     }
 
+    [Fact]
+    public void ResolveApplicationDomain_ShouldReturnOriginDomain_WhenPresent()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers.Origin = "https://app.blocks.dev:443";
+
+        var result = BlocksContext.ResolveApplicationDomain(httpContext.Request);
+
+        Assert.Equal("app.blocks.dev", result);
+    }
+
+    [Fact]
+    public void ResolveApplicationDomain_ShouldReturnEmpty_WhenOriginAndRefererAreMissing()
+    {
+        var httpContext = new DefaultHttpContext();
+
+        var result = BlocksContext.ResolveApplicationDomain(httpContext.Request);
+
+        Assert.Equal(string.Empty, result);
+    }
+
     private sealed class ThrowingHttpContextAccessor : IHttpContextAccessor
     {
         public HttpContext? HttpContext
