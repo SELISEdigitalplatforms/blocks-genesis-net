@@ -29,6 +29,8 @@ namespace Blocks.Genesis
         public const string DISPLAY_NAME_CLAIM = "name";
         public const string PHONE_NUMBER_CLAIM = "phone";
         public const string IMPERSONATED_CLAIM = "impersonated";
+        public const string ACTUAL_TENANT_ID_CLAIM = "actual_tenant_id";
+        public const string ACTOR_USER_CLAIM = "act";
 
         private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
         private static readonly ThreadLocal<bool> _isTestMode = new(() => false);
@@ -53,6 +55,7 @@ namespace Blocks.Genesis
         public string ActualTenantId { get; private init; } = string.Empty;
         public string ApplicationDomain { get; private init; } = string.Empty;
         public bool Impersonated { get; private init; } = false;
+        public string ActorUser { get; private init; } = string.Empty;
 
         // Thread-safe test mode property
         public static bool IsTestMode
@@ -79,7 +82,8 @@ namespace Blocks.Genesis
             string refreshToken,
             string actualTenantId,
             string applicationDomain = "",
-            bool impersonated = false)
+            bool impersonated = false,
+            string actorUser = "")
         {
             TenantId = tenantId ?? string.Empty;
             Roles = roles ?? Array.Empty<string>();
@@ -98,6 +102,7 @@ namespace Blocks.Genesis
             ActualTenantId = actualTenantId ?? string.Empty;
             ApplicationDomain = applicationDomain ?? string.Empty;
             Impersonated = impersonated;
+            ActorUser = actorUser ?? string.Empty;
         }
 
 
@@ -111,7 +116,7 @@ namespace Blocks.Genesis
             var httpContext = GetHttpContext();
             var domain = ResolveApplicationDomain(httpContext?.Request);
 
-            string? actualTenantId = null;
+            string? actualTenantId = claimsIdentity.FindFirst(ACTUAL_TENANT_ID_CLAIM)?.Value;
             if (httpContext != null)
             {
                 actualTenantId = TenantContextHelper.ResolveTenantIdAsync(httpContext.Request).GetAwaiter().GetResult();
@@ -138,7 +143,8 @@ namespace Blocks.Genesis
                 impersonated: claimsIdentity.FindFirst(IMPERSONATED_CLAIM)?.Value == "true",
                 actualTenantId: actualTenantId,
                 refreshToken: GetHttpContext()?.Request?.Cookies[$"rt_{domain}"],
-                applicationDomain: domain
+                applicationDomain: domain,
+                actorUser: claimsIdentity.FindFirst(ACTOR_USER_CLAIM)?.Value
             );
         }
 
