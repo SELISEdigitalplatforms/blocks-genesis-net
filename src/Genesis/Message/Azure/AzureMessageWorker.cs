@@ -153,7 +153,7 @@ namespace Blocks.Genesis
             }
             catch (JsonException)
             {
-                BlocksContext.SetContext(BlocksContext.CreateSanitizedForTransport(null));
+                BlocksContext.SetContext(null);
             }
 
             foreach (var kvp in DeserializeBaggage(baggageString))

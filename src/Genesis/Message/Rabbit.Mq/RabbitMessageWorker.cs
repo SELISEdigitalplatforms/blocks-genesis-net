@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using RabbitMQ.Client;
@@ -83,7 +83,7 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
         catch (JsonException)
         {
-            BlocksContext.SetContext(BlocksContext.CreateSanitizedForTransport(null));
+            BlocksContext.SetContext(null);
         }
 
         foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}") ?? new Dictionary<string, string>())
