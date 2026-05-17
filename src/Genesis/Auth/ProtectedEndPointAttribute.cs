@@ -7,6 +7,7 @@ namespace Blocks.Genesis
     {
         public ProtectedEndPointAttribute(string resourceName)
         {
+            Policy = "Protected";
             ResourceName = resourceName;
         }
 
