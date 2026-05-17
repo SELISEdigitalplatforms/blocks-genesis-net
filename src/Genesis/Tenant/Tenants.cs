@@ -266,7 +266,8 @@ namespace Blocks.Genesis
                   "http://" + appName,
                   "https://" + appName,
                 };
-                var filter = builder.In("Applications", domains);
+
+                var filter = builder.ElemMatch(x => x.Applications,app => domains.Contains(app.Domain));
 
                 var tenant = _database
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
