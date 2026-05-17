@@ -223,6 +223,8 @@ namespace Blocks.Genesis
         {
             var applicationDomain = TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer);
 
+            string actualTenantId = tenant.TenantId;
+
             var securityData = BlocksContext.Create(
                 tenant.TenantId,
                 Array.Empty<string>(),
@@ -238,7 +240,7 @@ namespace Blocks.Genesis
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                tenant.TenantId,
+                actualTenantId,
                 applicationDomain
             );
 

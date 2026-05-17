@@ -239,7 +239,9 @@ namespace Blocks.Genesis
             var origin = context.Request.Headers.Origin.FirstOrDefault();
             var referer = context.Request.Headers.Referer.FirstOrDefault();
 
-            var applicationDomain = TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer);
+            var applicationDomain = ResolveApplicationDomain(tenant, origin, referer);
+
+            string actualTenantId = tenant.TenantId;
 
             var seededContext = BlocksContext.Create(
                 tenantId: tenant.TenantId,
@@ -256,7 +258,7 @@ namespace Blocks.Genesis
                 displayName: string.Empty,
                 oauthToken: string.Empty,
                 refreshToken: string.Empty,
-                actualTenantId: tenant.TenantId,
+                actualTenantId: actualTenantId,
                 applicationDomain: applicationDomain);
 
             BlocksContext.SetContext(seededContext, false);
