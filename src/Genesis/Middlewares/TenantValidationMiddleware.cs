@@ -1,10 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Primitives;
 using OpenTelemetry;
 using System.Diagnostics;
 using System.Text.Json;
-using System.Collections.Generic;
-using System.Net;
 
 namespace Blocks.Genesis
 {
@@ -49,19 +46,19 @@ namespace Blocks.Genesis
 
             if (string.IsNullOrWhiteSpace(tenantId))
             {
-                if (IsLocalhostHost(context.Request.Host.Host))
+                if (TenantContextHelper.IsLocalhostHost(context.Request.Host.Host))
                 {
-                    await RejectRequest(context, StatusCodes.Status400BadRequest, "BadRequest: Missing_Tenant_Key_Or_Id").ConfigureAwait(false);
+                    await TenantContextHelper.RejectRequest(context, StatusCodes.Status400BadRequest, "BadRequest: Missing_Tenant_Key_Or_Id").ConfigureAwait(false);
                     return;
                 }
 
-                var baseUrl = NormalizeDomain(context.Request.Host.Host);
+                var baseUrl = TenantContextHelper.NormalizeDomain(context.Request.Host.Host);
 
                 tenant = _tenants.GetTenantByApplicationDomain(baseUrl);
 
                 if (tenant is null)
                 {
-                    await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
+                    await TenantContextHelper.RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
                     return;
                 }
             }
@@ -72,7 +69,7 @@ namespace Blocks.Genesis
 
             if (tenant is null || tenant.IsDisabled)
             {
-                await RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
+                await TenantContextHelper.RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
                 return;
             }
 
@@ -80,21 +77,20 @@ namespace Blocks.Genesis
             var origin = context.Request.Headers.Origin.FirstOrDefault();
             var referer = context.Request.Headers.Referer.FirstOrDefault();
 
-            if (!IsValidOriginOrReferer(origin, referer, tenant))
+            if (!TenantContextHelper.IsValidOriginOrReferer(origin, referer, tenant))
             {
-                await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer").ConfigureAwait(false);
+                await TenantContextHelper.RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer").ConfigureAwait(false);
                 return;
             }
 
             AttachTenantDataToActivity(tenant, origin, referer);
-            TenantContextHelper.EnsureTenantContext(context, tenant.TenantId);
 
             if (context.Request.ContentType == "application/grpc" && context.Request.Headers.TryGetValue(BlocksConstants.BlocksGrpcKey, out var grpcKey))
             {
                 var hash = _cryptoService.Hash(tenant.TenantId, tenant?.TenantSalt);
                 if (hash != grpcKey)
                 {
-                    await RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key").ConfigureAwait(false);
+                    await TenantContextHelper.RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key").ConfigureAwait(false);
                     return;
                 }
             }
@@ -222,127 +218,10 @@ namespace Blocks.Genesis
             public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
 
-        private static bool IsValidOriginOrReferer(string? origin, string? referer, Tenant tenant)
-        {
-            // Allow local development origins in tenant middleware.
-            if (IsLocalhostHeader(origin) || IsLocalhostHeader(referer))
-            {
-                return true;
-            }
-
-            if (string.IsNullOrWhiteSpace(origin) && string.IsNullOrWhiteSpace(referer))
-            {
-                return true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(origin) && !IsDomainAllowed(origin, tenant))
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(referer) && !IsDomainAllowed(referer, tenant))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        private static bool IsLocalhostHeader(string? headerValue)
-        {
-            if (string.IsNullOrWhiteSpace(headerValue))
-            {
-                return false;
-            }
-
-            if (!Uri.TryCreate(headerValue, UriKind.Absolute, out var uri))
-            {
-                return false;
-            }
-
-            return IsLocalhostHost(uri.Host);
-        }
-
-        private static bool IsDomainAllowed(string? headerValue, Tenant tenant)
-        {
-            if (string.IsNullOrWhiteSpace(headerValue)) return true;
-
-            try
-            {
-                var uri = new Uri(headerValue);
-                var host = NormalizeDomain(uri.Host);
-
-                var allowedDomains = tenant.Applications?
-                    .Select(a => NormalizeDomain(a.Domain))
-                    .Where(d => !string.IsNullOrWhiteSpace(d))
-                    ?? [];
-
-                return allowedDomains.Contains(host, StringComparer.OrdinalIgnoreCase);
-            }
-            catch (UriFormatException)
-            {
-                return false; // Invalid header format
-            }
-        }
-
-        private static string NormalizeDomain(string domain) => BlocksContext.NormalizeDomain(domain);
-
-        private static bool IsLocalhostHost(string? host)
-        {
-            if (string.IsNullOrWhiteSpace(host))
-            {
-                return false;
-            }
-
-            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            return IPAddress.TryParse(host, out var ipAddress) && IPAddress.IsLoopback(ipAddress);
-        }
-
-        private static Task RejectRequest(HttpContext context, int statusCode, string message)
-        {
-            context.Response.StatusCode = statusCode;
-            return context.Response.WriteAsync(JsonSerializer.Serialize(new BaseResponse
-            {
-                IsSuccess = false,
-                Errors = new Dictionary<string, string> { { "Message", message } }
-            }));
-        }
-
-        private static string ResolveApplicationDomain(Tenant tenant, string? origin, string? referer)
-        {
-            var browserHost = string.Empty;
-
-            if (!string.IsNullOrWhiteSpace(origin) && !IsLocalhostHeader(origin))
-            {
-                if (Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
-                    browserHost = NormalizeDomain(originUri.Host);
-            }
-            else if (!string.IsNullOrWhiteSpace(referer) && !IsLocalhostHeader(referer))
-            {
-                if (Uri.TryCreate(referer, UriKind.Absolute, out var refererUri))
-                    browserHost = NormalizeDomain(refererUri.Host);
-            }
-
-            // Browser call: return the exact matching domain from Applications
-            if (!string.IsNullOrWhiteSpace(browserHost))
-            {
-                var match = tenant.Applications?
-                    .FirstOrDefault(a => NormalizeDomain(a.Domain).Equals(browserHost, StringComparison.OrdinalIgnoreCase));
-
-                if (match != null) return match.Domain;
-            }
-
-            // Non-browser call
-            return string.Empty;
-        }
 
         private static void AttachTenantDataToActivity(Tenant tenant, string? origin, string? referer)
         {
-            var applicationDomain = ResolveApplicationDomain(tenant, origin, referer);
+            var applicationDomain = TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer);
 
             var securityData = BlocksContext.Create(
                 tenant.TenantId,

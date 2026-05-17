@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.IdentityModel.Tokens.Jwt;
+using System.Net;
+using System.Text.Json;
 
 namespace Blocks.Genesis
 {
@@ -56,7 +58,7 @@ namespace Blocks.Genesis
             }
         }
 
-        private static string? ResolveTenantIdFromHeaders(HttpRequest request)
+        public static string? ResolveTenantIdFromHeaders(HttpRequest request)
         {
             foreach (var key in TenantResolutionKeys)
             {
@@ -71,7 +73,7 @@ namespace Blocks.Genesis
             return null;
         }
 
-        private static string? ResolveTenantIdFromQuery(HttpRequest request)
+        public static string? ResolveTenantIdFromQuery(HttpRequest request)
         {
             foreach (var key in TenantResolutionKeys)
             {
@@ -86,7 +88,7 @@ namespace Blocks.Genesis
             return null;
         }
 
-        private static string? ResolveTenantIdFromForm(IFormCollection form)
+        public static string? ResolveTenantIdFromForm(IFormCollection form)
         {
             foreach (var key in TenantResolutionKeys)
             {
@@ -103,21 +105,144 @@ namespace Blocks.Genesis
             return null;
         }
 
-        public static void EnsureTenantContext(HttpContext context, string? tenantId)
+        public static string NormalizeDomain(string domain) => BlocksContext.NormalizeDomain(domain);
+
+        public static bool IsLocalhostHost(string? host)
         {
-            if (string.IsNullOrWhiteSpace(tenantId))
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return false;
+            }
+
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return IPAddress.TryParse(host, out var ipAddress) && IPAddress.IsLoopback(ipAddress);
+        }
+
+        public static bool IsLocalhostHeader(string? headerValue)
+        {
+            if (string.IsNullOrWhiteSpace(headerValue))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(headerValue, UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+
+            return IsLocalhostHost(uri.Host);
+        }
+
+        public static bool IsDomainAllowed(string? headerValue, Tenant tenant)
+        {
+            if (string.IsNullOrWhiteSpace(headerValue)) return true;
+
+            try
+            {
+                var uri = new Uri(headerValue);
+                var host = NormalizeDomain(uri.Host);
+
+                var allowedDomains = tenant.Applications?
+                    .Select(a => NormalizeDomain(a.Domain))
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    ?? [];
+
+                return allowedDomains.Contains(host, StringComparer.OrdinalIgnoreCase);
+            }
+            catch (UriFormatException)
+            {
+                return false; // Invalid header format
+            }
+        }
+
+        public static Task RejectRequest(HttpContext context, int statusCode, string message)
+        {
+            context.Response.StatusCode = statusCode;
+            return context.Response.WriteAsync(JsonSerializer.Serialize(new BaseResponse
+            {
+                IsSuccess = false,
+                Errors = new Dictionary<string, string> { { "Message", message } }
+            }));
+        }
+
+        public static bool IsValidOriginOrReferer(string? origin, string? referer, Tenant tenant)
+        {
+            // Allow local development origins in tenant middleware.
+            if (IsLocalhostHeader(origin) || IsLocalhostHeader(referer))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(origin) && string.IsNullOrWhiteSpace(referer))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(origin) && !IsDomainAllowed(origin, tenant))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(referer) && !IsDomainAllowed(referer, tenant))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        public static string ResolveApplicationDomain(Tenant tenant, string? origin, string? referer)
+        {
+            var browserHost = string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(origin) && !IsLocalhostHeader(origin))
+            {
+                if (Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+                    browserHost = NormalizeDomain(originUri.Host);
+            }
+            else if (!string.IsNullOrWhiteSpace(referer) && !IsLocalhostHeader(referer))
+            {
+                if (Uri.TryCreate(referer, UriKind.Absolute, out var refererUri))
+                    browserHost = NormalizeDomain(refererUri.Host);
+            }
+
+            // Browser call: return the exact matching domain from Applications
+            if (!string.IsNullOrWhiteSpace(browserHost))
+            {
+                var match = tenant.Applications?
+                    .FirstOrDefault(a => NormalizeDomain(a.Domain).Equals(browserHost, StringComparison.OrdinalIgnoreCase));
+
+                if (match != null) return match.Domain;
+            }
+
+            // Non-browser call
+            return string.Empty;
+        }
+
+        public static void EnsureTenantContext(HttpContext context, Tenant? tenant)
+        {
+            if (tenant == null)
             {
                 return;
             }
 
             var existing = BlocksContext.GetContext();
-            if (string.Equals(existing?.TenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(existing?.TenantId, tenant.TenantId, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
+            var origin = context.Request.Headers.Origin.FirstOrDefault();
+            var referer = context.Request.Headers.Referer.FirstOrDefault();
+
+            var applicationDomain = TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer);
+
             var seededContext = BlocksContext.Create(
-                tenantId: tenantId,
+                tenantId: tenant.TenantId,
                 roles: Array.Empty<string>(),
                 userId: string.Empty,
                 isAuthenticated: false,
@@ -131,7 +256,8 @@ namespace Blocks.Genesis
                 displayName: string.Empty,
                 oauthToken: string.Empty,
                 refreshToken: string.Empty,
-                actualTentId: tenantId);
+                actualTenantId: tenant.TenantId,
+                applicationDomain: applicationDomain);
 
             BlocksContext.SetContext(seededContext, false);
         }

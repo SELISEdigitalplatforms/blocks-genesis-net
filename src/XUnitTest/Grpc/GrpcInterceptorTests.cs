@@ -211,7 +211,7 @@ public class GrpcInterceptorTests
             displayName: "User",
             oauthToken: "token",
             refreshToken: "refresh",
-            actualTentId: tenantId);
+            actualTenantId: tenantId);
     }
 
     private static Method<string, string> CreateStringMethod()

@@ -15,7 +15,6 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
-using System.Linq;
 
 namespace Blocks.Genesis
 {
@@ -68,7 +67,8 @@ namespace Blocks.Genesis
 
                             var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request, tokenResult.Token);
                             SetRequestTenantId(context.HttpContext, tenantId);
-                            TenantContextHelper.EnsureTenantContext(context.HttpContext, tenantId);
+                            var tenant = tenantId != null ? tenants.GetTenantByID(tenantId) : null;
+                            TenantContextHelper.EnsureTenantContext(context.HttpContext, tenant);
 
                             if (tokenResult.IsThirdPartyToken)
                             {
@@ -88,7 +88,6 @@ namespace Blocks.Genesis
                         {
                             BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
                             var tenants = ResolveTenants(context.HttpContext);
-                            var result = TokenHelper.GetToken(context.Request, tenants);
                             if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
                             {
                                 if (!HasServiceAccess(claimsIdentity, context.HttpContext))
@@ -198,7 +197,7 @@ namespace Blocks.Genesis
                 .AddPolicy("Secret", policy => policy.Requirements.Add(new SecretEndPointRequirement()));
 
             services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
-            services.AddScoped<IAuthorizationHandler, SecretAuthorizationHandler>();
+            services.AddScoped<IAuthorizationHandler, SecretEndPointHendler>();
         }
 
         public static async Task<bool> TryFallbackAsync(
@@ -234,11 +233,7 @@ namespace Blocks.Genesis
                     return false;
                 }
 
-                var fallbackValidationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl) ?
-                                                await GetFromJwksUrl(tenant, httpClientFactory) :
-                                                await GetFromPublicCertificate(tenant, tenantId, httpClientFactory);
-
-                return await ValidateTokenWithFallbackAsync(token, fallbackValidationParams, context);
+                return await ValidateTokenWithFallbackAsync(token, tenant, context, httpClientFactory);
             }
             catch (Exception finalEx)
             {
@@ -349,17 +344,20 @@ namespace Blocks.Genesis
             return parameters;
         }
 
-        private static async Task<bool> ValidateTokenWithFallbackAsync(string token, TokenValidationParameters validationParams, TokenValidatedContext context)
+        private static async Task<bool> ValidateTokenWithFallbackAsync(string token, Tenant tenant, TokenValidatedContext context, IHttpClientFactory httpClientFactory)
         {
             try
             {
+                var validationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl) ?
+                                                await GetFromJwksUrl(tenant, httpClientFactory) :
+                                                await GetFromPublicCertificate(tenant, tenant.TenantId, httpClientFactory);
                 var handler = new JwtSecurityTokenHandler();
                 var validatedPrincipal = handler.ValidateToken(token, validationParams, out _);
 
                 if (validatedPrincipal.Identity is ClaimsIdentity claimsIdentity)
                 {
                     HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), string.Empty);
-                    await StoreThirdPartyBlocksContextActivity(claimsIdentity, context);
+                    await StoreThirdPartyBlocksContextActivity(claimsIdentity, context, tenant);
                 }
 
                 context.Principal = validatedPrincipal;
@@ -472,30 +470,11 @@ namespace Blocks.Genesis
             Baggage.SetBaggage("IsAuthenticate", "true");
 
             var activity = Activity.Current;
-            var sanitized = GetContextWithoutToken(context);
+            var sanitized = BlocksContext.CreateSanitizedForTransport(context);
 
             activity?.SetTag("SecurityContext", JsonSerializer.Serialize(sanitized));
         }
 
-        private static BlocksContext GetContextWithoutToken(BlocksContext context)
-        {
-            return BlocksContext.Create(
-                tenantId: context.TenantId,
-                roles: context.Roles ?? [],
-                userId: context.UserId ?? string.Empty,
-                isAuthenticated: context.IsAuthenticated,
-                requestUri: context.RequestUri ?? string.Empty,
-                organizationId: context.OrganizationId ?? string.Empty,
-                expireOn: context.ExpireOn,
-                email: context.Email ?? string.Empty,
-                permissions: context.Permissions ?? [],
-                userName: context.UserName ?? string.Empty,
-                phoneNumber: context.PhoneNumber ?? string.Empty,
-                displayName: context.DisplayName ?? string.Empty,
-                oauthToken: string.Empty,
-                refreshToken: string.Empty,
-                actualTentId: context.TenantId);
-        }
 
         private static void HandleTokenIssuer(ClaimsIdentity identity, string requestUri, string token)
         {
@@ -510,11 +489,17 @@ namespace Blocks.Genesis
             }
         }
 
-        private static async Task StoreThirdPartyBlocksContextActivity(ClaimsIdentity identity, TokenValidatedContext context)
+        private static async Task StoreThirdPartyBlocksContextActivity(ClaimsIdentity identity, TokenValidatedContext context, Tenant tenant)
         {
             _ = context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var apiKey);
             var dbContext = context.HttpContext.RequestServices.GetRequiredService<IDbContextProvider>();
             var claimsMapper = await (await dbContext.GetCollection<BsonDocument>("ThirdPartyJWTClaims").FindAsync(Builders<BsonDocument>.Filter.Empty)).FirstOrDefaultAsync();
+            
+            if (claimsMapper == null)
+            {
+                Log.Warning("[ThirdParty] Claims mapper not found in database.");
+                return;
+            }
 
             var roleClaim = identity?.FindAll(identity.RoleClaimType).Select(r => r.Value).ToArray() ?? [];
 
@@ -525,13 +510,16 @@ namespace Blocks.Genesis
 
             var subClaim = identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
             var emailClaim = identity?.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
+            var origin = context.Request.Headers.Origin.FirstOrDefault();
+            var referer = context.Request.Headers.Referer.FirstOrDefault();
 
+            var applicationDomain = TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer);
             var mappedContext = BlocksContext.Create(
                 tenantId: apiKey,
                 roles: roleClaim,
 
-                userId: ExtactClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim + "_external" :
-                        ExtactClaimValue(identity, claimsMapper["UserId"].ToString() ?? "") + "_external",
+                userId: ExtractClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim + "_external" :
+                        ExtractClaimValue(identity, claimsMapper["UserId"].ToString() ?? "") + "_external",
 
                 isAuthenticated: identity.IsAuthenticated,
                 requestUri: context.Request.Host.ToString(),
@@ -540,17 +528,18 @@ namespace Blocks.Genesis
                           ? exp : DateTime.MinValue,
 
                 email: !string.IsNullOrWhiteSpace(emailClaim)? emailClaim: 
-                       ExtactClaimValue(identity, claimsMapper["Email"]?.ToString() ?? ""),
+                       ExtractClaimValue(identity, claimsMapper["Email"]?.ToString() ?? ""),
 
                 permissions: [],
                 userName: claimsMapper["UserName"]?.ToString().ToLower() == "email"? emailClaim:
-                          ExtactClaimValue(identity, claimsMapper["UserName"]?.ToString() ?? ""),
+                          ExtractClaimValue(identity, claimsMapper["UserName"]?.ToString() ?? ""),
 
                 phoneNumber: string.Empty,
-                displayName: ExtactClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
+                displayName: ExtractClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
                 oauthToken: string.Empty,
                 refreshToken: string.Empty,
-                actualTentId: apiKey);
+                actualTenantId: apiKey,
+                applicationDomain: applicationDomain);
 
             BlocksContext.SetContext(mappedContext);
             context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] =
@@ -558,7 +547,7 @@ namespace Blocks.Genesis
 
         }
 
-        private static string ExtactClaimProperty(string claimObject)
+        private static string ExtractClaimProperty(string claimObject)
         {
             return claimObject.Split('.').Last();
         }
@@ -568,7 +557,7 @@ namespace Blocks.Genesis
             return claimObject.Split('.').First();
         }
 
-       private static string ExtactClaimValue(ClaimsIdentity identity, string claimObject)
+       private static string ExtractClaimValue(ClaimsIdentity identity, string claimObject)
         {
             var nestedClaims = claimObject.Split(".");
 
@@ -585,7 +574,7 @@ namespace Blocks.Genesis
 
         public static string[] ExtractRolesFromClaim(ClaimsIdentity identity, BsonDocument claimsMapper)
         {
-            if (identity == null)
+            if (identity == null || claimsMapper == null)
                 return [];
 
             var claimName = GetClaimObjectName(claimsMapper["Roles"]?.ToString() ?? "");
@@ -598,7 +587,7 @@ namespace Blocks.Genesis
             {
                 using var doc = JsonDocument.Parse(claimValue);
 
-                var propertyName = ExtactClaimProperty(claimsMapper["Roles"]?.ToString() ?? "").ToString();
+                var propertyName = ExtractClaimProperty(claimsMapper["Roles"]?.ToString() ?? "").ToString();
 
                 if (!doc.RootElement.TryGetProperty(propertyName, out var rolesElement))
                     return [];

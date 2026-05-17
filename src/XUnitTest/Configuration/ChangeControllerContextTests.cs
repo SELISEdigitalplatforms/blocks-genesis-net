@@ -247,7 +247,7 @@ public class ChangeControllerContextTests : IDisposable
             displayName: "Test User",
             oauthToken: "token",
             refreshToken: "refresh",    
-            actualTentId: tenantId);
+            actualTenantId: tenantId);
     }
 
     private static Blocks.Genesis.Tenant CreateTenant(string? createdBy, bool isRoot)

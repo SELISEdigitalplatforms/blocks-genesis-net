@@ -250,9 +250,9 @@ namespace Blocks.Genesis
         {
             if (string.IsNullOrWhiteSpace(appName)) return null;
 
-            appName = "https://" + BlocksContext.NormalizeDomain(appName);
+            appName = BlocksContext.NormalizeDomain(appName);
 
-            var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => tenant.Applications.Any(a => string.Equals(a.Domain, appName, StringComparison.OrdinalIgnoreCase)));
+            var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => tenant.Applications.Any(a => string.Equals(BlocksContext.NormalizeDomain(a.Domain), appName, StringComparison.OrdinalIgnoreCase)));
 
             if (cachedTenant != null)
             {
@@ -262,12 +262,15 @@ namespace Blocks.Genesis
             try
             {
                 var builder = Builders<Tenant>.Filter;
-
-                var domainMatch = builder.ElemMatch(t => t.Applications, a => a.Domain == appName);
+                var domains = new List<string> {
+                  "http://" + appName,
+                  "https://" + appName,
+                };
+                var filter = builder.In("Applications", domains);
 
                 var tenant = _database
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(domainMatch)
+                    .Find(filter)
                     .FirstOrDefault();
 
                 if (tenant != null)
