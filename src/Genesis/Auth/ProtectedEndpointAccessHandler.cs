@@ -120,22 +120,38 @@ namespace Blocks.Genesis
         private async Task<bool> CheckPermission(string resource, IEnumerable<string> roles, IEnumerable<string> permissions)
         {
             var bc = BlocksContext.GetContext();
-            var collection = bc.Impersonated ? _dbContextProvider.GetCollection<BsonDocument>(bc?.ActualTenantId ?? bc?.TenantId, "Permissions") : _dbContextProvider.GetCollection<BsonDocument>("Permissions");
+            string? tenantId = null;
+            if (bc != null)
+            {
+                tenantId = bc.Impersonated ? bc.ActualTenantId ?? bc.TenantId : bc.TenantId;
+            }
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return false;
+            }
+
+            var collection = _dbContextProvider.GetCollection<BsonDocument>(tenantId, "Permissions");
             var organizationId = bc?.OrganizationId;
             if (string.IsNullOrWhiteSpace(organizationId))
             {
                 organizationId = "default";
             }
 
-            var directPermissionFilter = Builders<BsonDocument>.Filter.In("Resource", permissions);
-            var roleFilter = Builders<BsonDocument>.Filter.Or(
-                Builders<BsonDocument>.Filter.In($"Roles.{organizationId}", roles),
-                Builders<BsonDocument>.Filter.In("Roles", roles));
+            // Single query: check if a document exists for this org where either:
+            // - Resource is in permissions (direct permission)
+            // - Resource matches and Roles contains any of the user's roles (role-based permission)
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("OrganizationId", organizationId),
+                Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.In("Resource", permissions),
+                    Builders<BsonDocument>.Filter.And(
+                        Builders<BsonDocument>.Filter.Eq("Resource", resource),
+                        Builders<BsonDocument>.Filter.In("Roles", roles)
+                    )
+                )
+            );
 
-            var filter = directPermissionFilter |
-                         (roleFilter & Builders<BsonDocument>.Filter.Eq("Resource", resource));
-
-            return await collection.CountDocumentsAsync(filter) > 0;
+            return await collection.CountDocumentsAsync(filter).ConfigureAwait(false) > 0;
         }
 
 
