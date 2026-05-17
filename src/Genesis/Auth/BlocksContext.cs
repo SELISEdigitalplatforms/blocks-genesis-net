@@ -28,6 +28,7 @@ namespace Blocks.Genesis
         public const string USER_NAME_CLAIM = "user_name";
         public const string DISPLAY_NAME_CLAIM = "name";
         public const string PHONE_NUMBER_CLAIM = "phone";
+        public const string IMPERSONATED_CLAIM = "impersonated";
 
         private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
         private static readonly ThreadLocal<bool> _isTestMode = new(() => false);
@@ -51,6 +52,7 @@ namespace Blocks.Genesis
         public string DisplayName { get; private init; } = string.Empty;
         public string ActualTenantId { get; private init; } = string.Empty;
         public string ApplicationDomain { get; private init; } = string.Empty;
+        public bool Impersonated { get; private init; } = false;
 
         // Thread-safe test mode property
         public static bool IsTestMode
@@ -76,7 +78,8 @@ namespace Blocks.Genesis
             string oauthToken,
             string refreshToken,
             string actualTenantId,
-            string applicationDomain = "")
+            string applicationDomain = "",
+            bool impersonated = false)
         {
             TenantId = tenantId ?? string.Empty;
             Roles = roles ?? Array.Empty<string>();
@@ -94,6 +97,7 @@ namespace Blocks.Genesis
             RefreshToken = refreshToken ?? string.Empty;
             ActualTenantId = actualTenantId ?? string.Empty;
             ApplicationDomain = applicationDomain ?? string.Empty;
+            Impersonated = impersonated;
         }
 
 
@@ -131,6 +135,7 @@ namespace Blocks.Genesis
                 phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
                 displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
                 oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
+                impersonated: claimsIdentity.FindFirst(IMPERSONATED_CLAIM)?.Value == "true",
                 actualTenantId: actualTenantId,
                 refreshToken: GetHttpContext()?.Request?.Cookies[$"rt_{domain}"],
                 applicationDomain: domain
@@ -158,7 +163,8 @@ namespace Blocks.Genesis
                 oauthToken = string.Empty,
                 refreshToken = string.Empty,
                 actualTenantId = context.ActualTenantId ?? context.TenantId ?? string.Empty,
-                applicationDomain = context.ApplicationDomain ?? string.Empty
+                applicationDomain = context.ApplicationDomain ?? string.Empty,
+                impersonated = context.Impersonated
             };
         }
 
@@ -181,10 +187,11 @@ namespace Blocks.Genesis
             string? oauthToken,
             string? refreshToken,
             string? actualTenantId,
-            string? applicationDomain = null)
+            string? applicationDomain = null,
+            bool impersonated = false)
         {
             return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTenantId, applicationDomain);
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTenantId, applicationDomain, impersonated);
         }
 
         /// <summary>
