@@ -268,6 +268,8 @@ public static class ApplicationConfigurations
                 .SetPreflightMaxAge(TimeSpan.FromHours(2))
                 .SetIsOriginAllowed(origin => IsOriginAllowed(origin, tenants, app.Environment, allowedCorsOrigins)));
 
+
+
         app.UseHealthChecks("/ping", new HealthCheckOptions
         {
             Predicate = _ => true,

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
@@ -250,7 +250,7 @@ namespace Blocks.Genesis
         {
             if (string.IsNullOrWhiteSpace(appName)) return null;
 
-            appName = appName.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? appName : $"https://{appName}";
+            appName = "https://" + BlocksContext.NormalizeDomain(appName);
 
             var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => tenant.Applications.Any(a => string.Equals(a.Domain, appName, StringComparison.OrdinalIgnoreCase)));
 
