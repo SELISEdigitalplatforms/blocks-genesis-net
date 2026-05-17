@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Filters;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Security.Claims;
@@ -24,7 +25,7 @@ namespace Blocks.Genesis
             }
 
             var identity = (ClaimsIdentity)context.User.Identity!;
-            var httpContext = context.Resource as HttpContext;
+            var httpContext = GetHttpContext(context.Resource);
             var resourceName = GetExplicitResourceName(httpContext);
             
             // ResourceName is MANDATORY
@@ -74,13 +75,32 @@ namespace Blocks.Genesis
             return true;
         }
 
+        private static HttpContext? GetHttpContext(object? resource)
+        {
+            return resource switch
+            {
+                HttpContext context => context,
+                AuthorizationFilterContext mvcContext => mvcContext.HttpContext,
+                _ => null
+            };
+        }
+
         private static string? GetExplicitResourceName(HttpContext? httpContext)
         {
+            // Legacy path: a custom filter/middleware may copy it into HttpContext.Items.
             if (httpContext?.Items.TryGetValue(BlocksConstants.ProtectedResourceName, out var resourceName) == true)
             {
                 return resourceName?.ToString();
             }
-            return null;
+
+            // Primary path: resolve from endpoint metadata during authorization.
+            var endpointResourceName = httpContext?
+                .GetEndpoint()?
+                .Metadata
+                .GetMetadata<ProtectedEndPointAttribute>()?
+                .ResourceName;
+
+            return string.IsNullOrWhiteSpace(endpointResourceName) ? null : endpointResourceName;
         }
 
         private static bool IsAuthenticated(AuthorizationHandlerContext context)
