@@ -254,9 +254,6 @@ public static class ApplicationConfigurations
             app.UsePathBase(pathBase);
         }
 
-        app.UseMiddleware<SecurityHeadersMiddleware>();
-        app.UseMiddleware<RequestMetricsMiddleware>();
-
         var tenants = app.Services.GetRequiredService<ITenants>();
         var allowedCorsOrigins = ParseAllowedCorsOrigins();
 
