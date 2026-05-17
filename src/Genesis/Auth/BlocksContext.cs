@@ -104,9 +104,18 @@ namespace Blocks.Genesis
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
 
-            // Try to get domain from Origin/Referer headers for consistent cookie naming
-            var httpContext = GetHttpContext();
-            var domain = ResolveApplicationDomain(httpContext?.Request);
+            // First check if applicationDomain was already validated and set in context
+            var existingContext = _asyncLocalContext.Value;
+            var domain = existingContext?.ApplicationDomain ?? string.Empty;
+
+            // Only attempt to resolve from headers if no validated domain is already set
+            if (string.IsNullOrWhiteSpace(domain))
+            {
+                var httpContext = GetHttpContext();
+                // Note: This extracts domain from Origin/Referer but does NOT validate against tenant applications.
+                // Security: Domain validation should be done at the authentication boundary (JWT validation in middleware).
+                domain = ResolveApplicationDomain(httpContext?.Request);
+            }
 
             return new BlocksContext(
                 tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
@@ -128,24 +137,29 @@ namespace Blocks.Genesis
             );
         }
 
-        public static BlocksContext CreateSanitizedForTransport(BlocksContext? context)
+        public static object CreateSanitizedForTransport(BlocksContext? context)
         {
-            return new BlocksContext(
-                tenantId: context?.TenantId ?? string.Empty,
-                roles: context?.Roles ?? [],
-                userId: context?.UserId ?? string.Empty,
-                isAuthenticated: context?.IsAuthenticated ?? false,
-                requestUri: string.Empty,
-                organizationId: context?.OrganizationId ?? string.Empty,
-                expireOn: context?.ExpireOn ?? DateTime.MinValue,
-                email: string.Empty,
-                permissions: context?.Permissions ?? [],
-                userName: string.Empty,
-                phoneNumber: string.Empty,
-                displayName: string.Empty,
-                oauthToken: string.Empty,
-                actualTenantId: context?.ActualTenantId ?? context?.TenantId ?? string.Empty,
-                refreshToken: string.Empty);
+            if(context == null) return new { };
+            var maskedEmail = string.IsNullOrEmpty(context.Email) ? "***" : $"***@{context.Email.Split('@')[1]}";
+            var maskedPhoneNumber = string.IsNullOrEmpty(context.PhoneNumber) ? "***" : "***" + context.PhoneNumber.Substring(Math.Max(0, context.PhoneNumber.Length - 4));
+            return new {
+                tenantId = context.TenantId,
+                roles = context.Roles ?? [],
+                userId = context.UserId ?? string.Empty,
+                isAuthenticated = context.IsAuthenticated,
+                requestUri = context.RequestUri ?? string.Empty,
+                organizationId = context.OrganizationId ?? string.Empty,
+                expireOn = context.ExpireOn,
+                email = maskedEmail,
+                permissions = context.Permissions ?? [],
+                userName = context.UserName ?? string.Empty,
+                phoneNumber = maskedPhoneNumber,
+                displayName = context.DisplayName ?? string.Empty,
+                oauthToken = string.Empty,
+                refreshToken = string.Empty,
+                actualTenantId = context.TenantId,
+                applicationDomain = context.ApplicationDomain ?? string.Empty
+            };
         }
 
         /// <summary>
@@ -166,11 +180,11 @@ namespace Blocks.Genesis
             string? displayName,
             string? oauthToken,
             string? refreshToken,
-            string? actualTentId,
+            string? actualTenantId,
             string? applicationDomain = null)
         {
             return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTentId, applicationDomain);
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTenantId, applicationDomain);
         }
 
         /// <summary>
@@ -271,6 +285,18 @@ namespace Blocks.Genesis
             }
         }
 
+        /// <summary>
+        /// Resolves application domain from HTTP request headers (Origin or Referer).
+        /// 
+        /// SECURITY NOTE: This method extracts and normalizes the domain but does NOT validate 
+        /// it against tenant's configured applications. 
+        /// 
+        /// Domain validation must occur at the authentication boundary (e.g., in JWT bearer 
+        /// authentication handler) using TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer).
+        /// 
+        /// This method is primarily used for cookie naming consistency and fallback scenarios
+        /// where the domain has already been validated during authentication.
+        /// </summary>
         public static string ResolveApplicationDomain(HttpRequest? request)
         {
             if (request?.Headers == null)
