@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
@@ -197,7 +197,7 @@ namespace Blocks.Genesis
                 .AddPolicy("Secret", policy => policy.Requirements.Add(new SecretEndPointRequirement()));
 
             services.AddScoped<IAuthorizationHandler, ProtectedEndpointAccessHandler>();
-            services.AddScoped<IAuthorizationHandler, SecretEndPointHendler>();
+            services.AddScoped<IAuthorizationHandler, SecretAuthorizationHandler>();
         }
 
         public static async Task<bool> TryFallbackAsync(
