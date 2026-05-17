@@ -104,17 +104,17 @@ namespace Blocks.Genesis
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
 
-            // First check if applicationDomain was already validated and set in context
-            var existingContext = _asyncLocalContext.Value;
-            var domain = existingContext?.ApplicationDomain ?? string.Empty;
+            var httpContext = GetHttpContext();
+            var domain = ResolveApplicationDomain(httpContext?.Request);
 
-            // Only attempt to resolve from headers if no validated domain is already set
-            if (string.IsNullOrWhiteSpace(domain))
+            string? actualTenantId = null;
+            if (httpContext != null)
             {
-                var httpContext = GetHttpContext();
-                // Note: This extracts domain from Origin/Referer but does NOT validate against tenant applications.
-                // Security: Domain validation should be done at the authentication boundary (JWT validation in middleware).
-                domain = ResolveApplicationDomain(httpContext?.Request);
+                actualTenantId = TenantContextHelper.ResolveTenantIdAsync(httpContext.Request).GetAwaiter().GetResult();
+            }
+            else
+            {
+                actualTenantId = claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty;
             }
 
             return new BlocksContext(
@@ -131,7 +131,7 @@ namespace Blocks.Genesis
                 phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
                 displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
                 oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
-                actualTenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty,
+                actualTenantId: actualTenantId,
                 refreshToken: GetHttpContext()?.Request?.Cookies[$"rt_{domain}"],
                 applicationDomain: domain
             );
@@ -157,7 +157,7 @@ namespace Blocks.Genesis
                 displayName = context.DisplayName ?? string.Empty,
                 oauthToken = string.Empty,
                 refreshToken = string.Empty,
-                actualTenantId = context.TenantId,
+                actualTenantId = context.ActualTenantId ?? context.TenantId ?? string.Empty,
                 applicationDomain = context.ApplicationDomain ?? string.Empty
             };
         }
