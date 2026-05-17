@@ -99,8 +99,9 @@ namespace Blocks.Genesis
 
         private async Task<bool> CheckPermission(string resource, IEnumerable<string> roles, IEnumerable<string> permissions)
         {
-            var collection = _dbContextProvider.GetCollection<BsonDocument>("Permissions");
-            var organizationId = BlocksContext.GetContext()?.OrganizationId;
+            var bc = BlocksContext.GetContext();
+            var collection = bc.Impersonated ? _dbContextProvider.GetCollection<BsonDocument>(bc?.ActualTenantId ?? bc?.TenantId, "Permissions") : _dbContextProvider.GetCollection<BsonDocument>("Permissions");
+            var organizationId = bc?.OrganizationId;
             if (string.IsNullOrWhiteSpace(organizationId))
             {
                 organizationId = "default";
