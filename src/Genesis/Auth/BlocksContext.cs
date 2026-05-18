@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
@@ -28,9 +28,6 @@ namespace Blocks.Genesis
         public const string USER_NAME_CLAIM = "user_name";
         public const string DISPLAY_NAME_CLAIM = "name";
         public const string PHONE_NUMBER_CLAIM = "phone";
-        public const string IMPERSONATED_CLAIM = "impersonated";
-        public const string ACTUAL_TENANT_ID_CLAIM = "actual_tenant_id";
-        public const string ACTOR_USER_CLAIM = "act";
 
         private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
         private static readonly ThreadLocal<bool> _isTestMode = new(() => false);
@@ -44,7 +41,6 @@ namespace Blocks.Genesis
         public DateTime ExpireOn { get; private init; } = DateTime.MinValue;
         public string RequestUri { get; private init; } = string.Empty;
         public string OAuthToken { get; private init; } = string.Empty;
-        public string RefreshToken { get; private init; } = string.Empty;
         public string OrganizationId { get; private init; } = string.Empty;
         public bool IsAuthenticated { get; private init; }
         public string Email { get; private init; } = string.Empty;
@@ -54,8 +50,6 @@ namespace Blocks.Genesis
         public string DisplayName { get; private init; } = string.Empty;
         public string ActualTenantId { get; private init; } = string.Empty;
         public string ApplicationDomain { get; private init; } = string.Empty;
-        public bool Impersonated { get; private init; } = false;
-        public string ActorUser { get; private init; } = string.Empty;
 
         // Thread-safe test mode property
         public static bool IsTestMode
@@ -79,11 +73,8 @@ namespace Blocks.Genesis
             string phoneNumber,
             string displayName,
             string oauthToken,
-            string refreshToken,
             string actualTenantId,
-            string applicationDomain = "",
-            bool impersonated = false,
-            string actorUser = "")
+            string applicationDomain = "")
         {
             TenantId = tenantId ?? string.Empty;
             Roles = roles ?? Array.Empty<string>();
@@ -98,33 +89,20 @@ namespace Blocks.Genesis
             PhoneNumber = phoneNumber ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
             OAuthToken = oauthToken ?? string.Empty;
-            RefreshToken = refreshToken ?? string.Empty;
             ActualTenantId = actualTenantId ?? string.Empty;
             ApplicationDomain = applicationDomain ?? string.Empty;
-            Impersonated = impersonated;
-            ActorUser = actorUser ?? string.Empty;
         }
 
 
         /// <summary>
         /// Creates BlocksContext from ClaimsIdentity
         /// </summary>
-        public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
+        public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity, string? actualTenantId = null)
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
 
             var httpContext = GetHttpContext();
             var domain = ResolveApplicationDomain(httpContext?.Request);
-
-            string? actualTenantId = claimsIdentity.FindFirst(ACTUAL_TENANT_ID_CLAIM)?.Value;
-            if (httpContext != null)
-            {
-                actualTenantId = TenantContextHelper.ResolveTenantIdAsync(httpContext.Request).GetAwaiter().GetResult();
-            }
-            else
-            {
-                actualTenantId = claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty;
-            }
 
             return new BlocksContext(
                 tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
@@ -140,11 +118,8 @@ namespace Blocks.Genesis
                 phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
                 displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
                 oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
-                impersonated: claimsIdentity.FindFirst(IMPERSONATED_CLAIM)?.Value == "true",
-                actualTenantId: actualTenantId,
-                refreshToken: GetHttpContext()?.Request?.Cookies[$"rt_{domain}"],
-                applicationDomain: domain,
-                actorUser: claimsIdentity.FindFirst(ACTOR_USER_CLAIM)?.Value
+                actualTenantId: actualTenantId ?? claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
+                applicationDomain: domain
             );
         }
 
@@ -167,10 +142,8 @@ namespace Blocks.Genesis
                 phoneNumber = maskedPhoneNumber,
                 displayName = context.DisplayName ?? string.Empty,
                 oauthToken = string.Empty,
-                refreshToken = string.Empty,
                 actualTenantId = context.ActualTenantId ?? context.TenantId ?? string.Empty,
                 applicationDomain = context.ApplicationDomain ?? string.Empty,
-                impersonated = context.Impersonated
             };
         }
 
@@ -191,13 +164,11 @@ namespace Blocks.Genesis
             string? phoneNumber,
             string? displayName,
             string? oauthToken,
-            string? refreshToken,
             string? actualTenantId,
-            string? applicationDomain = null,
-            bool impersonated = false)
+            string? applicationDomain = null)
         {
             return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, refreshToken, actualTenantId, applicationDomain, impersonated);
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, actualTenantId, applicationDomain);
         }
 
         /// <summary>

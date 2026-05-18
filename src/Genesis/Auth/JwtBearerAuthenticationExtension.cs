@@ -551,7 +551,6 @@ namespace Blocks.Genesis
                 phoneNumber: string.Empty,
                 displayName: ExtractClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
                 oauthToken: string.Empty,
-                refreshToken: string.Empty,
                 actualTenantId: actualTenantId,
                 applicationDomain: applicationDomain);
 
