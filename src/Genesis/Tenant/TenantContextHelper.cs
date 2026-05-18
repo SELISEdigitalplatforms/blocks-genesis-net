@@ -257,7 +257,6 @@ namespace Blocks.Genesis
                 phoneNumber: string.Empty,
                 displayName: string.Empty,
                 oauthToken: string.Empty,
-                refreshToken: string.Empty,
                 actualTenantId: actualTenantId,
                 applicationDomain: applicationDomain);
 
