@@ -349,6 +349,8 @@ public static class ApplicationConfigurations
 
         app.UseAuthentication();
         app.UseAuthorization();
+        // This middleware only processes requests from root tenant
+        app.UseMiddleware<RootTenantMiddleware>();
 
         afterAuthorization?.Invoke(app);
     }

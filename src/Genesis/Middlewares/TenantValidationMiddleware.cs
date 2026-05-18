@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using OpenTelemetry;
 using System.Diagnostics;
 using System.Text.Json;
@@ -235,7 +235,6 @@ namespace Blocks.Genesis
                 DateTime.MinValue,
                 string.Empty,
                 Array.Empty<string>(),
-                string.Empty,
                 string.Empty,
                 string.Empty,
                 string.Empty,

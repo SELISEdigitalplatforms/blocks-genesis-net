@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Filters;
 using MongoDB.Bson;
@@ -119,19 +119,8 @@ namespace Blocks.Genesis
 
         private async Task<bool> CheckPermission(string resource, IEnumerable<string> roles, IEnumerable<string> permissions)
         {
-            var bc = BlocksContext.GetContext();
-            string? tenantId = null;
-            if (bc != null)
-            {
-                tenantId = bc.Impersonated ? bc.ActualTenantId ?? bc.TenantId : bc.TenantId;
-            }
-            if (string.IsNullOrWhiteSpace(tenantId))
-            {
-                return false;
-            }
-
-            var collection = _dbContextProvider.GetCollection<BsonDocument>(tenantId, "Permissions");
-            var organizationId = bc?.OrganizationId;
+            var collection = _dbContextProvider.GetCollection<BsonDocument>("Permissions");
+            var organizationId = BlocksContext.GetContext()?.OrganizationId;
             if (string.IsNullOrWhiteSpace(organizationId))
             {
                 organizationId = "default";
@@ -151,7 +140,7 @@ namespace Blocks.Genesis
                 )
             );
 
-            return await collection.CountDocumentsAsync(filter).ConfigureAwait(false) > 0;
+            return await collection.Find(filter).Limit(1).AnyAsync().ConfigureAwait(false);
         }
 
 
