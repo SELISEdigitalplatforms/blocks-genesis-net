@@ -50,9 +50,9 @@ internal sealed class RootTenantMiddleware
 
                 if (string.IsNullOrWhiteSpace(projectId))
                 {
-                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.StatusCode = StatusCodes.Status412PreconditionFailed;
                     context.Response.ContentType = "application/json";
-                    var errorResponse = new { status = "unauthorized", message = "invalid_context_id" };
+                    var errorResponse = new { status = "precondition_failed", message = "invalid_context_id" };
                     await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(errorResponse)).ConfigureAwait(false);
                     return;
                 }
