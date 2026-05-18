@@ -35,15 +35,6 @@ namespace Blocks.Genesis
             ConfigureAuthorization(services);
         }
 
-        // Compatibility overload kept for reflective test scaffolds.
-        private static void ConfigureAuthentication(IServiceCollection services, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
-        {
-            _compatTenants = tenants;
-            _compatCacheDb = cacheDb;
-            _compatHttpClientFactory = httpClientFactory;
-            ConfigureAuthenticationInternal(services);
-        }
-
         private static void ConfigureAuthenticationInternal(IServiceCollection services)
         {
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -65,7 +56,7 @@ namespace Blocks.Genesis
                                 return;
                             }
 
-                            var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request, tokenResult.Token);
+                            var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request, tokenResult.Token).ConfigureAwait(true);
                             SetRequestTenantId(context.HttpContext, tenantId);
                             var tenant = tenantId != null ? tenants.GetTenantByID(tenantId) : null;
                             TenantContextHelper.EnsureTenantContext(context.HttpContext, tenant);
@@ -76,30 +67,50 @@ namespace Blocks.Genesis
                                                        tenants,
                                                        tokenResult.Token,
                                                        tenantId,
-                                                       httpClientFactory);
+                                                       httpClientFactory).ConfigureAwait(true);
                                 return;
                             }
 
                             context.Token = tokenResult.Token;
-                            await ConfigureTokenValidationAsync(context, tenants, cacheDb, httpClientFactory, tenantId);
+                            await ConfigureTokenValidationAsync(context, tenants, cacheDb, httpClientFactory, tenantId).ConfigureAwait(true);
                         },
 
-                        OnTokenValidated = context =>
+                        OnTokenValidated = async context =>
                         {
                             BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
+
                             var tenants = ResolveTenants(context.HttpContext);
+
                             if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
                             {
                                 if (!HasServiceAccess(claimsIdentity, context.HttpContext))
                                 {
-                                    context.Fail("Token does not grant access to this service.");
-                                    return Task.CompletedTask;
+                                    context.Fail("service_access_denied");
+
+                                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                                    context.Response.ContentType = "application/json";
+
+                                    await context.Response.WriteAsJsonAsync(new
+                                    {
+                                        success = false,
+                                        error = new
+                                        {
+                                            code = "SERVICE_ACCESS_DENIED",
+                                            message = "You do not have permission to access this service."
+                                        }
+                                    }).ConfigureAwait(true);
+
+                                    return;
                                 }
 
-                                HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), string.Empty);
-                                StoreBlocksContextInActivity(BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
+                                HandleTokenIssuer(
+                                    claimsIdentity,
+                                    context.Request.GetDisplayUrl(),
+                                    string.Empty);
+
+                                StoreBlocksContextInActivity(
+                                    BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
                             }
-                            return Task.CompletedTask;
                         },
 
                         OnAuthenticationFailed = async context =>
