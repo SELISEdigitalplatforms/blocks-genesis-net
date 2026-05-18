@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageReference Include="Azure.Core" Version="1.47.1" />
+	<PackageReference Include="Azure.Core" Version="1.55.0" />
 	<PackageReference Include="Azure.Messaging.ServiceBus" Version="7.20.1" />
 	  <PackageReference Include="RabbitMQ.Client" Version="7.2.1" />
 	<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.7" />
