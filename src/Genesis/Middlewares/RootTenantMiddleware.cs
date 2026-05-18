@@ -18,7 +18,7 @@ internal sealed class RootTenantMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var bc = BlocksContext.GetContext();
-        var isRoot = _tenants.GetTenantByID(bc?.TenantId)?.IsRootTenant ?? false;
+        var isRoot = _tenants.GetTenantByID(bc!.TenantId)?.IsRootTenant ?? false;
 
         if (isRoot)
         {
@@ -26,11 +26,11 @@ internal sealed class RootTenantMiddleware
 
             if (!string.IsNullOrWhiteSpace(contextId))
             {
-                var projectId = await _cacheClient.GetStringValueAsync(contextId);
+                var projectId = await _cacheClient.GetStringValueAsync(contextId).ConfigureAwait(false);
 
                 if (!string.IsNullOrWhiteSpace(projectId))
                 {
-                    Baggage.SetBaggage("ActualTenantId", bc?.TenantId ?? "");
+                    Baggage.SetBaggage("ActualTenantId", bc?.TenantId ?? string.Empty);
 
                     BlocksContext.SetContext(BlocksContext.Create
                      (
@@ -53,12 +53,15 @@ internal sealed class RootTenantMiddleware
 
                     Baggage.SetBaggage("TenantId", projectId);
                 }
-
-                
+                else
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await context.Response.WriteAsync("invalid_context_id").ConfigureAwait(false);
+                    return;
+                }
             }
         }
 
-        await _next(context);
-
+        await _next(context).ConfigureAwait(false);
     }
 }
