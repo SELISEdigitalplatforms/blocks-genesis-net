@@ -10,41 +10,28 @@ internal sealed class RootTenantMiddleware
     private readonly RequestDelegate _next;
     private readonly ITenants _tenants;
     private readonly ICacheClient _cacheClient;
-    private readonly IDbContextProvider _dbContextProvider;
 
-    public RootTenantMiddleware(RequestDelegate next, ITenants tenants, ICacheClient cacheClient, IDbContextProvider dbContextProvider)
+    public RootTenantMiddleware(RequestDelegate next, ITenants tenants, ICacheClient cacheClient)
     {
         _next = next;
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _cacheClient = cacheClient ?? throw new ArgumentNullException(nameof(cacheClient));
-        _dbContextProvider = dbContextProvider ?? throw new ArgumentNullException(nameof(dbContextProvider));
     }
     public async Task InvokeAsync(HttpContext context)
     {
         var bc = BlocksContext.GetContext();
+        if (bc == null || string.IsNullOrWhiteSpace(bc.TenantId))
+        {
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
         var isRoot = _tenants.GetTenantByID(bc!.TenantId)?.IsRootTenant ?? false;
 
         if (isRoot)
         {
             var contextId = context.Request.Headers[BlocksConstants.ProjectContextIdHeader].FirstOrDefault();
 
-            if(string.IsNullOrWhiteSpace(contextId))
-            {
-                var isExist = await _dbContextProvider.GetCollection<BsonDocument>("ProjectPeoples")
-                    .Find(Builders<BsonDocument>.Filter.Eq("UserId", bc?.UserId)
-                    & Builders<BsonDocument>.Filter.Eq("TenantId", bc?.TenantId))
-                    .Limit(1).AnyAsync().ConfigureAwait(false);
-
-                if (!isExist)
-                {
-                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    context.Response.ContentType = "application/json";
-                    var errorResponse = new { status = "forbidden", message = "access_denied" };
-                    await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(errorResponse)).ConfigureAwait(false);
-                    return;
-                }
-            }
-            else
+            if(!string.IsNullOrWhiteSpace(contextId))
             {
                 var projectId = await _cacheClient.GetStringValueAsync(contextId).ConfigureAwait(false);
 
