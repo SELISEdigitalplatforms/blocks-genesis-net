@@ -45,7 +45,7 @@ internal sealed class RootTenantMiddleware
                 }
                 else
                 {
-                    Baggage.SetBaggage("ActualTenantId", bc?.TenantId ?? string.Empty);
+                    Baggage.SetBaggage("OriginalTenantId", bc?.TenantId ?? string.Empty);
 
                     BlocksContext.SetContext(BlocksContext.Create
                      (
@@ -62,7 +62,7 @@ internal sealed class RootTenantMiddleware
                         phoneNumber: bc?.PhoneNumber ?? string.Empty,
                         displayName: bc?.DisplayName ?? string.Empty,
                         oauthToken: bc?.OAuthToken ?? string.Empty,
-                        actualTenantId: bc?.TenantId ?? string.Empty,
+                        originalTenantId: bc?.TenantId ?? string.Empty,
                         applicationDomain: bc?.ApplicationDomain ?? string.Empty
                     ));
 
