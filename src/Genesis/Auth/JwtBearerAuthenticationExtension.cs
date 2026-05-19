@@ -502,7 +502,6 @@ namespace Blocks.Genesis
 
         private static async Task StoreThirdPartyBlocksContextActivity(ClaimsIdentity identity, TokenValidatedContext context, Tenant tenant)
         {
-            var actualTenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request);
             var dbContext = context.HttpContext.RequestServices.GetRequiredService<IDbContextProvider>();
             var claimsMapper = await (await dbContext.GetCollection<BsonDocument>("ThirdPartyJWTClaims").FindAsync(Builders<BsonDocument>.Filter.Empty)).FirstOrDefaultAsync();
             
@@ -529,7 +528,7 @@ namespace Blocks.Genesis
 
 
             var mappedContext = BlocksContext.Create(
-                tenantId: actualTenantId,
+                tenantId: tenant.ItemId,
                 roles: roleClaim,
 
                 userId: ExtractClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim + "_external" :
@@ -551,7 +550,7 @@ namespace Blocks.Genesis
                 phoneNumber: string.Empty,
                 displayName: ExtractClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
                 oauthToken: string.Empty,
-                actualTenantId: actualTenantId,
+                originalTenantId: tenant.ItemId,
                 applicationDomain: applicationDomain);
 
             BlocksContext.SetContext(mappedContext);

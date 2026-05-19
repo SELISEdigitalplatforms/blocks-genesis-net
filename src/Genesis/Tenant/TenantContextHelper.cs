@@ -241,7 +241,7 @@ namespace Blocks.Genesis
 
             var applicationDomain = ResolveApplicationDomain(tenant, origin, referer);
 
-            string actualTenantId = tenant.TenantId;
+            string originalTenantId = tenant.TenantId;
 
             var seededContext = BlocksContext.Create(
                 tenantId: tenant.TenantId,
@@ -257,7 +257,7 @@ namespace Blocks.Genesis
                 phoneNumber: string.Empty,
                 displayName: string.Empty,
                 oauthToken: string.Empty,
-                actualTenantId: actualTenantId,
+                originalTenantId: originalTenantId,
                 applicationDomain: applicationDomain);
 
             BlocksContext.SetContext(seededContext, false);

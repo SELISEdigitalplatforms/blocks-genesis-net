@@ -28,6 +28,8 @@ namespace Blocks.Genesis
         public const string USER_NAME_CLAIM = "user_name";
         public const string DISPLAY_NAME_CLAIM = "name";
         public const string PHONE_NUMBER_CLAIM = "phone";
+        public const string IMPERSONATED_CLAIM = "impersonated";
+        public const string ORIGINAL_TENANT_ID_CLAIM = "original_tenant_id";
 
         private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
         private static readonly ThreadLocal<bool> _isTestMode = new(() => false);
@@ -48,8 +50,9 @@ namespace Blocks.Genesis
         public string UserName { get; private init; } = string.Empty;
         public string PhoneNumber { get; private init; } = string.Empty;
         public string DisplayName { get; private init; } = string.Empty;
-        public string ActualTenantId { get; private init; } = string.Empty;
+        public string OriginalTenantId { get; private init; } = string.Empty;
         public string ApplicationDomain { get; private init; } = string.Empty;
+        public bool Impersonated { get; private init; } = false;
 
         // Thread-safe test mode property
         public static bool IsTestMode
@@ -73,8 +76,9 @@ namespace Blocks.Genesis
             string phoneNumber,
             string displayName,
             string oauthToken,
-            string actualTenantId,
-            string applicationDomain = "")
+            string originalTenantId,
+            string applicationDomain = "",
+            bool impersonated = false)
         {
             TenantId = tenantId ?? string.Empty;
             Roles = roles ?? Array.Empty<string>();
@@ -89,20 +93,31 @@ namespace Blocks.Genesis
             PhoneNumber = phoneNumber ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
             OAuthToken = oauthToken ?? string.Empty;
-            ActualTenantId = actualTenantId ?? string.Empty;
+            OriginalTenantId = originalTenantId ?? string.Empty;
             ApplicationDomain = applicationDomain ?? string.Empty;
+            Impersonated = impersonated;
         }
 
 
         /// <summary>
         /// Creates BlocksContext from ClaimsIdentity
         /// </summary>
-        public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity, string? actualTenantId = null)
+        public static BlocksContext CreateFromClaimsIdentity(ClaimsIdentity claimsIdentity)
         {
             ArgumentNullException.ThrowIfNull(claimsIdentity);
 
             var httpContext = GetHttpContext();
             var domain = ResolveApplicationDomain(httpContext?.Request);
+
+            string? originalTenantId = claimsIdentity.FindFirst(ORIGINAL_TENANT_ID_CLAIM)?.Value;
+            if (httpContext != null)
+            {
+                originalTenantId = TenantContextHelper.ResolveTenantIdAsync(httpContext.Request).GetAwaiter().GetResult();
+            }
+            else
+            {
+                originalTenantId = claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty;
+            }
 
             return new BlocksContext(
                 tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
@@ -118,8 +133,9 @@ namespace Blocks.Genesis
                 phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
                 displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
                 oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
-                actualTenantId: actualTenantId ?? claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
-                applicationDomain: domain
+                originalTenantId: originalTenantId,
+                applicationDomain: domain,
+                impersonated: claimsIdentity.FindFirst(IMPERSONATED_CLAIM)?.Value == "true"
             );
         }
 
@@ -142,8 +158,9 @@ namespace Blocks.Genesis
                 phoneNumber = maskedPhoneNumber,
                 displayName = context.DisplayName ?? string.Empty,
                 oauthToken = string.Empty,
-                actualTenantId = context.ActualTenantId ?? context.TenantId ?? string.Empty,
+                originalTenantId = context.OriginalTenantId ?? context.TenantId ?? string.Empty,
                 applicationDomain = context.ApplicationDomain ?? string.Empty,
+                impersonated = context.Impersonated,
             };
         }
 
@@ -164,11 +181,12 @@ namespace Blocks.Genesis
             string? phoneNumber,
             string? displayName,
             string? oauthToken,
-            string? actualTenantId,
-            string? applicationDomain = null)
+            string? originalTenantId,
+            string? applicationDomain = null,
+            bool impersonated = false)
         {
             return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, actualTenantId, applicationDomain);
+                organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, originalTenantId, applicationDomain, impersonated);
         }
 
         /// <summary>
