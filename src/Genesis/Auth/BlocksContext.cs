@@ -145,22 +145,22 @@ namespace Blocks.Genesis
             var maskedEmail = string.IsNullOrEmpty(context.Email) ? "***" : $"***@{context.Email.Split('@')[1]}";
             var maskedPhoneNumber = string.IsNullOrEmpty(context.PhoneNumber) ? "***" : "***" + context.PhoneNumber.Substring(Math.Max(0, context.PhoneNumber.Length - 4));
             return new {
-                tenantId = context.TenantId,
-                roles = context.Roles ?? [],
-                userId = context.UserId ?? string.Empty,
-                isAuthenticated = context.IsAuthenticated,
-                requestUri = context.RequestUri ?? string.Empty,
-                organizationId = context.OrganizationId ?? string.Empty,
-                expireOn = context.ExpireOn,
-                email = maskedEmail,
-                permissions = context.Permissions ?? [],
-                userName = context.UserName ?? string.Empty,
-                phoneNumber = maskedPhoneNumber,
-                displayName = context.DisplayName ?? string.Empty,
-                oauthToken = string.Empty,
-                originalTenantId = context.OriginalTenantId ?? context.TenantId ?? string.Empty,
-                applicationDomain = context.ApplicationDomain ?? string.Empty,
-                impersonated = context.Impersonated,
+                TenantId = context.TenantId,
+                Roles = context.Roles ?? [],
+                UserId = context.UserId ?? string.Empty,
+                IsAuthenticated = context.IsAuthenticated,
+                RequestUri = context.RequestUri ?? string.Empty,
+                OrganizationId = context.OrganizationId ?? string.Empty,
+                ExpireOn = context.ExpireOn,
+                Email = maskedEmail,
+                Permissions = context.Permissions ?? [],
+                UserName = context.UserName ?? string.Empty,
+                PhoneNumber = maskedPhoneNumber,
+                DisplayName = context.DisplayName ?? string.Empty,
+                OauthToken = string.Empty,
+                OriginalTenantId = context.OriginalTenantId ?? context.TenantId ?? string.Empty,
+                ApplicationDomain = context.ApplicationDomain ?? string.Empty,
+                Impersonated  = context.Impersonated,
             };
         }
 
