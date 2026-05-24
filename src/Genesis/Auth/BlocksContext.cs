@@ -142,8 +142,14 @@ namespace Blocks.Genesis
         public static object CreateSanitizedForTransport(BlocksContext? context)
         {
             if(context == null) return new { };
-            var maskedEmail = string.IsNullOrEmpty(context.Email) ? "***" : $"***@{context.Email.Split('@')[1]}";
-            var maskedPhoneNumber = string.IsNullOrEmpty(context.PhoneNumber) ? "***" : "***" + context.PhoneNumber.Substring(Math.Max(0, context.PhoneNumber.Length - 4));
+            var maskedEmail = string.IsNullOrWhiteSpace(context.Email) || !context.Email.Contains('@')
+                              ? "***"
+                              : $"***@{context.Email.Split('@')[1]}";
+
+            var maskedPhoneNumber = string.IsNullOrWhiteSpace(context.PhoneNumber) || context.PhoneNumber == "***"
+                                    ? "***"
+                                    : $"***{context.PhoneNumber.Substring(Math.Max(0, context.PhoneNumber.Length - 4))}";
+
             return new {
                 TenantId = context.TenantId,
                 Roles = context.Roles ?? [],
