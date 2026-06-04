@@ -44,6 +44,16 @@ namespace Blocks.Genesis
                     {
                         OnMessageReceived = async context =>
                         {
+                            var endpoint = context.HttpContext.GetEndpoint();
+                            var allowsAnonymous = endpoint?.Metadata?.GetMetadata<IAllowAnonymous>() != null;
+                            var hasAuthorizationMetadata = endpoint?.Metadata?.GetMetadata<IAuthorizeData>() != null;
+                            if (allowsAnonymous || !hasAuthorizationMetadata)
+                            {
+                                // Skip JWT parsing/validation for public endpoints.
+                                // Public means either [AllowAnonymous] or no auth attribute at all.
+                                return;
+                            }
+
                             BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
                             var tenants = ResolveTenants(context.HttpContext);
                             var cacheDb = ResolveCacheDatabase(context.HttpContext);
