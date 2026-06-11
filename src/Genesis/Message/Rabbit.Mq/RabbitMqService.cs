@@ -30,7 +30,7 @@ namespace Blocks.Genesis
                 var factory = new ConnectionFactory
                 {
                     Uri = new Uri(_config.Connection),
-                    VirtualHost = "/",
+                    //VirtualHost = "/",
                     ContinuationTimeout = TimeSpan.FromSeconds(62),
                     AutomaticRecoveryEnabled = true
                 };
