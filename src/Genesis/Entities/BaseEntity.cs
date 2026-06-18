@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace Blocks.Genesis
 {
@@ -12,7 +12,7 @@ namespace Blocks.Genesis
         public string? CreatedBy { get; set; }
         public string? Language { get; set; }
         public string? LastUpdatedBy { get; set; }
-        public List<string> OrganizationIds { get; set; } = new List<string>();
+        public string OrganizationId { get; set; } = "default";
         public List<string> Tags { get; set; } = new List<string>();
     }
 }
