@@ -216,7 +216,7 @@ namespace Blocks.Genesis
             {
                 return _database
                     .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(t => t.ItemId == tenantId || t.TenantId == tenantId)
+                    .Find(t => t.TenantId == tenantId && !t.IsDisabled)
                     .FirstOrDefault();
             }
             catch (Exception ex)

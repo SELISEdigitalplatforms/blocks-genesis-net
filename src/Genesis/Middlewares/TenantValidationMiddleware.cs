@@ -67,7 +67,7 @@ namespace Blocks.Genesis
                 tenant = _tenants.GetTenantByID(tenantId);
             }
 
-            if (tenant is null || tenant.IsDisabled)
+            if (tenant is null)
             {
                 await TenantContextHelper.RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
                 return;
