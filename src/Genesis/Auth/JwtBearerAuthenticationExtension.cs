@@ -93,26 +93,6 @@ namespace Blocks.Genesis
 
                             if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
                             {
-                                if (!HasServiceAccess(claimsIdentity, context.HttpContext))
-                                {
-                                    context.Fail("service_access_denied");
-
-                                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                                    context.Response.ContentType = "application/json";
-
-                                    await context.Response.WriteAsJsonAsync(new
-                                    {
-                                        success = false,
-                                        error = new
-                                        {
-                                            code = "SERVICE_ACCESS_DENIED",
-                                            message = "You do not have permission to access this service."
-                                        }
-                                    }).ConfigureAwait(true);
-
-                                    return;
-                                }
-
                                 HandleTokenIssuer(
                                     claimsIdentity,
                                     context.Request.GetDisplayUrl(),
@@ -274,23 +254,6 @@ namespace Blocks.Genesis
             };
 
             Log.Information("[Security] {Payload}", JsonSerializer.Serialize(payload));
-        }
-
-        private static bool HasServiceAccess(ClaimsIdentity identity, HttpContext httpContext)
-        {
-            var requiredResource = ApplicationConfigurations.ServiceAccessResourceName;
-
-            if (string.IsNullOrWhiteSpace(requiredResource))
-            {
-                return true;
-            }
-
-            return identity.FindAll(BlocksContext.SERVICE_ACCESS_CLAIM)
-                .Select(claim => claim.Value)
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Any(resource => string.Equals(resource, requiredResource, StringComparison.OrdinalIgnoreCase));
         }
 
         private static void SetRequestAccessToken(HttpContext context, string token)
