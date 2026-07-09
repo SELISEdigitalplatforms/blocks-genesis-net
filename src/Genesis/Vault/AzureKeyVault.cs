@@ -1,4 +1,5 @@
-﻿using Azure.Identity;
+using Azure.Core;
+using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.Configuration;
 using Serilog;
@@ -9,11 +10,14 @@ namespace Blocks.Genesis
     {
         private SecretClient _secretClient = default!;
         private string _keyVaultUrl = string.Empty;
-
+        private string? _clientId = string.Empty;
+        private string? _clientSecret = string.Empty;
+        private string? _tenantId = string.Empty;
+        private const string _azureVaultUrl = "https://vault.azure.net/.default";
         public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
         {
             ExtractValuesFromGlobalConfig(GetVaultConfig());
-            ConnectToAzureKeyVaultSecret();
+             await ConnectToAzureKeyVaultSecret().ConfigureAwait(false);
             return await GetSecretsFromVaultAsync(keys).ConfigureAwait(false);
         }
 
@@ -34,17 +38,51 @@ namespace Blocks.Genesis
             }
 
             _keyVaultUrl = keyVaultUrl;
+            cloudConfig.TryGetValue("ClientId", out _clientId);
+            cloudConfig.TryGetValue("ClientSecret", out _clientSecret);
+            cloudConfig.TryGetValue("TenantId", out _tenantId);
         }
 
-        private void ConnectToAzureKeyVaultSecret()
+        private async Task ConnectToAzureKeyVaultSecret()
         {
-            // DefaultAzureCredential covers local dev (az login, VS, VS Code) and
-            // production (Managed Identity, Workload Identity) in a single credential.
-            var credential = new DefaultAzureCredential();
+            var credentialFactories = new List<Func<TokenCredential?>>
+            {
+                () => new DefaultAzureCredential(),
+                () => HasClientSecretConfig()
+                    ? new ClientSecretCredential(_tenantId, _clientId, _clientSecret)
+                    : null
+            };
 
-            _secretClient = new SecretClient(new Uri(_keyVaultUrl), credential);
+            foreach (var makeCredential in credentialFactories)
+            {
+                var credential = makeCredential();
+                if (credential is null)
+                {
+                    continue;
+                }
+
+                if (await CanAcquireTokenAsync(credential).ConfigureAwait(false))
+                {
+                    _secretClient = new SecretClient(new Uri(_keyVaultUrl), credential);
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException("Unable to authenticate to Key Vault: no credential succeeded.");
         }
-
+        private async Task<bool> CanAcquireTokenAsync(TokenCredential credential)
+        {
+            try
+            {
+                var context = new TokenRequestContext(new[] { _azureVaultUrl });
+                await credential.GetTokenAsync(context, CancellationToken.None).ConfigureAwait(false);
+                return true;
+            }
+            catch (AuthenticationFailedException)
+            {
+                return false;
+            }
+        }
         private async Task<Dictionary<string, string>> GetSecretsFromVaultAsync(List<string> keys)
         {
             var secrets = new Dictionary<string, string>();
@@ -60,9 +98,9 @@ namespace Blocks.Genesis
 
             return secrets;
         }
-
+       
         private async Task<string> GetSecretFromKeyVaultAsync(string key)
-        {
+        {   
             try
             {
                 var secret = await _secretClient.GetSecretAsync(key).ConfigureAwait(false);
@@ -74,5 +112,7 @@ namespace Blocks.Genesis
                 return string.Empty;
             }
         }
+        private bool HasClientSecretConfig() =>
+            !string.IsNullOrWhiteSpace(_clientId) && !string.IsNullOrWhiteSpace(_clientSecret) &&!string.IsNullOrWhiteSpace(_tenantId);
     }
 }
