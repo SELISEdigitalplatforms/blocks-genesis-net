@@ -45,30 +45,36 @@ namespace Blocks.Genesis
             return GetDatabase(securityContext.TenantId);
         }
 
-        public IMongoDatabase GetDatabase(string connectionString, string databaseName)
+        public IMongoDatabase GetDatabase ( string connectionString, string databaseName, bool isCacheRefreshed )
         {
             if (string.IsNullOrWhiteSpace(connectionString))
                 throw new ArgumentNullException(nameof(connectionString), "Connection string cannot be null or empty.");
+
             if (string.IsNullOrWhiteSpace(databaseName))
                 throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
 
             var dbKey = databaseName.ToLower();
+
+            if (isCacheRefreshed && _databases.TryGetValue(dbKey, out var database))
+                {
+                _logger.LogInformation("Database instance for {DatabaseName} already exists in cache.", databaseName);
+
+                // Check if the existing database instance is still valid (e.g., connection is alive)
+                if (IsSameDbConnection(database, connectionString))
+                    {
+                    return database;
+                    }
+                else
+                    {
+                    _databases.TryRemove(dbKey, out _);
+                    }
+                }
 
             return _databases.GetOrAdd(dbKey, key =>
             {
                 _logger.LogInformation("Creating database instance for: {DatabaseName}", key);
                 return CreateMongoClient(connectionString).GetDatabase(databaseName);
             });
-        }
-        public IMongoDatabase GetDatabaseWithoutCache ( string connectionString, string databaseName )
-        {
-            if (string.IsNullOrWhiteSpace(connectionString))
-                throw new ArgumentNullException(nameof(connectionString), "Connection string cannot be null or empty.");
-            if (string.IsNullOrWhiteSpace(databaseName))
-                throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
-
-            var dbKey = databaseName.ToLower();
-            return CreateMongoClient(connectionString).GetDatabase(databaseName);
         }
 
         public IMongoCollection<T> GetCollection<T>(string collectionName)
@@ -121,6 +127,18 @@ namespace Blocks.Genesis
                 settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
                 return new MongoClient(settings);
             });
+        }
+        private bool IsSameDbConnection ( IMongoDatabase database, string connectionString )
+        {
+
+            MongoClientSettings existingSettings = database.Client.Settings;
+
+            MongoClientSettings newSettings = MongoClientSettings.FromConnectionString(connectionString);
+
+            // MongoClientSettings overrides Equals to do a deep comparison of all properties
+
+            return existingSettings.Equals(newSettings);
+
         }
     }
 }
