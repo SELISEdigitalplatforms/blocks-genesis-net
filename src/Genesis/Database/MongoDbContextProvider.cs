@@ -45,7 +45,7 @@ namespace Blocks.Genesis
             return GetDatabase(securityContext.TenantId);
         }
 
-        public IMongoDatabase GetDatabase ( string connectionString, string databaseName, bool isCacheRefreshed )
+        public IMongoDatabase GetDatabase ( string connectionString, string databaseName, bool isCacheRefreshed=false )
         {
             if (string.IsNullOrWhiteSpace(connectionString))
                 throw new ArgumentNullException(nameof(connectionString), "Connection string cannot be null or empty.");
