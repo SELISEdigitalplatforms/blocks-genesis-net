@@ -1,4 +1,4 @@
-﻿using MongoDB.Driver;
+using MongoDB.Driver;
 
 namespace Blocks.Genesis
 {
@@ -19,15 +19,14 @@ namespace Blocks.Genesis
         /// </summary>
         /// <returns>The default MongoDB database, or null if not available.</returns>
         IMongoDatabase? GetDatabase();
-
         /// <summary>
-        /// Gets a MongoDB database using the specified connection string and database name.
+        /// 
         /// </summary>
-        /// <param name="connectionString">The connection string for the MongoDB server.</param>
-        /// <param name="databaseName">The name of the database to connect to.</param>
-        /// <returns>The specified MongoDB database.</returns>
-        IMongoDatabase GetDatabase(string connectionString, string databaseName);
-
+        /// <param name="connectionString"></param>
+        /// <param name="databaseName"></param>
+        /// <param name="isCacheRefreshed"></param>
+    /// <returns></returns>
+        IMongoDatabase GetDatabase ( string connectionString, string databaseName, bool isCacheRefreshed = false );
         /// <summary>
         /// Gets a MongoDB collection for the specified collection name.
         /// </summary>
@@ -44,5 +43,6 @@ namespace Blocks.Genesis
         /// <param name="collectionName">The name of the collection.</param>
         /// <returns>The MongoDB collection of the specified type for the specified tenant.</returns>
         IMongoCollection<T> GetCollection<T>(string tenantId, string collectionName);
+
     }
 }
