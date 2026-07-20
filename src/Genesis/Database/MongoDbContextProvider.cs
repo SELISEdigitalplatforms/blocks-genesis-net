@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -59,6 +59,16 @@ namespace Blocks.Genesis
                 _logger.LogInformation("Creating database instance for: {DatabaseName}", key);
                 return CreateMongoClient(connectionString).GetDatabase(databaseName);
             });
+        }
+        public IMongoDatabase GetDatabaseWithoutCache ( string connectionString, string databaseName )
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+                throw new ArgumentNullException(nameof(connectionString), "Connection string cannot be null or empty.");
+            if (string.IsNullOrWhiteSpace(databaseName))
+                throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
+
+            var dbKey = databaseName.ToLower();
+            return CreateMongoClient(connectionString).GetDatabase(databaseName);
         }
 
         public IMongoCollection<T> GetCollection<T>(string collectionName)
