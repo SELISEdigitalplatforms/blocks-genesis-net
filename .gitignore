@@ -1000,3 +1000,11 @@ copilot-instructions.md
 !CONTRIBUTING.md
 !SECURITY.md
 !CODE_OF_CONDUCT.md
+.sonarqube/
+.scannerwork/
+*.trufflehog.json
+*-secrets.json
+*sbom*.json
+*.cdx.json
+zap-*.xml
+*-semgrep.sarif

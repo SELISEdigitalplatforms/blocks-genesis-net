@@ -4,6 +4,12 @@ using System.Reflection;
 
 namespace XUnitTest.Tenant;
 
+/// <summary>
+/// Tests for the internal <c>TenantContextHelper</c>. <c>ResolveTenantIdAsync</c> resolves the
+/// tenant id from request headers, query string, form body, then a JWT token (in that order);
+/// <c>EnsureTenantContext</c> seeds a <see cref="BlocksContext"/> for a resolved tenant unless the
+/// tenant is null or the current context already targets the same tenant.
+/// </summary>
 public class TenantContextHelperTests : IDisposable
 {
     public TenantContextHelperTests()
@@ -21,59 +27,54 @@ public class TenantContextHelperTests : IDisposable
     }
 
     [Fact]
-    public void ResolveTenantId_ShouldReturnHeaderValue()
+    public async Task ResolveTenantId_ShouldReturnHeaderValue()
     {
-        var method = GetResolveMethod();
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers[BlocksConstants.BlocksKey] = "header-tenant";
 
-        var result = (string?)method.Invoke(null, [httpContext.Request, null]);
+        var result = await InvokeResolveAsync(httpContext.Request, null);
 
         Assert.Equal("header-tenant", result);
     }
 
     [Fact]
-    public void ResolveTenantId_ShouldReturnQueryValue_WhenNoHeader()
+    public async Task ResolveTenantId_ShouldReturnQueryValue_WhenNoHeader()
     {
-        var method = GetResolveMethod();
         var httpContext = new DefaultHttpContext();
         httpContext.Request.QueryString = new QueryString($"?{BlocksConstants.BlocksKey}=query-tenant");
 
-        var result = (string?)method.Invoke(null, [httpContext.Request, null]);
+        var result = await InvokeResolveAsync(httpContext.Request, null);
 
         Assert.Equal("query-tenant", result);
     }
 
     [Fact]
-    public void ResolveTenantId_ShouldReturnNull_WhenNoHeaderOrQueryOrToken()
+    public async Task ResolveTenantId_ShouldReturnNull_WhenNoHeaderOrQueryOrToken()
     {
-        var method = GetResolveMethod();
         var httpContext = new DefaultHttpContext();
 
-        var result = (string?)method.Invoke(null, [httpContext.Request, null]);
+        var result = await InvokeResolveAsync(httpContext.Request, null);
 
         Assert.Null(result);
     }
 
     [Fact]
-    public void ResolveTenantId_ShouldReturnNull_ForInvalidToken()
+    public async Task ResolveTenantId_ShouldReturnNull_ForInvalidToken()
     {
-        var method = GetResolveMethod();
         var httpContext = new DefaultHttpContext();
 
-        var result = (string?)method.Invoke(null, [httpContext.Request, "not-a-valid-jwt"]);
+        var result = await InvokeResolveAsync(httpContext.Request, "not-a-valid-jwt");
 
         Assert.Null(result);
     }
 
     [Fact]
-    public void EnsureTenantContext_ShouldSetContext_WhenTenantIdNotEmpty()
+    public void EnsureTenantContext_ShouldSetContext_WhenTenantIsProvided()
     {
-        var method = GetEnsureMethod();
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Host = new HostString("app.local");
 
-        method.Invoke(null, [httpContext, "my-tenant"]);
+        GetEnsureMethod().Invoke(null, [httpContext, CreateTenant("my-tenant")]);
 
         var ctx = BlocksContext.GetContext();
         Assert.NotNull(ctx);
@@ -81,12 +82,11 @@ public class TenantContextHelperTests : IDisposable
     }
 
     [Fact]
-    public void EnsureTenantContext_ShouldNotSetContext_WhenTenantIdIsEmpty()
+    public void EnsureTenantContext_ShouldNotSetContext_WhenTenantIsNull()
     {
-        var method = GetEnsureMethod();
         var httpContext = new DefaultHttpContext();
 
-        method.Invoke(null, [httpContext, ""]);
+        GetEnsureMethod().Invoke(null, [httpContext, null]);
 
         var ctx = BlocksContext.GetContext();
         Assert.True(ctx == null || string.IsNullOrEmpty(ctx.UserId));
@@ -97,23 +97,25 @@ public class TenantContextHelperTests : IDisposable
     {
         var existing = BlocksContext.Create(
             "same-tenant", ["admin"], "u1", true, "/api", "org",
-            DateTime.MinValue, "e@e.com", ["read"], "user", "", "", "token", "", "same-tenant");
+            DateTime.MinValue, "e@e.com", ["read"], "user", "", "", "token", "same-tenant");
         BlocksContext.SetContext(existing);
 
-        var method = GetEnsureMethod();
         var httpContext = new DefaultHttpContext();
 
-        method.Invoke(null, [httpContext, "same-tenant"]);
+        GetEnsureMethod().Invoke(null, [httpContext, CreateTenant("same-tenant")]);
 
         var ctx = BlocksContext.GetContext();
         Assert.Equal("same-tenant", ctx!.TenantId);
-        Assert.Equal("u1", ctx.UserId); // Original context preserved
+        Assert.Equal("u1", ctx.UserId); // Original context preserved because the tenant is unchanged.
     }
 
-    private static MethodInfo GetResolveMethod()
+    // ---- helpers ----
+
+    private static async Task<string?> InvokeResolveAsync(HttpRequest request, string? token)
     {
         var type = typeof(BlocksContext).Assembly.GetType("Blocks.Genesis.TenantContextHelper")!;
-        return type.GetMethod("ResolveTenantId", BindingFlags.Public | BindingFlags.Static)!;
+        var method = type.GetMethod("ResolveTenantIdAsync", BindingFlags.Public | BindingFlags.Static)!;
+        return await (Task<string?>)method.Invoke(null, [request, token])!;
     }
 
     private static MethodInfo GetEnsureMethod()
@@ -121,4 +123,21 @@ public class TenantContextHelperTests : IDisposable
         var type = typeof(BlocksContext).Assembly.GetType("Blocks.Genesis.TenantContextHelper")!;
         return type.GetMethod("EnsureTenantContext", BindingFlags.Public | BindingFlags.Static)!;
     }
+
+    private static Blocks.Genesis.Tenant CreateTenant(string tenantId) => new()
+    {
+        TenantId = tenantId,
+        Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
+        DbConnectionString = "mongodb://localhost:27017",
+        JwtTokenParameters = new JwtTokenParameters
+        {
+            Issuer = "issuer",
+            Subject = "subject",
+            Audiences = [],
+            PublicCertificatePath = "path",
+            PublicCertificatePassword = "pw",
+            PrivateCertificatePassword = "private",
+            IssueDate = DateTime.UtcNow
+        }
+    };
 }

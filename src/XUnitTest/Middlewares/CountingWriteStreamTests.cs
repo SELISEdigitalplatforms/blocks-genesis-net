@@ -26,7 +26,7 @@ public class CountingWriteStreamTests
             await ctx.Response.Body.WriteAsync(Encoding.UTF8.GetBytes("!"));
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-cw";
 
@@ -56,7 +56,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-span";
 
@@ -84,7 +84,7 @@ public class CountingWriteStreamTests
             await ctx.Response.Body.FlushAsync();
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-flush";
 
@@ -103,7 +103,7 @@ public class CountingWriteStreamTests
 
         tenants.Setup(t => t.GetTenantByID("tenant-restore")).Returns(tenant);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         var originalBody = context.Response.Body;
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-restore";
@@ -130,7 +130,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-read";
 
@@ -157,7 +157,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-props";
 
@@ -193,7 +193,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-seek";
 
@@ -221,7 +221,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-setlength";
 
@@ -251,7 +251,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-pos";
 
@@ -283,7 +283,7 @@ public class CountingWriteStreamTests
             Assert.Equal("read me", Encoding.UTF8.GetString(buffer));
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-readasync";
 
@@ -311,7 +311,7 @@ public class CountingWriteStreamTests
             Assert.Equal(10, bytesRead);
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-readarray";
 
@@ -340,7 +340,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-readspan";
 
@@ -364,7 +364,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-writespan";
 
@@ -392,7 +392,7 @@ public class CountingWriteStreamTests
             await ctx.Response.Body.WriteAsync(data, 0, data.Length);
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-writeasyncarray";
 
@@ -421,7 +421,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-flush2";
 
@@ -447,7 +447,7 @@ public class CountingWriteStreamTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-dispose";
 
@@ -472,7 +472,7 @@ public class CountingWriteStreamTests
             await Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-disposeasync";
 
@@ -498,7 +498,7 @@ public class CountingWriteStreamTests
         return new Blocks.Genesis.Tenant
         {
             TenantId = tenantId,
-            ApplicationDomain = applicationDomain,
+            Applications = [new Blocks.Genesis.Applications { Domain = applicationDomain }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
