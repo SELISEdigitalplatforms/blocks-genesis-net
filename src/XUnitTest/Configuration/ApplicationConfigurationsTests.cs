@@ -77,7 +77,7 @@ public class ApplicationConfigurationsTests
 
         var builder = WebApplication.CreateBuilder();
         RegisterApiPrerequisites(builder.Services);
-        ApplicationConfigurations.ConfigureApi(builder.Services);
+        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-pipeline");
         var app = builder.Build();
 
         var ex = Record.Exception(() => ApplicationConfigurations.ConfigureMiddleware(app));
@@ -106,7 +106,7 @@ public class ApplicationConfigurationsTests
             XmlCommentsFilePath = "swagger-enabled.xml",
             EnableBearerAuth = false
         });
-        ApplicationConfigurations.ConfigureApi(builder.Services);
+        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-hooks");
         var app = builder.Build();
 
         var beforeAuthCalled = false;

@@ -160,7 +160,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var tenant = new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-jwks",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -476,7 +476,6 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         Assert.Equal("tenant-a", sanitized.TenantId);
         Assert.Equal("user-a", sanitized.UserId);
         Assert.Equal(string.Empty, sanitized.OAuthToken);
-        Assert.Equal(string.Empty, sanitized.RefreshToken);
     }
 
     [Fact]
@@ -589,7 +588,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             tenants.Setup(t => t.GetTenantByID("tenant-third")).Returns(new Blocks.Genesis.Tenant
             {
                 TenantId = "tenant-third",
-                ApplicationDomain = "app.local",
+                Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
                 DbConnectionString = "mongodb://localhost:27017",
                 JwtTokenParameters = new JwtTokenParameters
                 {
@@ -831,7 +830,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         tenants.Setup(t => t.GetTenantByID("tenant-auth-failed")).Returns(new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-auth-failed",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -901,7 +900,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             tenants.Setup(t => t.GetTenantByID("tenant-fallback-cert")).Returns(new Blocks.Genesis.Tenant
             {
                 TenantId = "tenant-fallback-cert",
-                ApplicationDomain = "app.local",
+                Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
                 DbConnectionString = "mongodb://localhost:27017",
                 JwtTokenParameters = new JwtTokenParameters
                 {
@@ -947,7 +946,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         tenants.Setup(t => t.GetTenantByID("tenant-no-fallback")).Returns(new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-no-fallback",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {

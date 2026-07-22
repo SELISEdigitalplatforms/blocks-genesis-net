@@ -76,7 +76,7 @@ public class GrpcInterceptorTests
         tenants.Setup(t => t.GetTenantByID("tenant-1"))
             .Returns(new Blocks.Genesis.Tenant
             {
-                ApplicationDomain = "app.example",
+                Applications = [new Blocks.Genesis.Applications { Domain = "app.example" }],
                 DbConnectionString = "mongodb://localhost",
                 JwtTokenParameters = new JwtTokenParameters
                 {
@@ -210,8 +210,7 @@ public class GrpcInterceptorTests
             phoneNumber: "000",
             displayName: "User",
             oauthToken: "token",
-            refreshToken: "refresh",
-            actualTenantId: tenantId);
+            originalTenantId: tenantId);
     }
 
     private static Method<string, string> CreateStringMethod()

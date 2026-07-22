@@ -331,7 +331,7 @@ public class ProtectedEndpointAccessHandlerScaffoldTests
         {
             TenantId = "project-1",
             CreatedBy = "user-1",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -559,7 +559,7 @@ public class ProtectedEndpointAccessHandlerScaffoldTests
         {
             TenantId = "project-shared",
             CreatedBy = "someone-else",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -605,7 +605,7 @@ public class ProtectedEndpointAccessHandlerScaffoldTests
         {
             TenantId = "project-no-share",
             CreatedBy = "someone-else",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -635,7 +635,7 @@ public class ProtectedEndpointAccessHandlerScaffoldTests
         {
             TenantId = tenantId,
             IsRootTenant = true,
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
