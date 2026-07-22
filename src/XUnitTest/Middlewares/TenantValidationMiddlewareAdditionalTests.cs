@@ -60,10 +60,9 @@ public class TenantValidationMiddlewareAdditionalTests
     {
         var tenants = new Mock<ITenants>();
         var crypto = new Mock<ICryptoService>();
-        var tenant = CreateTenant("tenant-disabled", "app.local");
-        tenant.IsDisabled = true;
-
-        tenants.Setup(t => t.GetTenantByID("tenant-disabled")).Returns(tenant);
+        // A disabled tenant is filtered out by the repository (GetTenantFromDb uses !IsDisabled),
+        // so GetTenantByID returns null and the middleware responds with 404 Not Found.
+        tenants.Setup(t => t.GetTenantByID("tenant-disabled")).Returns((Blocks.Genesis.Tenant?)null);
 
         var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
@@ -102,7 +101,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var nextCalled = false;
 
         tenants.Setup(t => t.GetTenantByID("tenant-grpc")).Returns(tenant);
-        crypto.Setup(c => c.Hash("tenant-grpc", null)).Returns("correct-hash");
+        crypto.Setup(c => c.Hash("tenant-grpc", It.IsAny<string?>())).Returns("correct-hash");
 
         RequestDelegate next = ctx =>
         {
@@ -526,6 +525,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var context = new DefaultHttpContext();
         context.Request.Host = new HostString(host);
         context.Request.Method = HttpMethods.Get;
+        context.Request.Path = "/api/test";
         context.Response.Body = new MemoryStream();
         var endpoint = new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(), "TestController");
         context.SetEndpoint(endpoint);
