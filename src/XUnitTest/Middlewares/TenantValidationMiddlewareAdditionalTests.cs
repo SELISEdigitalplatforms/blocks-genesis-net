@@ -19,7 +19,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = new DefaultHttpContext();
         // No endpoint set - should skip tenant validation
@@ -42,7 +42,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = new DefaultHttpContext();
         context.Request.Host = new HostString("app.local");
@@ -65,7 +65,7 @@ public class TenantValidationMiddlewareAdditionalTests
 
         tenants.Setup(t => t.GetTenantByID("tenant-disabled")).Returns(tenant);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-disabled";
 
@@ -83,7 +83,7 @@ public class TenantValidationMiddlewareAdditionalTests
 
         tenants.Setup(t => t.GetTenantByID("nonexistent")).Returns((Blocks.Genesis.Tenant?)null);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "nonexistent";
 
@@ -110,7 +110,7 @@ public class TenantValidationMiddlewareAdditionalTests
             return Task.CompletedTask;
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-grpc";
         context.Request.Headers[BlocksConstants.BlocksGrpcKey] = "correct-hash";
@@ -136,7 +136,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-origin";
@@ -162,7 +162,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-lh";
@@ -189,7 +189,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-ad";
@@ -208,7 +208,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var crypto = new Mock<ICryptoService>();
 
         Assert.Throws<ArgumentNullException>(() =>
-            new TenantValidationMiddleware(null!, tenants.Object, crypto.Object));
+            new TenantValidationMiddleware(null!, tenants.Object, crypto.Object, Array.Empty<string>()));
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var crypto = new Mock<ICryptoService>();
 
         Assert.Throws<ArgumentNullException>(() =>
-            new TenantValidationMiddleware(_ => Task.CompletedTask, null!, crypto.Object));
+            new TenantValidationMiddleware(_ => Task.CompletedTask, null!, crypto.Object, Array.Empty<string>()));
     }
 
     [Fact]
@@ -226,7 +226,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var tenants = new Mock<ITenants>();
 
         Assert.Throws<ArgumentNullException>(() =>
-            new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, null!));
+            new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, null!, Array.Empty<string>()));
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-ref";
@@ -264,7 +264,7 @@ public class TenantValidationMiddlewareAdditionalTests
 
         tenants.Setup(t => t.GetTenantByID("tenant-reject")).Returns(tenant);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-reject";
         context.Request.Headers.Origin = "https://evil.example.com";
@@ -285,7 +285,7 @@ public class TenantValidationMiddlewareAdditionalTests
 
         tenants.Setup(t => t.GetTenantByID("tenant-origin-invalid")).Returns(tenant);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-origin-invalid";
         context.Request.Headers.Origin = "::::invalid-origin::::";
@@ -305,7 +305,7 @@ public class TenantValidationMiddlewareAdditionalTests
 
         tenants.Setup(t => t.GetTenantByID("tenant-referer-invalid")).Returns(tenant);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-referer-invalid";
         context.Request.Headers.Referer = "::::invalid-referer::::";
@@ -330,7 +330,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local:5001");
 
@@ -354,7 +354,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = new DefaultHttpContext();
         context.Request.Host = new HostString("app.local");
@@ -384,7 +384,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local");
         // No BlocksKey header — should resolve by domain
@@ -401,7 +401,7 @@ public class TenantValidationMiddlewareAdditionalTests
         var tenants = new Mock<ITenants>();
         var crypto = new Mock<ICryptoService>();
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("localhost:5173");
 
         using var activity = new Activity("localhost-missing-tenant").Start();
@@ -424,7 +424,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-null-headers";
@@ -450,7 +450,7 @@ public class TenantValidationMiddlewareAdditionalTests
         {
             nextCalled = true;
             return Task.CompletedTask;
-        }, tenants.Object, crypto.Object);
+        }, tenants.Object, crypto.Object, Array.Empty<string>());
 
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-port";
@@ -477,7 +477,7 @@ public class TenantValidationMiddlewareAdditionalTests
             await ctx.Response.WriteAsync("response data");
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-size";
         context.Request.ContentLength = 42;
@@ -505,7 +505,7 @@ public class TenantValidationMiddlewareAdditionalTests
 
             var middleware = new TenantValidationMiddleware(
                 _ => throw new InvalidOperationException("middleware failure"),
-                tenants.Object, crypto.Object);
+                tenants.Object, crypto.Object, Array.Empty<string>());
             var context = CreateHttpContextWithEndpoint("app.local");
             context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-throw";
 
@@ -537,7 +537,7 @@ public class TenantValidationMiddlewareAdditionalTests
         return new Blocks.Genesis.Tenant
         {
             TenantId = tenantId,
-            ApplicationDomain = applicationDomain,
+            Applications = [new Blocks.Genesis.Applications { Domain = applicationDomain }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
