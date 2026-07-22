@@ -119,7 +119,7 @@ public class BlocksSecretTests
             Assert.Equal("env-service", secret.ServiceName);
 
             var typedSecret = Assert.IsType<BlocksSecret>(secret);
-            Assert.Null(typedSecret.MessageConnectionString);
+            Assert.Equal(string.Empty, typedSecret.MessageConnectionString);
         }
         finally
         {

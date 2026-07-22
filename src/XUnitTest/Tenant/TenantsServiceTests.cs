@@ -267,7 +267,7 @@ public class TenantsServiceTests
         var sut = CreateSut();
         var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
         var tenant = CreateTenant("tenant-cache");
-        tenant.ApplicationDomain = "https://acme.local";
+        tenant.Applications = [new Blocks.Genesis.Applications { Domain = "https://acme.local" }];
         cache[tenant.TenantId] = tenant;
 
         var result = sut.GetTenantByApplicationDomain("acme.local");
@@ -478,7 +478,7 @@ public class TenantsServiceTests
             TenantId = tenantId,
             DBName = dbName,
             DbConnectionString = connection,
-            ApplicationDomain = "https://app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "https://app.local" }],
             JwtTokenParameters = new JwtTokenParameters
             {
                 Issuer = "issuer",

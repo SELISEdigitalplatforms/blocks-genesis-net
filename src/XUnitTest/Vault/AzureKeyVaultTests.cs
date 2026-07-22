@@ -57,17 +57,16 @@ public class AzureKeyVaultTests
     }
 
     [Fact]
-    public void ConnectToAzureKeyVaultSecret_ShouldCreateSecretClient_WhenFieldsAreSet()
+    public async Task ConnectToAzureKeyVaultSecret_ShouldThrow_WhenNoCredentialCanAuthenticate()
     {
         var sut = new AzureKeyVault();
         SetPrivateField(sut, "_keyVaultUrl", "https://unit-test-vault.vault.azure.net/");
 
+        // With no client-secret configuration and no ambient Azure identity, no credential can
+        // acquire a token, so ConnectToAzureKeyVaultSecret rejects the connection.
         var method = GetPrivateMethod("ConnectToAzureKeyVaultSecret");
-
-        method.Invoke(sut, null);
-
-        var client = GetPrivateField<SecretClient>(sut, "_secretClient");
-        Assert.NotNull(client);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await (Task)method.Invoke(sut, null)!);
     }
 
     [Fact]
@@ -80,6 +79,9 @@ public class AzureKeyVaultTests
         var clientMock = new Mock<SecretClient>();
         clientMock
             .Setup(c => c.GetSecretAsync("ApiKey", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+        clientMock
+            .Setup(c => c.GetSecretAsync("ApiKey", null, It.IsAny<SecretContentType?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(response);
 
         SetPrivateField(sut, "_secretClient", clientMock.Object);
@@ -117,7 +119,13 @@ public class AzureKeyVaultTests
             .Setup(c => c.GetSecretAsync("Key1", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(okResponse);
         clientMock
+            .Setup(c => c.GetSecretAsync("Key1", null, It.IsAny<SecretContentType?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(okResponse);
+        clientMock
             .Setup(c => c.GetSecretAsync("Key2", null, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Exception("missing"));
+        clientMock
+            .Setup(c => c.GetSecretAsync("Key2", null, It.IsAny<SecretContentType?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("missing"));
 
         SetPrivateField(sut, "_secretClient", clientMock.Object);

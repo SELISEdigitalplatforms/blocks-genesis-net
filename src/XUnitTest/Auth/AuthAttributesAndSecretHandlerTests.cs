@@ -12,7 +12,7 @@ public class AuthAttributesAndSecretHandlerTests
     [Fact]
     public void ProtectedEndPointAttribute_ShouldUseProtectedPolicy()
     {
-        var attribute = new ProtectedEndPointAttribute();
+        var attribute = new ProtectedEndPointAttribute("resource");
         Assert.Equal("Protected", attribute.Policy);
     }
 
@@ -127,7 +127,7 @@ public class AuthAttributesAndSecretHandlerTests
         {
             TenantId = tenantId,
             TenantSalt = salt,
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {

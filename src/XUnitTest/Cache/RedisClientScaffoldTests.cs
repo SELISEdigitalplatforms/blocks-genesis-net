@@ -47,7 +47,7 @@ public class RedisClientScaffoldTests
     public void AddAndGetAndRemoveString_ShouldCallExpectedDatabaseMethods()
     {
         var db = new Mock<IDatabase>();
-        db.Setup(d => d.StringSet(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(), It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>())).Returns(true);
+        db.Setup(d => d.StringSet(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<Expiration>(), It.IsAny<ValueCondition>(), It.IsAny<CommandFlags>())).Returns(true);
         db.Setup(d => d.StringGet("k", CommandFlags.None)).Returns((RedisValue)"v");
         db.Setup(d => d.KeyDelete("k", CommandFlags.None)).Returns(true);
 
@@ -65,9 +65,8 @@ public class RedisClientScaffoldTests
         db.Setup(d => d.StringSet(
             It.IsAny<RedisKey>(),
             It.IsAny<RedisValue>(),
-            It.IsAny<TimeSpan?>(),
-            It.IsAny<bool>(),
-            It.IsAny<When>(),
+            It.IsAny<Expiration>(),
+            It.IsAny<ValueCondition>(),
             It.IsAny<CommandFlags>())).Returns(true);
         db.Setup(d => d.KeyExpire(
             It.IsAny<RedisKey>(),
@@ -93,9 +92,8 @@ public class RedisClientScaffoldTests
         db.Verify(d => d.StringSet(
             It.IsAny<RedisKey>(),
             It.IsAny<RedisValue>(),
-            It.IsAny<TimeSpan?>(),
-            It.IsAny<bool>(),
-            It.IsAny<When>(),
+            It.IsAny<Expiration>(),
+            It.IsAny<ValueCondition>(),
             It.IsAny<CommandFlags>()), Times.Once);
         db.Verify(d => d.KeyExpire(
             It.IsAny<RedisKey>(),
@@ -109,7 +107,7 @@ public class RedisClientScaffoldTests
     {
         var db = new Mock<IDatabase>();
         db.Setup(d => d.KeyExistsAsync("k", CommandFlags.None)).ReturnsAsync(true);
-        db.Setup(d => d.StringSetAsync("k", "v", null, false, When.Always, CommandFlags.None)).ReturnsAsync(true);
+        db.Setup(d => d.StringSetAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<Expiration>(), It.IsAny<ValueCondition>(), It.IsAny<CommandFlags>())).ReturnsAsync(true);
         db.Setup(d => d.KeyDeleteAsync("k", CommandFlags.None)).ReturnsAsync(true);
         db.Setup(d => d.HashSetAsync("h", It.IsAny<HashEntry[]>(), CommandFlags.None)).Returns(Task.CompletedTask);
         db.Setup(d => d.HashGetAllAsync("h", CommandFlags.None)).ReturnsAsync([new HashEntry("f", "1")]);
@@ -147,7 +145,7 @@ public class RedisClientScaffoldTests
     public async Task AsyncTtlMethods_ShouldHandleStringAndHashTtlPaths()
     {
         var db = new Mock<IDatabase>();
-        db.Setup(d => d.StringSetAsync("k", "v", null, false, When.Always, CommandFlags.None)).ReturnsAsync(true);
+        db.Setup(d => d.StringSetAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<Expiration>(), It.IsAny<ValueCondition>(), It.IsAny<CommandFlags>())).ReturnsAsync(true);
         db.Setup(d => d.KeyExpireAsync(It.IsAny<RedisKey>(), It.IsAny<DateTime?>(), It.IsAny<ExpireWhen>(), It.IsAny<CommandFlags>())).ReturnsAsync(true);
         db.Setup(d => d.HashSetAsync("h", It.IsAny<HashEntry[]>(), CommandFlags.None)).Returns(Task.CompletedTask);
 

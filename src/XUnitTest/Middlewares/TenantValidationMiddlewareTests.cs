@@ -15,7 +15,7 @@ public class TenantValidationMiddlewareTests
         var crypto = new Mock<ICryptoService>();
         tenants.Setup(t => t.GetTenantByApplicationDomain("unknown.local")).Returns((Blocks.Genesis.Tenant?)null);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContext("unknown.local");
 
         using var activity = new Activity("tenant-validation").Start();
@@ -33,7 +33,7 @@ public class TenantValidationMiddlewareTests
 
         tenants.Setup(t => t.GetTenantByID("tenant-1")).Returns(tenant);
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContext("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-1";
         context.Request.Headers.Origin = "::::invalid-origin::::";
@@ -55,7 +55,7 @@ public class TenantValidationMiddlewareTests
         tenants.Setup(t => t.GetTenantByID("tenant-1")).Returns(tenant);
         crypto.Setup(c => c.Hash("tenant-1", null)).Returns("expected-hash");
 
-        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(_ => Task.CompletedTask, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContext("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-1";
         context.Request.Headers[BlocksConstants.BlocksGrpcKey] = "wrong-hash";
@@ -90,7 +90,7 @@ public class TenantValidationMiddlewareTests
                 await ctx.Response.WriteAsync("ok");
             };
 
-            var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+            var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
             var context = CreateHttpContext("app.local");
             context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-1";
 
@@ -124,7 +124,7 @@ public class TenantValidationMiddlewareTests
             await ctx.Response.WriteAsync("chunk-2");
         };
 
-        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object);
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
         var context = CreateHttpContext("app.local");
         var originalStream = context.Response.Body;
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-1";
@@ -146,6 +146,7 @@ public class TenantValidationMiddlewareTests
         var context = new DefaultHttpContext();
         context.Request.Host = new HostString(host);
         context.Request.Method = HttpMethods.Get;
+        context.Request.Path = "/api/test";
         context.Response.Body = new MemoryStream();
         var endpoint = new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(), "TestController");
         context.SetEndpoint(endpoint);
@@ -157,7 +158,7 @@ public class TenantValidationMiddlewareTests
         return new Blocks.Genesis.Tenant
         {
             TenantId = tenantId,
-            ApplicationDomain = applicationDomain,
+            Applications = [new Blocks.Genesis.Applications { Domain = applicationDomain }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
