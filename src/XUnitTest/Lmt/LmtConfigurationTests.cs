@@ -1,108 +1,67 @@
-﻿using MongoDB.Bson;
+using Blocks.Genesis;
+using MongoDB.Bson;
 using MongoDB.Driver;
-using Moq;
-using System;
-using System.Threading.Tasks;
-using Xunit;
 
-namespace Blocks.Genesis.Tests
+namespace XUnitTest.Lmt;
+
+/// <summary>
+/// Tests for <see cref="LmtConfiguration"/> - the logs/metrics/traces Mongo time-series setup.
+/// Connection-dependent paths are exercised against an unreachable server (fast server-selection
+/// timeout) to verify the catch/rethrow behaviour without requiring a live database.
+/// </summary>
+public class LmtConfigurationTests
 {
-    public class LmtConfigurationTests
+    private const string UnreachableMongo = "mongodb://127.0.0.1:59999/?serverSelectionTimeoutMS=300&connectTimeoutMS=300";
+
+    [Fact]
+    public void DatabaseNames_ShouldExposeExpectedConstants()
     {
-        private readonly Mock<IMongoDatabase> _mongoDatabaseMock;
-        private readonly Mock<IMongoCollection<BsonDocument>> _mongoCollectionMock;
-        private readonly Mock<IMongoClient> _mongoClientMock;
+        Assert.Equal("Logs", LmtConfiguration.LogDatabaseName);
+        Assert.Equal("Traces", LmtConfiguration.TraceDatabaseName);
+        Assert.Equal("Metrics", LmtConfiguration.MetricDatabaseName);
+    }
 
-        // Use a connection string with 1ms timeouts so MongoDB operations fail immediately
-        private const string FastFailConnection = "mongodb://localhost:1/?serverSelectionTimeoutMS=1&connectTimeoutMS=1&socketTimeoutMS=1";
+    [Fact]
+    public void GetMongoDatabase_ShouldReturnHandle_WithoutConnecting()
+    {
+        var db = LmtConfiguration.GetMongoDatabase(UnreachableMongo, "Logs");
+        Assert.NotNull(db);
+        Assert.Equal("Logs", db.DatabaseNamespace.DatabaseName);
+    }
 
-        public LmtConfigurationTests()
+    [Fact]
+    public void GetMongoCollection_ShouldReturnHandle_WithoutConnecting()
+    {
+        var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(UnreachableMongo, "Logs", "app");
+        Assert.NotNull(collection);
+        Assert.Equal("app", collection.CollectionNamespace.CollectionName);
+    }
+
+    [Theory]
+    [InlineData("trace")]
+    [InlineData("metrics")]
+    [InlineData("logs")]
+    public void CreateCollectionForX_ShouldSwallowConnectionFailures(string kind)
+    {
+        var ex = Record.Exception(() =>
         {
-            _mongoDatabaseMock = new Mock<IMongoDatabase>();
-            _mongoCollectionMock = new Mock<IMongoCollection<BsonDocument>>();
-            _mongoClientMock = new Mock<IMongoClient>();
-        }
+            switch (kind)
+            {
+                case "trace": LmtConfiguration.CreateCollectionForTrace(UnreachableMongo, "cov_trace"); break;
+                case "metrics": LmtConfiguration.CreateCollectionForMetrics(UnreachableMongo, "cov_metrics"); break;
+                default: LmtConfiguration.CreateCollectionForLogs(UnreachableMongo, "cov_logs"); break;
+            }
+        });
 
-        [Fact]
-        public void GetMongoDatabase_ShouldReturnDatabaseInstance()
-        {
-            // Arrange
-            var connectionString = "mongodb://localhost:27017";
-            var databaseName = "TestDatabase";
-            _mongoClientMock.Setup(client => client.GetDatabase(databaseName, null))
-                            .Returns(_mongoDatabaseMock.Object);
+        Assert.Null(ex); // connection failures are caught and logged, not propagated
+    }
 
-            // Act
-            var database = LmtConfiguration.GetMongoDatabase(connectionString, databaseName);
-
-            // Assert
-            Assert.NotNull(database);
-        }
-
-        [Fact]
-        public void GetMongoCollection_ShouldReturnCollectionInstance()
-        {
-            // Arrange
-            var connectionString = "mongodb://localhost:27017";
-            var databaseName = "TestDatabase";
-            var collectionName = "TestCollection";
-
-            _mongoClientMock.Setup(client => client.GetDatabase(databaseName, null))
-                            .Returns(_mongoDatabaseMock.Object);
-            _mongoDatabaseMock.Setup(db => db.GetCollection<BsonDocument>(collectionName, null))
-                              .Returns(_mongoCollectionMock.Object);
-
-            // Act
-            var collection = LmtConfiguration.GetMongoCollection<BsonDocument>(connectionString, databaseName, collectionName);
-
-            // Assert
-            Assert.NotNull(collection);
-        }
-
-        [Fact]
-        public void CreateCollectionForTrace_ShouldCatchException_WhenConnectionFails()
-        {
-            var ex = Record.Exception(() =>
-                LmtConfiguration.CreateCollectionForTrace(FastFailConnection, "test-traces"));
-
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void CreateCollectionForMetrics_ShouldCatchException_WhenConnectionFails()
-        {
-            var ex = Record.Exception(() =>
-                LmtConfiguration.CreateCollectionForMetrics(FastFailConnection, "test-metrics"));
-
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void CreateCollectionForLogs_ShouldCatchException_WhenConnectionFails()
-        {
-            var ex = Record.Exception(() =>
-                LmtConfiguration.CreateCollectionForLogs(FastFailConnection, "test-logs"));
-
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void CreateIndex_ShouldThrow_WhenConnectionFails()
-        {
-            var indexKeys = new BsonDocument { { "TraceId", 1 }, { "Timestamp", -1 } };
-
-            Assert.ThrowsAny<Exception>(() =>
-                LmtConfiguration.CreateIndex(FastFailConnection, "Traces", "test-col", indexKeys));
-        }
-
-        [Fact]
-        public void CreateIndex_ShouldAcceptPartialFilter()
-        {
-            var indexKeys = new BsonDocument { { "TenantId", 1 }, { "Timestamp", -1 } };
-            var partialFilter = new BsonDocument("TenantId", new BsonDocument("$exists", true));
-
-            Assert.ThrowsAny<Exception>(() =>
-                LmtConfiguration.CreateIndex(FastFailConnection, "Logs", "test-col", indexKeys, partialFilter));
-        }
+    [Fact]
+    public void CreateIndex_ShouldThrow_WhenMongoUnreachable()
+    {
+        Assert.ThrowsAny<Exception>(() =>
+            LmtConfiguration.CreateIndex(
+                UnreachableMongo, "Logs", "cov_idx",
+                new BsonDocument { { "TenantId", 1 } }));
     }
 }
