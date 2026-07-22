@@ -1,6 +1,9 @@
 name: Publish NuGet package
 
 on:
+  push:
+    branches:
+      - inception
   release:
     types: [published]
   workflow_dispatch:
