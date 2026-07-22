@@ -520,6 +520,32 @@ public class TenantValidationMiddlewareAdditionalTests
         }
     }
 
+    [Fact]
+    public async Task InvokeAsync_ShouldInvokeNext_AndTagActivity_WhenValidationPasses()
+    {
+        var tenants = new Mock<ITenants>();
+        var crypto = new Mock<ICryptoService>();
+        var tenant = CreateTenant("tenant-ok", "app.local");
+        tenants.Setup(t => t.GetTenantByID("tenant-ok")).Returns(tenant);
+
+        var nextCalled = false;
+        RequestDelegate next = async ctx =>
+        {
+            nextCalled = true;
+            await ctx.Response.WriteAsync("hello");
+        };
+
+        var middleware = new TenantValidationMiddleware(next, tenants.Object, crypto.Object, Array.Empty<string>());
+        var context = CreateHttpContextWithEndpoint("app.local");
+        context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-ok";
+
+        using var activity = new Activity("tenant-validation").Start();
+        await middleware.InvokeAsync(context);
+
+        Assert.True(nextCalled);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+    }
+
     private static DefaultHttpContext CreateHttpContextWithEndpoint(string host)
     {
         var context = new DefaultHttpContext();
