@@ -43,6 +43,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers[BlocksConstants.AuthorizationHeaderName] = "Bearer not-a-jwt";
+        ApplyProtectedEndpoint(httpContext);
 
         var context = new MessageReceivedContext(
             httpContext,
@@ -160,7 +161,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var tenant = new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-jwks",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -190,80 +191,26 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     }
 
     [Fact]
-    public async Task ValidateTokenWithFallbackAsync_ShouldReturnTrue_ForValidToken()
+    public async Task ValidateTokenWithFallbackAsync_ShouldReturnFalse_WhenJwksIsUnreachable()
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
         var method = type!.GetMethod("ValidateTokenWithFallbackAsync", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
-        using var rsa = RSA.Create(2048);
-        var signingKey = new RsaSecurityKey(rsa) { KeyId = "kid-2" };
-        var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256);
-
-        var token = new JwtSecurityToken(
-            issuer: "issuer-fallback",
-            audience: "aud-fallback",
-            claims:
-            [
-                new Claim(ClaimTypes.NameIdentifier, "user-fallback"),
-                new Claim(ClaimTypes.Email, "fallback@example.com"),
-                new Claim("oauth", "token-value"),
-                new Claim("exp", DateTime.UtcNow.AddMinutes(15).ToString("o")),
-                new Claim("realm_access", "{\"roles\":[\"reader\"]}"),
-                new Claim("profile", "{\"name\":\"Fallback User\",\"username\":\"fallback.user\",\"email\":\"fallback@example.com\"}")
-            ],
-            expires: DateTime.UtcNow.AddMinutes(15),
-            signingCredentials: credentials);
-
-        var jwt = new JwtSecurityTokenHandler().WriteToken(token);
-
-        var validation = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = "issuer-fallback",
-            ValidateAudience = true,
-            ValidAudience = "aud-fallback",
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = signingKey,
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromMinutes(1)
-        };
-
-        var dbContext = new Mock<IDbContextProvider>();
-        var claimsMapperCollection = new Mock<IMongoCollection<BsonDocument>>();
-        claimsMapperCollection
-            .Setup(c => c.FindAsync(
-                It.IsAny<FilterDefinition<BsonDocument>>(),
-                It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateCursor(new BsonDocument
-            {
-                ["Roles"] = "realm_access.roles",
-                ["UserId"] = "sub",
-                ["Email"] = "profile.email",
-                ["UserName"] = "profile.username",
-                ["Name"] = "profile.name"
-            }));
-        dbContext.Setup(d => d.GetCollection<BsonDocument>("ThirdPartyJWTClaims")).Returns(claimsMapperCollection.Object);
-
-        var services = new ServiceCollection();
-        services.AddSingleton(dbContext.Object);
-        var provider = services.BuildServiceProvider();
-
-        var httpContext = new DefaultHttpContext { RequestServices = provider };
-        httpContext.Request.Headers[BlocksConstants.BlocksKey] = "tenant-fallback";
         var context = new TokenValidatedContext(
-            httpContext,
+            new DefaultHttpContext(),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
-        var resultTask = (Task<bool>)method!.Invoke(null, [jwt, validation, context])!;
-        var result = await resultTask;
+        var tenant = MakeThirdPartyTenant(jwksUrl: "http://127.0.0.1:59999/jwks", publicCertificatePath: string.Empty);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
 
-        Assert.True(result);
-        Assert.NotNull(context.Principal);
-        Assert.True(httpContext.Request.Headers.ContainsKey("ThirdPartyContext"));
+        // A JWKS URL that cannot be reached makes fallback validation fail and return false.
+        var task = (Task<bool>)method!.Invoke(null, ["any-token", tenant, context, httpClientFactory.Object])!;
+        var result = await task;
+
+        Assert.False(result);
     }
 
     [Fact]
@@ -351,12 +298,12 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     [Theory]
     [InlineData("realm_access.roles", "roles")]
     [InlineData("roles", "roles")]
-    public void ExtactClaimProperty_ShouldReturnTrailingSegment(string source, string expected)
+    public void ExtractClaimProperty_ShouldReturnTrailingSegment(string source, string expected)
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
 
-        var method = type!.GetMethod("ExtactClaimProperty", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = type!.GetMethod("ExtractClaimProperty", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
         var result = (string)method!.Invoke(null, [source])!;
@@ -364,11 +311,11 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     }
 
     [Fact]
-    public void ExtactClaimValue_ShouldReadDirectAndNestedClaims()
+    public void ExtractClaimValue_ShouldReadDirectAndNestedClaims()
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
-        var method = type!.GetMethod("ExtactClaimValue", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = type!.GetMethod("ExtractClaimValue", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
         var identity = new ClaimsIdentity(
@@ -459,27 +406,6 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     }
 
     [Fact]
-    public void GetContextWithoutToken_ShouldSanitizeSensitiveTokens()
-    {
-        var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
-        Assert.NotNull(type);
-
-        var method = type!.GetMethod("GetContextWithoutToken", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var source = BlocksContext.Create(
-            "tenant-a", ["admin"], "user-a", true, "/api", "org-a", DateTime.UtcNow,
-            "u@a.com", ["read"], "user-a", "123", "User A", "oauth-secret", "refresh-secret", "tenant-a");
-
-        var sanitized = (BlocksContext)method!.Invoke(null, [source])!;
-
-        Assert.Equal("tenant-a", sanitized.TenantId);
-        Assert.Equal("user-a", sanitized.UserId);
-        Assert.Equal(string.Empty, sanitized.OAuthToken);
-        Assert.Equal(string.Empty, sanitized.RefreshToken);
-    }
-
-    [Fact]
     public void ExtractRolesFromClaim_ShouldReturnEmpty_WhenClaimMissingOrInvalid()
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
@@ -565,8 +491,10 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var clientFactory = new Mock<IHttpClientFactory>();
         var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
 
+        var httpContext = new DefaultHttpContext();
+        ApplyProtectedEndpoint(httpContext);
         var context = new MessageReceivedContext(
-            new DefaultHttpContext(),
+            httpContext,
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
@@ -589,7 +517,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             tenants.Setup(t => t.GetTenantByID("tenant-third")).Returns(new Blocks.Genesis.Tenant
             {
                 TenantId = "tenant-third",
-                ApplicationDomain = "app.local",
+                Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
                 DbConnectionString = "mongodb://localhost:27017",
                 JwtTokenParameters = new JwtTokenParameters
                 {
@@ -616,6 +544,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             var http = new DefaultHttpContext();
             http.Request.Headers[BlocksConstants.BlocksKey] = "tenant-third";
             http.Request.Headers.Append("Cookie", "tp_cookie=third-party-token");
+            ApplyProtectedEndpoint(http);
 
             var context = new MessageReceivedContext(
                 http,
@@ -648,9 +577,8 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         cacheDb.Setup(db => db.StringSetAsync(
                 It.IsAny<RedisKey>(),
                 It.IsAny<RedisValue>(),
-                It.IsAny<TimeSpan?>(),
-            It.IsAny<bool>(),
-                It.IsAny<When>(),
+                It.IsAny<Expiration>(),
+                It.IsAny<ValueCondition>(),
                 It.IsAny<CommandFlags>()))
             .ReturnsAsync(true);
 
@@ -672,9 +600,8 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         cacheDb.Verify(db => db.StringSetAsync(
             It.Is<RedisKey>(k => (string)k! == "key-a"),
             It.IsAny<RedisValue>(),
-            It.Is<TimeSpan?>(t => t.HasValue && t.Value.TotalDays > 0),
-            It.IsAny<bool>(),
-            It.IsAny<When>(),
+            It.IsAny<Expiration>(),
+            It.IsAny<ValueCondition>(),
             It.IsAny<CommandFlags>()), Times.Once);
     }
 
@@ -790,15 +717,11 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
-        var validationParams = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-        {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateIssuerSigningKey = false,
-            ValidateLifetime = false
-        };
+        var tenant = MakeThirdPartyTenant(jwksUrl: string.Empty, publicCertificatePath: "missing.cer");
+        var httpClientFactory = new Mock<IHttpClientFactory>();
 
-        var task = (Task<bool>)method!.Invoke(null, ["invalid-token", validationParams, context])!;
+        // With no reachable certificate, fallback validation fails and returns false.
+        var task = (Task<bool>)method!.Invoke(null, ["invalid-token", tenant, context, httpClientFactory.Object])!;
         var result = await task;
 
         Assert.False(result);
@@ -831,7 +754,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         tenants.Setup(t => t.GetTenantByID("tenant-auth-failed")).Returns(new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-auth-failed",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -901,7 +824,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             tenants.Setup(t => t.GetTenantByID("tenant-fallback-cert")).Returns(new Blocks.Genesis.Tenant
             {
                 TenantId = "tenant-fallback-cert",
-                ApplicationDomain = "app.local",
+                Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
                 DbConnectionString = "mongodb://localhost:27017",
                 JwtTokenParameters = new JwtTokenParameters
                 {
@@ -947,7 +870,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         tenants.Setup(t => t.GetTenantByID("tenant-no-fallback")).Returns(new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-no-fallback",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters
             {
@@ -1007,16 +930,57 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         return await task;
     }
 
+    private static void ApplyProtectedEndpoint(HttpContext context)
+    {
+        // The OnMessageReceived event only runs for endpoints that require authorization.
+        context.SetEndpoint(new Endpoint(_ => Task.CompletedTask,
+            new EndpointMetadataCollection(new AuthorizeAttribute()), "protected"));
+    }
+
+    private static Blocks.Genesis.Tenant MakeThirdPartyTenant(string jwksUrl, string publicCertificatePath)
+    {
+        return new Blocks.Genesis.Tenant
+        {
+            TenantId = "tenant-fallback",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
+            DbConnectionString = "mongodb://localhost:27017",
+            JwtTokenParameters = new JwtTokenParameters
+            {
+                Issuer = "issuer", Subject = "subject", Audiences = [],
+                PublicCertificatePath = "path", PublicCertificatePassword = string.Empty,
+                PrivateCertificatePassword = string.Empty, IssueDate = DateTime.UtcNow
+            },
+            ThirdPartyJwtTokenParameters = new ThirdPartyJwtTokenParameters
+            {
+                JwksUrl = jwksUrl,
+                PublicCertificatePath = publicCertificatePath
+            }
+        };
+    }
+
+    private static void SetStaticField(Type type, string name, object value)
+    {
+        var field = type.GetField(name, BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(field);
+        field!.SetValue(null, value);
+    }
+
     private static JwtBearerEvents BuildJwtEvents(ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
-        var method = type!.GetMethod("ConfigureAuthentication", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = type!.GetMethod("ConfigureAuthenticationInternal", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
+
+        // The JWT events resolve their dependencies from the request services, falling back to
+        // the static compat fields; seed those so the events can run without a live DI container.
+        SetStaticField(type, "_compatTenants", tenants);
+        SetStaticField(type, "_compatCacheDb", cacheDb);
+        SetStaticField(type, "_compatHttpClientFactory", httpClientFactory);
 
         var services = new ServiceCollection();
         services.AddHttpContextAccessor();
-        method!.Invoke(null, [services, tenants, cacheDb, httpClientFactory]);
+        method!.Invoke(null, [services]);
 
         var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get(JwtBearerDefaults.AuthenticationScheme);

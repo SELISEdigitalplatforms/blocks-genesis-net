@@ -40,33 +40,6 @@ public class BlocksSwaggerTests
     }
 
     [Fact]
-    public void AddServiceVersionToPathsFilter_ShouldPrefixAllPaths()
-    {
-        var options = new BlocksSwaggerOptions
-        {
-            ServiceName = "catalog",
-            Version = "v2"
-        };
-
-        var filter = new AddServiceVersionToPathsFilter(options);
-        var document = new OpenApiDocument
-        {
-            Paths = new OpenApiPaths
-            {
-                ["/orders"] = new OpenApiPathItem(),
-                ["/orders/{id}"] = new OpenApiPathItem()
-            }
-        };
-
-        filter.Apply(document, context: null!);
-
-        Assert.Equal(2, document.Paths.Count);
-        Assert.Contains("/catalog/v2/orders", document.Paths.Keys);
-        Assert.Contains("/catalog/v2/orders/{id}", document.Paths.Keys);
-        Assert.DoesNotContain("/orders", document.Paths.Keys);
-    }
-
-    [Fact]
     public void AddBlocksSwagger_ShouldNotThrow_WhenOptionsIsNull()
     {
         var services = new ServiceCollection();
@@ -102,9 +75,6 @@ public class BlocksSwaggerTests
         Assert.Contains("v5", swaggerOptions.SwaggerGeneratorOptions.SwaggerDocs.Keys);
         Assert.Contains(BlocksConstants.BlocksKey, swaggerOptions.SwaggerGeneratorOptions.SecuritySchemes.Keys);
         Assert.DoesNotContain(JwtBearerDefaults.AuthenticationScheme, swaggerOptions.SwaggerGeneratorOptions.SecuritySchemes.Keys);
-        Assert.DoesNotContain(
-            swaggerOptions.DocumentFilterDescriptors,
-            d => d.Type == typeof(AddServiceVersionToPathsFilter));
     }
 
     [Fact]
@@ -133,9 +103,6 @@ public class BlocksSwaggerTests
         Assert.Contains("v7", swaggerOptions.SwaggerGeneratorOptions.SwaggerDocs.Keys);
         Assert.Contains(BlocksConstants.BlocksKey, swaggerOptions.SwaggerGeneratorOptions.SecuritySchemes.Keys);
         Assert.Contains(JwtBearerDefaults.AuthenticationScheme, swaggerOptions.SwaggerGeneratorOptions.SecuritySchemes.Keys);
-        Assert.Contains(
-            swaggerOptions.DocumentFilterDescriptors,
-            d => d.Type == typeof(AddServiceVersionToPathsFilter));
     }
 
     [Fact]

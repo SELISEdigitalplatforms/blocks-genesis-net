@@ -65,7 +65,7 @@ public class TokenHelperAdditionalTests : IDisposable
     {
         var ctx = BlocksContext.Create(
             "tenant-cookie", [], "", false, "", "",
-            DateTime.MinValue, "", [], "", "", "", "", "", "", "tenant-cookie");
+            DateTime.MinValue, "", [], "", "", "", "", "", "");
         BlocksContext.SetContext(ctx);
 
         var httpContext = new DefaultHttpContext();
@@ -84,7 +84,7 @@ public class TokenHelperAdditionalTests : IDisposable
     {
         var ctx = BlocksContext.Create(
             "tenant-cookie", [], "", false, "", "",
-            DateTime.MinValue, "", [], "", "", "", "", "", "", "app.local");
+            DateTime.MinValue, "", [], "", "", "", "", "", "");
         BlocksContext.SetContext(ctx);
 
         var httpContext = new DefaultHttpContext();
@@ -110,7 +110,7 @@ public class TokenHelperAdditionalTests : IDisposable
         var tenant = new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-nocookie",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters { Issuer = "i", Subject = "s", Audiences = [], PublicCertificatePath = "p", PublicCertificatePassword = "pw", PrivateCertificatePassword = "pw", IssueDate = DateTime.UtcNow },
             ThirdPartyJwtTokenParameters = null
@@ -137,7 +137,7 @@ public class TokenHelperAdditionalTests : IDisposable
         var tenant = new Blocks.Genesis.Tenant
         {
             TenantId = "tenant-tp",
-            ApplicationDomain = "app.local",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
             DbConnectionString = "mongodb://localhost:27017",
             JwtTokenParameters = new JwtTokenParameters { Issuer = "i", Subject = "s", Audiences = [], PublicCertificatePath = "p", PublicCertificatePassword = "pw", PrivateCertificatePassword = "pw", IssueDate = DateTime.UtcNow },
             ThirdPartyJwtTokenParameters = new ThirdPartyJwtTokenParameters { CookieKey = "third_party_token" }
