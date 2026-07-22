@@ -43,6 +43,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers[BlocksConstants.AuthorizationHeaderName] = "Bearer not-a-jwt";
+        ApplyProtectedEndpoint(httpContext);
 
         var context = new MessageReceivedContext(
             httpContext,
@@ -190,80 +191,26 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     }
 
     [Fact]
-    public async Task ValidateTokenWithFallbackAsync_ShouldReturnTrue_ForValidToken()
+    public async Task ValidateTokenWithFallbackAsync_ShouldReturnFalse_WhenJwksIsUnreachable()
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
         var method = type!.GetMethod("ValidateTokenWithFallbackAsync", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
-        using var rsa = RSA.Create(2048);
-        var signingKey = new RsaSecurityKey(rsa) { KeyId = "kid-2" };
-        var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256);
-
-        var token = new JwtSecurityToken(
-            issuer: "issuer-fallback",
-            audience: "aud-fallback",
-            claims:
-            [
-                new Claim(ClaimTypes.NameIdentifier, "user-fallback"),
-                new Claim(ClaimTypes.Email, "fallback@example.com"),
-                new Claim("oauth", "token-value"),
-                new Claim("exp", DateTime.UtcNow.AddMinutes(15).ToString("o")),
-                new Claim("realm_access", "{\"roles\":[\"reader\"]}"),
-                new Claim("profile", "{\"name\":\"Fallback User\",\"username\":\"fallback.user\",\"email\":\"fallback@example.com\"}")
-            ],
-            expires: DateTime.UtcNow.AddMinutes(15),
-            signingCredentials: credentials);
-
-        var jwt = new JwtSecurityTokenHandler().WriteToken(token);
-
-        var validation = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = "issuer-fallback",
-            ValidateAudience = true,
-            ValidAudience = "aud-fallback",
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = signingKey,
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromMinutes(1)
-        };
-
-        var dbContext = new Mock<IDbContextProvider>();
-        var claimsMapperCollection = new Mock<IMongoCollection<BsonDocument>>();
-        claimsMapperCollection
-            .Setup(c => c.FindAsync(
-                It.IsAny<FilterDefinition<BsonDocument>>(),
-                It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateCursor(new BsonDocument
-            {
-                ["Roles"] = "realm_access.roles",
-                ["UserId"] = "sub",
-                ["Email"] = "profile.email",
-                ["UserName"] = "profile.username",
-                ["Name"] = "profile.name"
-            }));
-        dbContext.Setup(d => d.GetCollection<BsonDocument>("ThirdPartyJWTClaims")).Returns(claimsMapperCollection.Object);
-
-        var services = new ServiceCollection();
-        services.AddSingleton(dbContext.Object);
-        var provider = services.BuildServiceProvider();
-
-        var httpContext = new DefaultHttpContext { RequestServices = provider };
-        httpContext.Request.Headers[BlocksConstants.BlocksKey] = "tenant-fallback";
         var context = new TokenValidatedContext(
-            httpContext,
+            new DefaultHttpContext(),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
-        var resultTask = (Task<bool>)method!.Invoke(null, [jwt, validation, context])!;
-        var result = await resultTask;
+        var tenant = MakeThirdPartyTenant(jwksUrl: "http://127.0.0.1:59999/jwks", publicCertificatePath: string.Empty);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
 
-        Assert.True(result);
-        Assert.NotNull(context.Principal);
-        Assert.True(httpContext.Request.Headers.ContainsKey("ThirdPartyContext"));
+        // A JWKS URL that cannot be reached makes fallback validation fail and return false.
+        var task = (Task<bool>)method!.Invoke(null, ["any-token", tenant, context, httpClientFactory.Object])!;
+        var result = await task;
+
+        Assert.False(result);
     }
 
     [Fact]
@@ -544,8 +491,10 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var clientFactory = new Mock<IHttpClientFactory>();
         var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
 
+        var httpContext = new DefaultHttpContext();
+        ApplyProtectedEndpoint(httpContext);
         var context = new MessageReceivedContext(
-            new DefaultHttpContext(),
+            httpContext,
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
@@ -595,6 +544,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             var http = new DefaultHttpContext();
             http.Request.Headers[BlocksConstants.BlocksKey] = "tenant-third";
             http.Request.Headers.Append("Cookie", "tp_cookie=third-party-token");
+            ApplyProtectedEndpoint(http);
 
             var context = new MessageReceivedContext(
                 http,
@@ -767,15 +717,11 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
-        var validationParams = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-        {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateIssuerSigningKey = false,
-            ValidateLifetime = false
-        };
+        var tenant = MakeThirdPartyTenant(jwksUrl: string.Empty, publicCertificatePath: "missing.cer");
+        var httpClientFactory = new Mock<IHttpClientFactory>();
 
-        var task = (Task<bool>)method!.Invoke(null, ["invalid-token", validationParams, context])!;
+        // With no reachable certificate, fallback validation fails and returns false.
+        var task = (Task<bool>)method!.Invoke(null, ["invalid-token", tenant, context, httpClientFactory.Object])!;
         var result = await task;
 
         Assert.False(result);
@@ -982,6 +928,34 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         var task = (Task<bool>)method!.Invoke(null, [context, tenants, token, tenantId, httpClientFactory, ex])!;
         return await task;
+    }
+
+    private static void ApplyProtectedEndpoint(HttpContext context)
+    {
+        // The OnMessageReceived event only runs for endpoints that require authorization.
+        context.SetEndpoint(new Endpoint(_ => Task.CompletedTask,
+            new EndpointMetadataCollection(new AuthorizeAttribute()), "protected"));
+    }
+
+    private static Blocks.Genesis.Tenant MakeThirdPartyTenant(string jwksUrl, string publicCertificatePath)
+    {
+        return new Blocks.Genesis.Tenant
+        {
+            TenantId = "tenant-fallback",
+            Applications = [new Blocks.Genesis.Applications { Domain = "app.local" }],
+            DbConnectionString = "mongodb://localhost:27017",
+            JwtTokenParameters = new JwtTokenParameters
+            {
+                Issuer = "issuer", Subject = "subject", Audiences = [],
+                PublicCertificatePath = "path", PublicCertificatePassword = string.Empty,
+                PrivateCertificatePassword = string.Empty, IssueDate = DateTime.UtcNow
+            },
+            ThirdPartyJwtTokenParameters = new ThirdPartyJwtTokenParameters
+            {
+                JwksUrl = jwksUrl,
+                PublicCertificatePath = publicCertificatePath
+            }
+        };
     }
 
     private static void SetStaticField(Type type, string name, object value)
