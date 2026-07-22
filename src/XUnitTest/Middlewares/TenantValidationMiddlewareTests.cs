@@ -146,6 +146,7 @@ public class TenantValidationMiddlewareTests
         var context = new DefaultHttpContext();
         context.Request.Host = new HostString(host);
         context.Request.Method = HttpMethods.Get;
+        context.Request.Path = "/api/test";
         context.Response.Body = new MemoryStream();
         var endpoint = new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(), "TestController");
         context.SetEndpoint(endpoint);
