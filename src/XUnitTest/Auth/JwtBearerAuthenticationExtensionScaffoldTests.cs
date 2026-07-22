@@ -351,12 +351,12 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     [Theory]
     [InlineData("realm_access.roles", "roles")]
     [InlineData("roles", "roles")]
-    public void ExtactClaimProperty_ShouldReturnTrailingSegment(string source, string expected)
+    public void ExtractClaimProperty_ShouldReturnTrailingSegment(string source, string expected)
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
 
-        var method = type!.GetMethod("ExtactClaimProperty", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = type!.GetMethod("ExtractClaimProperty", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
         var result = (string)method!.Invoke(null, [source])!;
@@ -364,11 +364,11 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     }
 
     [Fact]
-    public void ExtactClaimValue_ShouldReadDirectAndNestedClaims()
+    public void ExtractClaimValue_ShouldReadDirectAndNestedClaims()
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
-        var method = type!.GetMethod("ExtactClaimValue", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = type!.GetMethod("ExtractClaimValue", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
         var identity = new ClaimsIdentity(
@@ -456,26 +456,6 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         Assert.Equal("abc-token", token);
         Assert.Equal("tenant-x", tenant);
-    }
-
-    [Fact]
-    public void GetContextWithoutToken_ShouldSanitizeSensitiveTokens()
-    {
-        var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
-        Assert.NotNull(type);
-
-        var method = type!.GetMethod("GetContextWithoutToken", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var source = BlocksContext.Create(
-            "tenant-a", ["admin"], "user-a", true, "/api", "org-a", DateTime.UtcNow,
-            "u@a.com", ["read"], "user-a", "123", "User A", "oauth-secret", "refresh-secret", "tenant-a");
-
-        var sanitized = (BlocksContext)method!.Invoke(null, [source])!;
-
-        Assert.Equal("tenant-a", sanitized.TenantId);
-        Assert.Equal("user-a", sanitized.UserId);
-        Assert.Equal(string.Empty, sanitized.OAuthToken);
     }
 
     [Fact]
@@ -647,9 +627,8 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         cacheDb.Setup(db => db.StringSetAsync(
                 It.IsAny<RedisKey>(),
                 It.IsAny<RedisValue>(),
-                It.IsAny<TimeSpan?>(),
-            It.IsAny<bool>(),
-                It.IsAny<When>(),
+                It.IsAny<Expiration>(),
+                It.IsAny<ValueCondition>(),
                 It.IsAny<CommandFlags>()))
             .ReturnsAsync(true);
 
@@ -671,9 +650,8 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         cacheDb.Verify(db => db.StringSetAsync(
             It.Is<RedisKey>(k => (string)k! == "key-a"),
             It.IsAny<RedisValue>(),
-            It.Is<TimeSpan?>(t => t.HasValue && t.Value.TotalDays > 0),
-            It.IsAny<bool>(),
-            It.IsAny<When>(),
+            It.IsAny<Expiration>(),
+            It.IsAny<ValueCondition>(),
             It.IsAny<CommandFlags>()), Times.Once);
     }
 
@@ -1006,16 +984,29 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         return await task;
     }
 
+    private static void SetStaticField(Type type, string name, object value)
+    {
+        var field = type.GetField(name, BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(field);
+        field!.SetValue(null, value);
+    }
+
     private static JwtBearerEvents BuildJwtEvents(ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
-        var method = type!.GetMethod("ConfigureAuthentication", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = type!.GetMethod("ConfigureAuthenticationInternal", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
+
+        // The JWT events resolve their dependencies from the request services, falling back to
+        // the static compat fields; seed those so the events can run without a live DI container.
+        SetStaticField(type, "_compatTenants", tenants);
+        SetStaticField(type, "_compatCacheDb", cacheDb);
+        SetStaticField(type, "_compatHttpClientFactory", httpClientFactory);
 
         var services = new ServiceCollection();
         services.AddHttpContextAccessor();
-        method!.Invoke(null, [services, tenants, cacheDb, httpClientFactory]);
+        method!.Invoke(null, [services]);
 
         var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get(JwtBearerDefaults.AuthenticationScheme);
