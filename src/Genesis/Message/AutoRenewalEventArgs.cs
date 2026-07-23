@@ -1,11 +1,10 @@
 ﻿using Azure.Messaging.ServiceBus;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public class AutoRenewalEventArgs : EventArgs
 {
-    public class AutoRenewalEventArgs : EventArgs
-    {
-        public ProcessMessageEventArgs? Args { get; set; }
-        public CancellationToken Token { get; set; }
-        public CancellationTokenSource? CancellationTokenSource { get; set; }
-    }
+    public ProcessMessageEventArgs? Args { get; set; }
+    public CancellationToken Token { get; set; }
+    public CancellationTokenSource? CancellationTokenSource { get; set; }
 }

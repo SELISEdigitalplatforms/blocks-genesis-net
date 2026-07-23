@@ -1,18 +1,17 @@
 ﻿using Serilog;
 using Serilog.Configuration;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public static class SerilogExtensions
 {
-    public static class SerilogExtensions
+    public static LoggerConfiguration MongoDBWithDynamicCollection(this LoggerSinkConfiguration loggerConfiguration, string serviceName, IBlocksSecret blocksSecret)
     {
-        public static LoggerConfiguration MongoDBWithDynamicCollection(this LoggerSinkConfiguration loggerConfiguration, string serviceName, IBlocksSecret blocksSecret)
+        return loggerConfiguration.Sink(new MongoDBDynamicSink(serviceName, blocksSecret), new BatchingOptions
         {
-            return loggerConfiguration.Sink(new MongoDBDynamicSink(serviceName, blocksSecret), new BatchingOptions
-            {
-                //BufferingTimeLimit = TimeSpan.FromSeconds(3),
-                BatchSizeLimit = 1000,
-                //EagerlyEmitFirstEvent = false
-            });
-        }
+            //BufferingTimeLimit = TimeSpan.FromSeconds(3),
+            BatchSizeLimit = 1000,
+            //EagerlyEmitFirstEvent = false
+        });
     }
 }
