@@ -363,7 +363,7 @@ internal static class JwtBearerAuthenticationExtension
         var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath ?? string.Empty, httpClientFactory);
         return certificateData == null
             ? null
-            : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters.PublicCertificatePassword);
+            : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePassword);
     }
 
     private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
