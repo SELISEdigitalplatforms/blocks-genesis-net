@@ -1,7 +1,6 @@
-﻿namespace Blocks.Genesis
+﻿namespace Blocks.Genesis;
+
+public interface IConsumer<in T>
 {
-    public interface IConsumer<in T>
-    {
-        Task Consume(T context);
-    }
+    Task Consume(T context);
 }

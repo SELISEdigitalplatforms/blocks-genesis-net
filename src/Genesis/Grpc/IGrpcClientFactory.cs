@@ -1,9 +1,8 @@
 ﻿using Grpc.Core;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public interface IGrpcClientFactory
 {
-    public interface IGrpcClientFactory
-    {
-        public TClient CreateGrpcClient<TClient>(string address) where TClient : ClientBase<TClient>;
-    }
+    public TClient CreateGrpcClient<TClient>(string address) where TClient : ClientBase<TClient>;
 }

@@ -1,32 +1,31 @@
 ﻿using Blocks.Genesis;
 
-namespace TestDriver
+namespace TestDriver;
+
+public class GrpcClient : IGrpcClient
 {
-    public class GrpcClient : IGrpcClient
+    private readonly IGrpcClientFactory _grpcClientFactory;
+
+    public GrpcClient(IGrpcClientFactory grpcClientFactory)
     {
-        private readonly IGrpcClientFactory _grpcClientFactory;
+        _grpcClientFactory = grpcClientFactory;
+    }
 
-        public GrpcClient(IGrpcClientFactory grpcClientFactory)
+    public async Task<HelloReply?> ExecuteAsync()
+    {
+        try
         {
-            _grpcClientFactory = grpcClientFactory;
+            var client = _grpcClientFactory.CreateGrpcClient<Greeter.GreeterClient>("http://localhost:3001");
+
+            var reply = await client.SayHelloAsync(new HelloRequest { Name = "GreeterClient" });
+            Console.WriteLine(reply);
+            return reply;
         }
-
-        public async Task<HelloReply?> ExecuteAsync()
+        catch (Exception e)
         {
-            try
-            {
-                var client = _grpcClientFactory.CreateGrpcClient<Greeter.GreeterClient>("http://localhost:3001");
 
-                var reply = await client.SayHelloAsync(new HelloRequest { Name = "GreeterClient" });
-                Console.WriteLine(reply);
-                return reply;
-            }
-            catch (Exception e)
-            {
-
-                Console.WriteLine(e);
-                return null;
-            }
+            Console.WriteLine(e);
+            return null;
         }
     }
 }
