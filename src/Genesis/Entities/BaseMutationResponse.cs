@@ -1,7 +1,6 @@
-﻿namespace Blocks.Genesis
+﻿namespace Blocks.Genesis;
+
+public class BaseMutationResponse : BaseResponse
 {
-    public class BaseMutationResponse : BaseResponse
-    {
-        public string? ItemId { get; set; }
-    }
+    public string? ItemId { get; set; }
 }

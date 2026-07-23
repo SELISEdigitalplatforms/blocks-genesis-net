@@ -3,142 +3,141 @@ using MongoDB.Driver;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public class MongoDbContextProvider : IDbContextProvider
 {
-    public class MongoDbContextProvider : IDbContextProvider
+    private readonly ConcurrentDictionary<string, IMongoDatabase> _databases = new();
+    private readonly ILogger<MongoDbContextProvider> _logger;
+    private readonly ITenants _tenants;
+    private readonly ActivitySource _activitySource;
+    private readonly ConcurrentDictionary<string, MongoClient> _mongoClients = new();
+
+    public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, ActivitySource activitySource)
     {
-        private readonly ConcurrentDictionary<string, IMongoDatabase> _databases = new();
-        private readonly ILogger<MongoDbContextProvider> _logger;
-        private readonly ITenants _tenants;
-        private readonly ActivitySource _activitySource;
-        private readonly ConcurrentDictionary<string, MongoClient> _mongoClients = new();
+        _logger = logger;
+        _tenants = tenants;
+        _activitySource = activitySource;
+    }
 
-        public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, ActivitySource activitySource)
+    public IMongoDatabase GetDatabase(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId))
+            throw new ArgumentNullException(nameof(tenantId), "Tenant ID cannot be null or empty.");
+
+        // Use lazy loading for tenant databases
+        return _databases.GetOrAdd(tenantId, id =>
         {
-            _logger = logger;
-            _tenants = tenants;
-            _activitySource = activitySource;
+            _logger.LogInformation("Loading database for tenant: {TenantId}", id);
+            return InitializeDatabaseForTenant(id);
+        });
+    }
+
+    public IMongoDatabase? GetDatabase()
+    {
+        var securityContext = BlocksContext.GetContext();
+        if (securityContext?.TenantId == null)
+        {
+            _logger.LogWarning("Tenant ID is missing in the security context.");
+            return null;
         }
 
-        public IMongoDatabase GetDatabase(string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId))
-                throw new ArgumentNullException(nameof(tenantId), "Tenant ID cannot be null or empty.");
+        return GetDatabase(securityContext.TenantId);
+    }
 
-            // Use lazy loading for tenant databases
-            return _databases.GetOrAdd(tenantId, id =>
+    public IMongoDatabase GetDatabase ( string connectionString, string databaseName, bool isCacheRefreshed=false )
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new ArgumentNullException(nameof(connectionString), "Connection string cannot be null or empty.");
+
+        if (string.IsNullOrWhiteSpace(databaseName))
+            throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
+
+        var dbKey = databaseName.ToLower();
+
+        if (isCacheRefreshed && _databases.TryGetValue(dbKey, out var database))
             {
-                _logger.LogInformation("Loading database for tenant: {TenantId}", id);
-                return InitializeDatabaseForTenant(id);
-            });
-        }
+            _logger.LogInformation("Database instance for {DatabaseName} already exists in cache.", databaseName);
 
-        public IMongoDatabase? GetDatabase()
-        {
-            var securityContext = BlocksContext.GetContext();
-            if (securityContext?.TenantId == null)
-            {
-                _logger.LogWarning("Tenant ID is missing in the security context.");
-                return null;
-            }
-
-            return GetDatabase(securityContext.TenantId);
-        }
-
-        public IMongoDatabase GetDatabase ( string connectionString, string databaseName, bool isCacheRefreshed=false )
-        {
-            if (string.IsNullOrWhiteSpace(connectionString))
-                throw new ArgumentNullException(nameof(connectionString), "Connection string cannot be null or empty.");
-
-            if (string.IsNullOrWhiteSpace(databaseName))
-                throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
-
-            var dbKey = databaseName.ToLower();
-
-            if (isCacheRefreshed && _databases.TryGetValue(dbKey, out var database))
+            // Check if the existing database instance is still valid (e.g., connection is alive)
+            if (IsSameDbConnection(database, connectionString))
                 {
-                _logger.LogInformation("Database instance for {DatabaseName} already exists in cache.", databaseName);
-
-                // Check if the existing database instance is still valid (e.g., connection is alive)
-                if (IsSameDbConnection(database, connectionString))
-                    {
-                    return database;
-                    }
-                else
-                    {
-                    _databases.TryRemove(dbKey, out _);
-                    }
+                return database;
                 }
-
-            return _databases.GetOrAdd(dbKey, key =>
-            {
-                _logger.LogInformation("Creating database instance for: {DatabaseName}", key);
-                return CreateMongoClient(connectionString).GetDatabase(databaseName);
-            });
-        }
-
-        public IMongoCollection<T> GetCollection<T>(string collectionName)
-        {
-            var database = GetDatabase();
-            if (database == null)
-            {
-                throw new InvalidOperationException("Database context is not available. Ensure the tenant ID is set correctly.");
-            }
-
-            return database.GetCollection<T>(collectionName);
-        }
-
-        public IMongoCollection<T> GetCollection<T>(string tenantId, string collectionName)
-        {
-            var database = GetDatabase(tenantId);
-            return database.GetCollection<T>(collectionName);
-        }
-
-        private IMongoDatabase InitializeDatabaseForTenant(string tenantId)
-        {
-            try
-            {
-                var (dbName, dbConnection) = _tenants.GetTenantDatabaseConnectionString(tenantId);
-                if (string.IsNullOrWhiteSpace(dbConnection) || string.IsNullOrWhiteSpace(dbName))
+            else
                 {
-                    throw new KeyNotFoundException($"Database information is missing for tenant: {tenantId}");
+                _databases.TryRemove(dbKey, out _);
                 }
-
-                return CreateMongoClient(dbConnection).GetDatabase(dbName);
             }
-            catch (Exception ex)
+
+        return _databases.GetOrAdd(dbKey, key =>
+        {
+            _logger.LogInformation("Creating database instance for: {DatabaseName}", key);
+            return CreateMongoClient(connectionString).GetDatabase(databaseName);
+        });
+    }
+
+    public IMongoCollection<T> GetCollection<T>(string collectionName)
+    {
+        var database = GetDatabase();
+        if (database == null)
+        {
+            throw new InvalidOperationException("Database context is not available. Ensure the tenant ID is set correctly.");
+        }
+
+        return database.GetCollection<T>(collectionName);
+    }
+
+    public IMongoCollection<T> GetCollection<T>(string tenantId, string collectionName)
+    {
+        var database = GetDatabase(tenantId);
+        return database.GetCollection<T>(collectionName);
+    }
+
+    private IMongoDatabase InitializeDatabaseForTenant(string tenantId)
+    {
+        try
+        {
+            var (dbName, dbConnection) = _tenants.GetTenantDatabaseConnectionString(tenantId);
+            if (string.IsNullOrWhiteSpace(dbConnection) || string.IsNullOrWhiteSpace(dbName))
             {
-                _logger.LogError(ex, "Failed to initialize database for tenant: {TenantId}", tenantId);
-                throw new InvalidOperationException($"Could not initialize database for tenant '{tenantId}'", ex);
+                throw new KeyNotFoundException($"Database information is missing for tenant: {tenantId}");
             }
-        }
 
-        private MongoClient CreateMongoClient(string connectionString)
+            return CreateMongoClient(dbConnection).GetDatabase(dbName);
+        }
+        catch (Exception ex)
         {
-            // Reuse MongoClient instances for the same connection string
-            return _mongoClients.GetOrAdd(connectionString, conn =>
-            {
-                _logger.LogInformation("Creating new MongoClient for connection string.");
-                var settings = MongoClientSettings.FromConnectionString(conn);
-                settings.RetryReads = true;
-                settings.RetryWrites = true;
-                settings.ServerSelectionTimeout = TimeSpan.FromSeconds(15);
-                settings.ConnectTimeout = TimeSpan.FromSeconds(10);
-                settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
-                return new MongoClient(settings);
-            });
+            _logger.LogError(ex, "Failed to initialize database for tenant: {TenantId}", tenantId);
+            throw new InvalidOperationException($"Could not initialize database for tenant '{tenantId}'", ex);
         }
-        private bool IsSameDbConnection ( IMongoDatabase database, string connectionString )
+    }
+
+    private MongoClient CreateMongoClient(string connectionString)
+    {
+        // Reuse MongoClient instances for the same connection string
+        return _mongoClients.GetOrAdd(connectionString, conn =>
         {
+            _logger.LogInformation("Creating new MongoClient for connection string.");
+            var settings = MongoClientSettings.FromConnectionString(conn);
+            settings.RetryReads = true;
+            settings.RetryWrites = true;
+            settings.ServerSelectionTimeout = TimeSpan.FromSeconds(15);
+            settings.ConnectTimeout = TimeSpan.FromSeconds(10);
+            settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
+            return new MongoClient(settings);
+        });
+    }
+    private bool IsSameDbConnection ( IMongoDatabase database, string connectionString )
+    {
 
-            MongoClientSettings existingSettings = database.Client.Settings;
+        MongoClientSettings existingSettings = database.Client.Settings;
 
-            MongoClientSettings newSettings = MongoClientSettings.FromConnectionString(connectionString);
+        MongoClientSettings newSettings = MongoClientSettings.FromConnectionString(connectionString);
 
-            // MongoClientSettings overrides Equals to do a deep comparison of all properties
+        // MongoClientSettings overrides Equals to do a deep comparison of all properties
 
-            return existingSettings.Equals(newSettings);
+        return existingSettings.Equals(newSettings);
 
-        }
     }
 }
