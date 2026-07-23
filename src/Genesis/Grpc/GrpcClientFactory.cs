@@ -24,6 +24,6 @@ public class GrpcClientFactory : IGrpcClientFactory
         var interceptor = new GrpcClientInterceptor(_activitySource, _cryptoService, _tenants);
         var interceptedChannel = channel.Intercept(interceptor);
 
-        return (TClient)Activator.CreateInstance(typeof(TClient), interceptedChannel);
+        return (TClient)Activator.CreateInstance(typeof(TClient), interceptedChannel)!;
     }
 }

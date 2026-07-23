@@ -360,7 +360,7 @@ internal static class JwtBearerAuthenticationExtension
 
     private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
     {
-        var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath, httpClientFactory);
+        var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath ?? string.Empty, httpClientFactory);
         return certificateData == null
             ? null
             : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters.PublicCertificatePassword);
@@ -374,7 +374,7 @@ internal static class JwtBearerAuthenticationExtension
         var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
 
         if (cachedCertificate.HasValue)
-            return CreateCertificate(cachedCertificate, validationParams?.PublicCertificatePassword);
+            return CreateCertificate(((byte[])cachedCertificate)!, validationParams?.PublicCertificatePassword);
 
         if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
             return null;
@@ -484,15 +484,15 @@ internal static class JwtBearerAuthenticationExtension
             return;
         }
 
-        var roleClaim = identity?.FindAll(identity.RoleClaimType).Select(r => r.Value).ToArray() ?? [];
+        var roleClaim = identity.FindAll(identity.RoleClaimType).Select(r => r.Value).ToArray();
 
         if (roleClaim.Length == 0)
         {
             roleClaim = ExtractRolesFromClaim(identity, claimsMapper);
         }
 
-        var subClaim = identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
-        var emailClaim = identity?.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
+        var subClaim = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        var emailClaim = identity.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
         var origin = context.Request.Headers.Origin.FirstOrDefault();
         var referer = context.Request.Headers.Referer.FirstOrDefault();
 
@@ -517,7 +517,7 @@ internal static class JwtBearerAuthenticationExtension
                    ExtractClaimValue(identity, claimsMapper["Email"]?.ToString() ?? ""),
 
             permissions: [],
-            userName: claimsMapper["UserName"]?.ToString().ToLower() == "email"? emailClaim:
+            userName: claimsMapper["UserName"]?.ToString()?.ToLower() == "email"? emailClaim:
                       ExtractClaimValue(identity, claimsMapper["UserName"]?.ToString() ?? ""),
 
             phoneNumber: string.Empty,

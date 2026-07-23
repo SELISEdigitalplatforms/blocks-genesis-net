@@ -24,7 +24,7 @@ public class GrpcClientInterceptor : Interceptor
         AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
     {
         var securityContext = BlocksContext.GetContext();
-        var tenantId = securityContext.TenantId;
+        var tenantId = securityContext?.TenantId ?? string.Empty;
         var tenant = _tenants.GetTenantByID(tenantId);
 
         var activity = _activitySource.StartActivity("GrpcClientCall", ActivityKind.Producer, Activity.Current?.Context ?? default);
