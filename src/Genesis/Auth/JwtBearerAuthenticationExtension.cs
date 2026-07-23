@@ -309,7 +309,7 @@ internal static class JwtBearerAuthenticationExtension
 
     private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
     {
-        var cert = await GetThirdPartyCertificateAsync(tenant, tenantId, httpClientFactory);
+        var cert = await GetThirdPartyCertificateAsync(tenant, httpClientFactory);
         if (cert == null)
         {
             Log.Warning("[Fallback] No fallback certificate found.");
@@ -364,7 +364,7 @@ internal static class JwtBearerAuthenticationExtension
         }
     }
 
-    private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
+    private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, IHttpClientFactory httpClientFactory)
     {
         var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath ?? string.Empty, httpClientFactory);
         return certificateData == null

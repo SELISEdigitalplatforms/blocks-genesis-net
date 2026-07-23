@@ -7,7 +7,7 @@ using Serilog.Events;
 
 namespace Blocks.Genesis;
 
-public class MongoDBDynamicSink : IBatchedLogEventSink
+public class MongoDBDynamicSink : IBatchedLogEventSink, System.IDisposable
 {
     private readonly string _serviceName;
     private readonly IMongoDatabase? _database;
