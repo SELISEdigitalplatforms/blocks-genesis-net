@@ -7,7 +7,7 @@ using System.Threading;
 
 namespace Blocks.Genesis;
 
-public class Tenants : ITenants, IDisposable
+public sealed class Tenants : ITenants, IDisposable
 {
     public const string TenantCacheUpdateActionUpsert = "upsert";
     public const string TenantCacheUpdateActionRemove = "remove";

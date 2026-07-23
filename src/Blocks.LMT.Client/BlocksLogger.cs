@@ -5,7 +5,7 @@ using System.Text.RegularExpressions; // For parsing message templates
 
 namespace SeliseBlocks.LMT.Client;
 
-public class BlocksLogger : IBlocksLogger, IDisposable
+public sealed class BlocksLogger : IBlocksLogger, IDisposable
 {
     private readonly LmtOptions _options;
     private readonly ConcurrentQueue<LogData> _logBatch;
