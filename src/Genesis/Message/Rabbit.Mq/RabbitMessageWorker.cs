@@ -121,7 +121,7 @@ public sealed class RabbitMessageWorker : BackgroundService
 
             try
             {
-                foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}") ?? new Dictionary<string, string>())
+                foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}") ?? [])
                 {
                     Baggage.SetBaggage(kvp.Key, kvp.Value);
                 }
@@ -240,7 +240,7 @@ public sealed class RabbitMessageWorker : BackgroundService
 
     private async Task StartConsumingAsync(AsyncEventingBasicConsumer consumer)
     {
-        foreach (var subscription in _messageConfiguration?.RabbitMqConfiguration?.ConsumerSubscriptions ?? new())
+        foreach (var subscription in _messageConfiguration?.RabbitMqConfiguration?.ConsumerSubscriptions ?? [])
         {
             await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
             _logger.LogInformation("Started consuming queue: {QueueName}, Parallel: {Parallel}, MaxConcurrency: {MaxConcurrency}",

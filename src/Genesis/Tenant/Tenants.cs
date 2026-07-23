@@ -5,64 +5,274 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public class Tenants : ITenants, IDisposable
 {
-    public class Tenants : ITenants, IDisposable
+    public const string TenantCacheUpdateActionUpsert = "upsert";
+    public const string TenantCacheUpdateActionRemove = "remove";
+
+    private readonly ILogger<Tenants> _logger;
+    private readonly IBlocksSecret _blocksSecret;
+    private readonly ICacheClient _cacheClient;
+    private readonly IMongoDatabase _database;
+    private readonly string _tenantUpdateChannel = "tenant::updates";
+    private bool _isSubscribed = false;
+    private bool _disposed = false;
+
+    private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
+    private readonly ConcurrentDictionary<string, Lazy<Tenant?>> _tenantLoadInProgress = [];
+
+    public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
     {
-        public const string TenantCacheUpdateActionUpsert = "upsert";
-        public const string TenantCacheUpdateActionRemove = "remove";
+        _logger = logger;
+        _blocksSecret = blocksSecret;
+        _cacheClient = cacheClient;
 
-        private readonly ILogger<Tenants> _logger;
-        private readonly IBlocksSecret _blocksSecret;
-        private readonly ICacheClient _cacheClient;
-        private readonly IMongoDatabase _database;
-        private readonly string _tenantUpdateChannel = "tenant::updates";
-        private bool _isSubscribed = false;
-        private bool _disposed = false;
+        _database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RootDatabaseName);
 
-        private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
-        private readonly ConcurrentDictionary<string, Lazy<Tenant?>> _tenantLoadInProgress = [];
-
-        public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
+        try
         {
-            _logger = logger;
-            _blocksSecret = blocksSecret;
-            _cacheClient = cacheClient;
+            // Subscribe to tenant updates
+            SubscribeToTenantUpdates().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize tenant cache.");
+        }
+    }
 
-            _database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RootDatabaseName);
+    public Tenant? GetTenantByID(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return null;
 
+        // Try to get tenant from the in-memory cache
+        if (_tenantCache.TryGetValue(tenantId, out var tenant))
+            return tenant;
+
+        // Deduplicate concurrent DB lookups for the same tenant ID.
+        var loader = _tenantLoadInProgress.GetOrAdd(
+            tenantId,
+            id => new Lazy<Tenant?>(() => GetTenantFromDb(id), LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
+        {
+            tenant = loader.Value;
+        }
+        finally
+        {
+            _tenantLoadInProgress.TryRemove(tenantId, out _);
+        }
+
+        if (tenant != null)
+        {
+            _tenantCache[tenant.TenantId] = tenant;
+            // Ensure trace collection exists asynchronously without blocking
+            _ = EnsureTraceCollectionExistsAsync(tenant);
+        }
+
+        return tenant;
+    }
+
+    public Dictionary<string, (string, string)> GetTenantDatabaseConnectionStrings()
+    {
+        return _tenantCache.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (kvp.Value.DBName, kvp.Value.DbConnectionString));
+    }
+
+    public (string?, string?) GetTenantDatabaseConnectionString(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return (null, null);
+
+        var tenant = GetTenantByID(tenantId);
+        return tenant is null ? (null, null) : (tenant.DBName, tenant.DbConnectionString);
+    }
+
+    public JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return null;
+
+        var tenant = GetTenantByID(tenantId);
+        return tenant?.JwtTokenParameters;
+    }
+
+    public async Task UpdateTenantVersionAsync(TenantCacheUpdateMessage cacheUpdate)
+    {
+        if (cacheUpdate is null)
+        {
+            throw new ArgumentNullException(nameof(cacheUpdate));
+        }
+
+        try
+        {
+            var normalizedUpdate = NormalizeCacheUpdate(cacheUpdate);
+            if (normalizedUpdate is null)
+            {
+                _logger.LogWarning("Skipping invalid tenant cache update payload.");
+                return;
+            }
+
+            // Publish the update to notify all instances
+            await _cacheClient.PublishAsync(_tenantUpdateChannel, JsonSerializer.Serialize(normalizedUpdate));
+
+            _logger.LogInformation(
+                "Tenant cache update published. TenantId: {TenantId}, Action: {Action}",
+                ResolveTenantId(normalizedUpdate),
+                normalizedUpdate.Action);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update tenant version.");
+        }
+    }
+
+    private async Task SubscribeToTenantUpdates()
+    {
+        if (_isSubscribed) return;
+
+        try
+        {
+            await _cacheClient.SubscribeAsync(_tenantUpdateChannel, HandleTenantUpdate);
+            _isSubscribed = true;
+            _logger.LogInformation("Successfully subscribed to tenant updates channel.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to subscribe to tenant updates channel.");
+        }
+    }
+
+    private void HandleTenantUpdate(RedisChannel channel, RedisValue message)
+    {
+        try
+        {
+            var cacheUpdate = ParseTenantCacheUpdate(message.ToString());
+            if (cacheUpdate is null)
+            {
+                _logger.LogWarning("Received invalid tenant update payload.");
+                return;
+            }
+
+            cacheUpdate = NormalizeCacheUpdate(cacheUpdate);
+            if (cacheUpdate is null)
+            {
+                _logger.LogWarning("Skipping tenant update due to missing action/tenant details.");
+                return;
+            }
+
+            var tenantId = ResolveTenantId(cacheUpdate);
+
+            _logger.LogInformation(
+                "Received tenant update notification. TenantId: {TenantId}, Action: {Action}",
+                tenantId,
+                cacheUpdate.Action);
+
+            if (cacheUpdate.Action == TenantCacheUpdateActionRemove)
+            {
+                if (!string.IsNullOrWhiteSpace(tenantId))
+                {
+                    _tenantCache.TryRemove(tenantId, out _);
+                }
+
+                return;
+            }
+
+            var tenant = cacheUpdate.Tenant;
+            if (tenant is null)
+            {
+                return;
+            }
+
+            if (tenant.IsDisabled)
+            {
+                _tenantCache.TryRemove(tenant.TenantId, out _);
+                return;
+            }
+
+            bool isNewTenant = !_tenantCache.ContainsKey(tenant.TenantId);
+            _tenantCache[tenant.TenantId] = tenant;
+
+            if (isNewTenant)
+            {
+                // Ensure trace collection exists asynchronously without blocking the update handler
+                _ = EnsureTraceCollectionExistsAsync(tenant);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling tenant update notification.");
+        }
+    }
+
+
+
+
+    private Tenant? GetTenantFromDb(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return null;
+
+        try
+        {
+            return _database
+                .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
+                .Find(t => t.TenantId == tenantId && !t.IsDisabled)
+                .FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to retrieve tenant from DB for ID: {TenantId}", tenantId);
+            return null;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        // Unsubscribe from tenant updates
+        if (_isSubscribed)
+        {
             try
             {
-                // Subscribe to tenant updates
-                SubscribeToTenantUpdates().ConfigureAwait(true);
+                _cacheClient.UnsubscribeAsync(_tenantUpdateChannel).Wait();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to initialize tenant cache.");
+                _logger.LogError(ex, "Error unsubscribing from tenant updates channel.");
             }
         }
 
-        public Tenant? GetTenantByID(string tenantId)
+        _disposed = true;
+    }
+
+    public Tenant? GetTenantByApplicationDomain(string appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return null;
+
+        appName = BlocksContext.NormalizeDomain(appName);
+
+        var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => tenant.Applications.Any(a => string.Equals(BlocksContext.NormalizeDomain(a.Domain), appName, StringComparison.OrdinalIgnoreCase)));
+
+        if (cachedTenant != null)
         {
-            if (string.IsNullOrWhiteSpace(tenantId)) return null;
+            return cachedTenant;
+        }
 
-            // Try to get tenant from the in-memory cache
-            if (_tenantCache.TryGetValue(tenantId, out var tenant))
-                return tenant;
+        try
+        {
+            var builder = Builders<Tenant>.Filter;
+            var domains = new List<string> {
+              "http://" + appName,
+              "https://" + appName,
+            };
 
-            // Deduplicate concurrent DB lookups for the same tenant ID.
-            var loader = _tenantLoadInProgress.GetOrAdd(
-                tenantId,
-                id => new Lazy<Tenant?>(() => GetTenantFromDb(id), LazyThreadSafetyMode.ExecutionAndPublication));
+            var filter = builder.ElemMatch(x => x.Applications,app => domains.Contains(app.Domain));
 
-            try
-            {
-                tenant = loader.Value;
-            }
-            finally
-            {
-                _tenantLoadInProgress.TryRemove(tenantId, out _);
-            }
+            var tenant = _database
+                .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
+                .Find(filter)
+                .FirstOrDefault();
 
             if (tenant != null)
             {
@@ -73,293 +283,82 @@ namespace Blocks.Genesis
 
             return tenant;
         }
-
-        public Dictionary<string, (string, string)> GetTenantDatabaseConnectionStrings()
+        catch (Exception ex)
         {
-            return _tenantCache.ToDictionary(
-                kvp => kvp.Key,
-                kvp => (kvp.Value.DBName, kvp.Value.DbConnectionString));
+            _logger.LogError(ex, "Failed to retrieve tenant from DB for Application name: {AppName}", appName);
+            return null;
         }
+    }
 
-        public (string?, string?) GetTenantDatabaseConnectionString(string tenantId)
+
+    private async Task EnsureTraceCollectionExistsAsync(Tenant tenant)
+    {
+        if (tenant is null) return;
+
+        // Only create trace collection for recently created tenants (< 24 hours old)
+        if (tenant.CreatedDate <= DateTime.UtcNow.AddDays(-1))
+            return;
+
+        try
         {
-            if (string.IsNullOrWhiteSpace(tenantId)) return (null, null);
-
-            var tenant = GetTenantByID(tenantId);
-            return tenant is null ? (null, null) : (tenant.DBName, tenant.DbConnectionString);
+            await Task.Run(() => LmtConfiguration.CreateCollectionForTrace(
+                _blocksSecret.TraceConnectionString,
+                tenant.TenantId));
         }
-
-        public JwtTokenParameters? GetTenantTokenValidationParameter(string tenantId)
+        catch (Exception ex)
         {
-            if (string.IsNullOrWhiteSpace(tenantId)) return null;
-
-            var tenant = GetTenantByID(tenantId);
-            return tenant?.JwtTokenParameters;
+            _logger.LogError(ex, "Failed to ensure trace collection for tenant: {TenantId}", tenant.TenantId);
         }
+    }
 
-        public async Task UpdateTenantVersionAsync(TenantCacheUpdateMessage cacheUpdate)
-        {
-            if (cacheUpdate is null)
-            {
-                throw new ArgumentNullException(nameof(cacheUpdate));
-            }
-
-            try
-            {
-                var normalizedUpdate = NormalizeCacheUpdate(cacheUpdate);
-                if (normalizedUpdate is null)
-                {
-                    _logger.LogWarning("Skipping invalid tenant cache update payload.");
-                    return;
-                }
-
-                // Publish the update to notify all instances
-                await _cacheClient.PublishAsync(_tenantUpdateChannel, JsonSerializer.Serialize(normalizedUpdate));
-
-                _logger.LogInformation(
-                    "Tenant cache update published. TenantId: {TenantId}, Action: {Action}",
-                    ResolveTenantId(normalizedUpdate),
-                    normalizedUpdate.Action);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to update tenant version.");
-            }
-        }
-
-        private async Task SubscribeToTenantUpdates()
-        {
-            if (_isSubscribed) return;
-
-            try
-            {
-                await _cacheClient.SubscribeAsync(_tenantUpdateChannel, HandleTenantUpdate);
-                _isSubscribed = true;
-                _logger.LogInformation("Successfully subscribed to tenant updates channel.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to subscribe to tenant updates channel.");
-            }
-        }
-
-        private void HandleTenantUpdate(RedisChannel channel, RedisValue message)
+    private static TenantCacheUpdateMessage? ParseTenantCacheUpdate(string message)
+    {
+        if (!string.IsNullOrWhiteSpace(message))
         {
             try
             {
-                var cacheUpdate = ParseTenantCacheUpdate(message.ToString());
-                if (cacheUpdate is null)
+                var cacheUpdate = JsonSerializer.Deserialize<TenantCacheUpdateMessage>(message);
+                if (cacheUpdate != null)
                 {
-                    _logger.LogWarning("Received invalid tenant update payload.");
-                    return;
-                }
-
-                cacheUpdate = NormalizeCacheUpdate(cacheUpdate);
-                if (cacheUpdate is null)
-                {
-                    _logger.LogWarning("Skipping tenant update due to missing action/tenant details.");
-                    return;
-                }
-
-                var tenantId = ResolveTenantId(cacheUpdate);
-
-                _logger.LogInformation(
-                    "Received tenant update notification. TenantId: {TenantId}, Action: {Action}",
-                    tenantId,
-                    cacheUpdate.Action);
-
-                if (cacheUpdate.Action == TenantCacheUpdateActionRemove)
-                {
-                    if (!string.IsNullOrWhiteSpace(tenantId))
-                    {
-                        _tenantCache.TryRemove(tenantId, out _);
-                    }
-
-                    return;
-                }
-
-                var tenant = cacheUpdate.Tenant;
-                if (tenant is null)
-                {
-                    return;
-                }
-
-                if (tenant.IsDisabled)
-                {
-                    _tenantCache.TryRemove(tenant.TenantId, out _);
-                    return;
-                }
-
-                bool isNewTenant = !_tenantCache.ContainsKey(tenant.TenantId);
-                _tenantCache[tenant.TenantId] = tenant;
-
-                if (isNewTenant)
-                {
-                    // Ensure trace collection exists asynchronously without blocking the update handler
-                    _ = EnsureTraceCollectionExistsAsync(tenant);
+                    return cacheUpdate;
                 }
             }
-            catch (Exception ex)
+            catch (JsonException)
             {
-                _logger.LogError(ex, "Error handling tenant update notification.");
             }
         }
 
+        return null;
+    }
 
-
-
-        private Tenant? GetTenantFromDb(string tenantId)
+    private static TenantCacheUpdateMessage? NormalizeCacheUpdate(TenantCacheUpdateMessage cacheUpdate)
+    {
+        var action = (cacheUpdate.Action ?? string.Empty).Trim().ToLowerInvariant();
+        if (action != TenantCacheUpdateActionRemove && action != TenantCacheUpdateActionUpsert)
         {
-            if (string.IsNullOrWhiteSpace(tenantId)) return null;
-
-            try
-            {
-                return _database
-                    .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(t => t.TenantId == tenantId && !t.IsDisabled)
-                    .FirstOrDefault();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to retrieve tenant from DB for ID: {TenantId}", tenantId);
-                return null;
-            }
-        }
-
-        public void Dispose()
-        {
-            if (_disposed) return;
-
-            // Unsubscribe from tenant updates
-            if (_isSubscribed)
-            {
-                try
-                {
-                    _cacheClient.UnsubscribeAsync(_tenantUpdateChannel).Wait();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error unsubscribing from tenant updates channel.");
-                }
-            }
-
-            _disposed = true;
-        }
-
-        public Tenant? GetTenantByApplicationDomain(string appName)
-        {
-            if (string.IsNullOrWhiteSpace(appName)) return null;
-
-            appName = BlocksContext.NormalizeDomain(appName);
-
-            var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => tenant.Applications.Any(a => string.Equals(BlocksContext.NormalizeDomain(a.Domain), appName, StringComparison.OrdinalIgnoreCase)));
-
-            if (cachedTenant != null)
-            {
-                return cachedTenant;
-            }
-
-            try
-            {
-                var builder = Builders<Tenant>.Filter;
-                var domains = new List<string> {
-                  "http://" + appName,
-                  "https://" + appName,
-                };
-
-                var filter = builder.ElemMatch(x => x.Applications,app => domains.Contains(app.Domain));
-
-                var tenant = _database
-                    .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                    .Find(filter)
-                    .FirstOrDefault();
-
-                if (tenant != null)
-                {
-                    _tenantCache[tenant.TenantId] = tenant;
-                    // Ensure trace collection exists asynchronously without blocking
-                    _ = EnsureTraceCollectionExistsAsync(tenant);
-                }
-
-                return tenant;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to retrieve tenant from DB for Application name: {AppName}", appName);
-                return null;
-            }
-        }
-
-
-        private async Task EnsureTraceCollectionExistsAsync(Tenant tenant)
-        {
-            if (tenant is null) return;
-
-            // Only create trace collection for recently created tenants (< 24 hours old)
-            if (tenant.CreatedDate <= DateTime.UtcNow.AddDays(-1))
-                return;
-
-            try
-            {
-                await Task.Run(() => LmtConfiguration.CreateCollectionForTrace(
-                    _blocksSecret.TraceConnectionString,
-                    tenant.TenantId));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to ensure trace collection for tenant: {TenantId}", tenant.TenantId);
-            }
-        }
-
-        private static TenantCacheUpdateMessage? ParseTenantCacheUpdate(string message)
-        {
-            if (!string.IsNullOrWhiteSpace(message))
-            {
-                try
-                {
-                    var cacheUpdate = JsonSerializer.Deserialize<TenantCacheUpdateMessage>(message);
-                    if (cacheUpdate != null)
-                    {
-                        return cacheUpdate;
-                    }
-                }
-                catch (JsonException)
-                {
-                }
-            }
-
             return null;
         }
 
-        private static TenantCacheUpdateMessage? NormalizeCacheUpdate(TenantCacheUpdateMessage cacheUpdate)
+        if (action == TenantCacheUpdateActionRemove)
         {
-            var action = (cacheUpdate.Action ?? string.Empty).Trim().ToLowerInvariant();
-            if (action != TenantCacheUpdateActionRemove && action != TenantCacheUpdateActionUpsert)
-            {
-                return null;
-            }
-
-            if (action == TenantCacheUpdateActionRemove)
-            {
-                var tenantId = ResolveTenantId(cacheUpdate);
-                return string.IsNullOrWhiteSpace(tenantId)
-                    ? null
-                    : cacheUpdate with { Action = TenantCacheUpdateActionRemove, TenantId = tenantId };
-            }
-
-            if (cacheUpdate.Tenant is null || string.IsNullOrWhiteSpace(cacheUpdate.Tenant.TenantId))
-            {
-                return null;
-            }
-
-            return cacheUpdate with { Action = TenantCacheUpdateActionUpsert, TenantId = cacheUpdate.Tenant.TenantId };
+            var tenantId = ResolveTenantId(cacheUpdate);
+            return string.IsNullOrWhiteSpace(tenantId)
+                ? null
+                : cacheUpdate with { Action = TenantCacheUpdateActionRemove, TenantId = tenantId };
         }
 
-        private static string? ResolveTenantId(TenantCacheUpdateMessage cacheUpdate)
+        if (cacheUpdate.Tenant is null || string.IsNullOrWhiteSpace(cacheUpdate.Tenant.TenantId))
         {
-            return string.IsNullOrWhiteSpace(cacheUpdate.TenantId)
-                ? cacheUpdate.Tenant?.TenantId
-                : cacheUpdate.TenantId;
+            return null;
         }
+
+        return cacheUpdate with { Action = TenantCacheUpdateActionUpsert, TenantId = cacheUpdate.Tenant.TenantId };
+    }
+
+    private static string? ResolveTenantId(TenantCacheUpdateMessage cacheUpdate)
+    {
+        return string.IsNullOrWhiteSpace(cacheUpdate.TenantId)
+            ? cacheUpdate.Tenant?.TenantId
+            : cacheUpdate.TenantId;
     }
 }

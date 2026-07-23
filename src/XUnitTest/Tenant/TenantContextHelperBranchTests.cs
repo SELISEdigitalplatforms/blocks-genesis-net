@@ -14,7 +14,7 @@ public class TenantContextHelperBranchTests
         var form = new FormCollection(new Dictionary<string, StringValues> { [BlocksConstants.BlocksKey] = "tenant-form" });
         Assert.Equal("tenant-form", (string?)Call("ResolveTenantIdFromForm", form));
 
-        Assert.Null((string?)Call("ResolveTenantIdFromForm", new FormCollection(new Dictionary<string, StringValues>())));
+        Assert.Null((string?)Call("ResolveTenantIdFromForm", new FormCollection([])));
         Assert.Null((string?)Call("ResolveTenantIdFromForm", new FormCollection(new Dictionary<string, StringValues> { [BlocksConstants.BlocksKey] = "" })));
     }
 
