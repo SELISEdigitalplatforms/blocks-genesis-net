@@ -124,23 +124,23 @@ public sealed record BlocksContext
         }
 
         return new BlocksContext(
-            tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value,
-            roles: claimsIdentity?.FindAll(claimsIdentity.RoleClaimType).Select(r => r.Value).ToArray() ?? Enumerable.Empty<string>(),
-            userId: claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value,
+            tenantId: claimsIdentity.FindFirst(TENANT_ID_CLAIM)?.Value ?? string.Empty,
+            roles: claimsIdentity.FindAll(claimsIdentity.RoleClaimType).Select(r => r.Value).ToArray(),
+            userId: claimsIdentity.FindFirst(USER_ID_CLAIM)?.Value ?? string.Empty,
             isAuthenticated: true,
-            requestUri: claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value,
-            organizationId: claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value,
+            requestUri: claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty,
+            organizationId: claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty,
             expireOn: DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue,
-            email: claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value,
+            email: claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value ?? string.Empty,
             permissions: claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value).ToArray(),
-            userName: claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value,
-            phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value,
-            displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value,
-            oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value,
-            originalTenantId: originalTenantId,
+            userName: claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty,
+            phoneNumber: claimsIdentity.FindFirst(PHONE_NUMBER_CLAIM)?.Value ?? string.Empty,
+            displayName: claimsIdentity.FindFirst(DISPLAY_NAME_CLAIM)?.Value ?? string.Empty,
+            oauthToken: claimsIdentity.FindFirst(TOKEN_CLAIM)?.Value ?? string.Empty,
+            originalTenantId: originalTenantId ?? string.Empty,
             applicationDomain: domain,
             impersonated: claimsIdentity.FindFirst(IMPERSONATED_CLAIM)?.Value == "true",
-            impersonationSessionId: claimsIdentity.FindFirst(IMPERSONATION_SESSION_ID_CLAIM)?.Value
+            impersonationSessionId: claimsIdentity.FindFirst(IMPERSONATION_SESSION_ID_CLAIM)?.Value ?? string.Empty
         );
     }
 
@@ -197,8 +197,8 @@ public sealed record BlocksContext
         bool impersonated = false,
         string impersonationSessionId = "")
     {
-        return new BlocksContext(tenantId, roles, userId, isAuthenticated, requestUri,
-            organizationId, expireOn, email, permissions, userName, phoneNumber, displayName, oauthToken, originalTenantId, applicationDomain, impersonated, impersonationSessionId);
+        return new BlocksContext(tenantId ?? string.Empty, roles ?? Enumerable.Empty<string>(), userId ?? string.Empty, isAuthenticated, requestUri ?? string.Empty,
+            organizationId ?? string.Empty, expireOn, email ?? string.Empty, permissions ?? Enumerable.Empty<string>(), userName ?? string.Empty, phoneNumber ?? string.Empty, displayName ?? string.Empty, oauthToken ?? string.Empty, originalTenantId ?? string.Empty, applicationDomain ?? string.Empty, impersonated, impersonationSessionId);
     }
 
     /// <summary>
