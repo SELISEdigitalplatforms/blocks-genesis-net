@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Blocks.Genesis;
 
-public sealed class RabbitMqService : IRabbitMqService, IAsyncDisposable
+public sealed class RabbitMqService : IRabbitMqService, IDisposable, IAsyncDisposable
 {
     private readonly ILogger<RabbitMqService> _logger;
     private readonly MessageConfiguration _config;

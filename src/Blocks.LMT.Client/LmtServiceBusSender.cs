@@ -14,8 +14,8 @@ public sealed class LmtServiceBusSender : ILmtMessageSender
     private readonly ConcurrentQueue<FailedLogBatch> _failedLogBatches;
     private readonly ConcurrentQueue<FailedTraceBatch> _failedTraceBatches;
     private readonly Timer _retryTimer;
-    private ServiceBusClient? _serviceBusClient;
-    private ServiceBusSender? _serviceBusSender;
+    private readonly ServiceBusClient? _serviceBusClient;
+    private readonly ServiceBusSender? _serviceBusSender;
     private readonly SemaphoreSlim _retrySemaphore = new SemaphoreSlim(1, 1);
     private bool _disposed;
     private readonly ILogger<LmtServiceBusSender>? _logger;

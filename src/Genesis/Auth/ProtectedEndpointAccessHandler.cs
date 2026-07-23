@@ -36,7 +36,7 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
         }
 
         var tenantId = BlocksContext.GetContext()?.TenantId;
-        if (!(await IsWithinQuotaAsync(identity, resourceName, tenantId)) && httpContext != null)
+        if (!(await IsWithinQuotaAsync(resourceName, tenantId)) && httpContext != null)
         {
             httpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             await httpContext.Response.WriteAsJsonAsync(new BaseResponse { IsSuccess = false, Errors = new Dictionary<string, string> { { "exceed_limit", "Request limit exceeded." } } });
@@ -54,8 +54,7 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
     /// <summary>
     /// Check rate limit quota for the resource
     /// </summary>
-    private async Task<bool> IsWithinQuotaAsync(ClaimsIdentity identity,
-                                                 string resourceName,
+    private async Task<bool> IsWithinQuotaAsync(string resourceName,
                                                  string? tenantId)
     {
         if (string.IsNullOrEmpty(tenantId))
