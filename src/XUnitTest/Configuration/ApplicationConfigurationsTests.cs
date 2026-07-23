@@ -77,7 +77,7 @@ public class ApplicationConfigurationsTests
 
         var builder = WebApplication.CreateBuilder();
         RegisterApiPrerequisites(builder.Services);
-        ApplicationConfigurations.ConfigureApi(builder.Services);
+        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-pipeline");
         var app = builder.Build();
 
         var ex = Record.Exception(() => ApplicationConfigurations.ConfigureMiddleware(app));
@@ -106,7 +106,7 @@ public class ApplicationConfigurationsTests
             XmlCommentsFilePath = "swagger-enabled.xml",
             EnableBearerAuth = false
         });
-        ApplicationConfigurations.ConfigureApi(builder.Services);
+        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-hooks");
         var app = builder.Build();
 
         var beforeAuthCalled = false;
@@ -181,6 +181,7 @@ public class ApplicationConfigurationsTests
             Environment.SetEnvironmentVariable("MaxRetries", "99");
             Environment.SetEnvironmentVariable("MaxFailedBatches", "199");
 
+            File.WriteAllText(Path.Combine(tempDirectory, "appsettings.json"), "{}");
             File.WriteAllText(Path.Combine(tempDirectory, "appsettings.Development.json"),
                 """
                 {
@@ -235,6 +236,7 @@ public class ApplicationConfigurationsTests
             Environment.SetEnvironmentVariable("MaxRetries", "12");
             Environment.SetEnvironmentVariable("MaxFailedBatches", "22");
 
+            File.WriteAllText(Path.Combine(tempDirectory, "appsettings.json"), "{}");
             File.WriteAllText(Path.Combine(tempDirectory, "appsettings.Staging.json"),
                 """
                 {
@@ -313,7 +315,7 @@ public class ApplicationConfigurationsTests
 
     private static string InvokeGetAppSettingsFileName()
     {
-        var method = typeof(ApplicationConfigurations).GetMethod("GetAppSettingsFileName", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var method = typeof(ApplicationConfigurations).GetMethod("GetEnvironmentAppSettingsFileName", BindingFlags.NonPublic | BindingFlags.Static)!;
         return (string)method.Invoke(null, null)!;
     }
 
