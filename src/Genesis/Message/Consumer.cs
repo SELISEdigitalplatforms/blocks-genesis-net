@@ -44,7 +44,7 @@ public class Consumer
             }
 
             // Invoke the consumer method
-            await (Task)routingInfo.ConsumerMethod.Invoke(consumer, new object[] { deserializedBody });
+            await (Task)routingInfo.ConsumerMethod.Invoke(consumer, new object[] { deserializedBody })!;
 
         }
         catch (Exception ex)

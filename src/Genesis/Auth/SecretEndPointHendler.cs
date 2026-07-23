@@ -20,7 +20,7 @@ internal class SecretAuthorizationHandler : AuthorizationHandler<SecretEndPointR
         {
             var secret = httpContext.Request.Headers["Secret"].ToString();
             var tenantId = BlocksContext.GetContext()?.TenantId;
-            var salt = _tenants.GetTenantByID(tenantId)?.TenantSalt;
+            var salt = _tenants.GetTenantByID(tenantId ?? string.Empty)?.TenantSalt;
             var actualSecret = _cryptoService.ComputeHmacSha256(tenantId ?? string.Empty, salt ?? string.Empty);
             var isValid = !string.IsNullOrEmpty(secret)
                 && _cryptoService.ConstantTimeEquals(secret, actualSecret);
