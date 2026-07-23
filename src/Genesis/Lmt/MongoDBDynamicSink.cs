@@ -151,7 +151,7 @@ public class MongoDBDynamicSink : IBatchedLogEventSink
         return document;
     }
 
-    private static BsonValue ConvertPropertyToBsonValue(object value)
+    private static BsonValue ConvertPropertyToBsonValue(object? value)
     {
         return value switch
         {
