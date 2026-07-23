@@ -3,190 +3,189 @@ using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 using Serilog;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public static class LmtConfiguration
 {
-    public static class LmtConfiguration
+    public static string LogDatabaseName { get; } = "Logs";
+    public static string TraceDatabaseName { get; } = "Traces";
+    public static string MetricDatabaseName { get; } = "Metrics";
+
+    private const string _timeField = "Timestamp";
+
+
+    public static IMongoDatabase GetMongoDatabase(string connection, string databaseName)
     {
-        public static string LogDatabaseName { get; } = "Logs";
-        public static string TraceDatabaseName { get; } = "Traces";
-        public static string MetricDatabaseName { get; } = "Metrics";
+        var mongoClient = new MongoClient(connection);
+        return mongoClient.GetDatabase(databaseName);
+    }
 
-        private const string _timeField = "Timestamp";
+    public static IMongoCollection<TDocument> GetMongoCollection<TDocument>(string connection, string databaseName, string collectionName)
+    {
+        return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
+    }
 
-
-        public static IMongoDatabase GetMongoDatabase(string connection, string databaseName)
+    public static void CreateCollectionForTrace(string connection, string collectionName)
+    {
+        var options = new CreateCollectionOptions
         {
-            var mongoClient = new MongoClient(connection);
-            return mongoClient.GetDatabase(databaseName);
+            ExpireAfter = TimeSpan.FromDays(90),
+            TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TraceId", TimeSeriesGranularity.Minutes)
+        };
+
+        try
+        {
+            CreateCollectionIfNotExists(connection, TraceDatabaseName, collectionName, options);
+            CreateIndex(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TraceId", 1 }, { _timeField, -1 } });
         }
-
-        public static IMongoCollection<TDocument> GetMongoCollection<TDocument>(string connection, string databaseName, string collectionName)
+        catch (Exception ex)
         {
-            return GetMongoDatabase(connection, databaseName).GetCollection<TDocument>(collectionName);
+            Log.Error(ex, "Failed to create trace collection/index for {CollectionName}.", collectionName);
         }
+    }
 
-        public static void CreateCollectionForTrace(string connection, string collectionName)
+    public static void CreateCollectionForMetrics(string connection, string collectionName)
+    {
+        var options = new CreateCollectionOptions
         {
-            var options = new CreateCollectionOptions
-            {
-                ExpireAfter = TimeSpan.FromDays(90),
-                TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TraceId", TimeSeriesGranularity.Minutes)
-            };
+            ExpireAfter = TimeSpan.FromDays(90),
+            TimeSeriesOptions = new TimeSeriesOptions(_timeField, "MeterName", TimeSeriesGranularity.Minutes)
+        };
 
-            try
-            {
-                CreateCollectionIfNotExists(connection, TraceDatabaseName, collectionName, options);
-                CreateIndex(connection, TraceDatabaseName, collectionName, new BsonDocument { { "TraceId", 1 }, { _timeField, -1 } });
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Failed to create trace collection/index for {CollectionName}.", collectionName);
-            }
+        try
+        {
+            CreateCollectionIfNotExists(connection, MetricDatabaseName, collectionName, options);
+            CreateIndex(connection, MetricDatabaseName, collectionName, new BsonDocument { { "MeterName", 1 }, { _timeField, -1 } });
         }
-
-        public static void CreateCollectionForMetrics(string connection, string collectionName)
+        catch (Exception ex)
         {
-            var options = new CreateCollectionOptions
-            {
-                ExpireAfter = TimeSpan.FromDays(90),
-                TimeSeriesOptions = new TimeSeriesOptions(_timeField, "MeterName", TimeSeriesGranularity.Minutes)
-            };
-
-            try
-            {
-                CreateCollectionIfNotExists(connection, MetricDatabaseName, collectionName, options);
-                CreateIndex(connection, MetricDatabaseName, collectionName, new BsonDocument { { "MeterName", 1 }, { _timeField, -1 } });
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Failed to create metrics collection/index for {CollectionName}.", collectionName);
-            }
+            Log.Error(ex, "Failed to create metrics collection/index for {CollectionName}.", collectionName);
         }
+    }
 
-        public static void CreateCollectionForLogs(string connection, string collectionName)
+    public static void CreateCollectionForLogs(string connection, string collectionName)
+    {
+        var options = new CreateCollectionOptions
         {
-            var options = new CreateCollectionOptions
-            {
-                ExpireAfter = TimeSpan.FromDays(90),
-                TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TenantId", TimeSeriesGranularity.Minutes)
-            };
+            ExpireAfter = TimeSpan.FromDays(90),
+            TimeSeriesOptions = new TimeSeriesOptions(_timeField, "TenantId", TimeSeriesGranularity.Minutes)
+        };
 
-            try
-            {
-                CreateCollectionIfNotExists(connection, LogDatabaseName, collectionName, options);
-                CreateIndex(
-                    connection,
-                    LogDatabaseName,
-                    collectionName,
-                    new BsonDocument { { "TenantId", 1 }, { _timeField, -1 } },
-                    new BsonDocument("TenantId", new BsonDocument("$exists", true)));
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Failed to create log collection/index for {CollectionName}.", collectionName);
-            }
+        try
+        {
+            CreateCollectionIfNotExists(connection, LogDatabaseName, collectionName, options);
+            CreateIndex(
+                connection,
+                LogDatabaseName,
+                collectionName,
+                new BsonDocument { { "TenantId", 1 }, { _timeField, -1 } },
+                new BsonDocument("TenantId", new BsonDocument("$exists", true)));
         }
-
-        private static void CreateCollectionIfNotExists(string connection, string databaseName, string collectionName, CreateCollectionOptions options)
+        catch (Exception ex)
         {
-            try
-            {
-                var database = GetMongoDatabase(connection, databaseName);
-                var collectionExists = CollectionExists(database, collectionName);
+            Log.Error(ex, "Failed to create log collection/index for {CollectionName}.", collectionName);
+        }
+    }
 
-                if (!collectionExists)
-                {
-                    database.CreateCollection(collectionName, options);
-                    Log.Information("Created collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
-                }
-                else if (!IsTimeSeriesCollection(database, collectionName))
-                {
-                    Log.Warning("Collection '{CollectionName}' in database '{DatabaseName}' is not time-series. Recreating.", collectionName, databaseName);
-                    database.DropCollection(collectionName);
-                    database.CreateCollection(collectionName, options);
-                    Log.Information("Recreated collection '{CollectionName}' as time-series in database '{DatabaseName}'.", collectionName, databaseName);
-                }
-            }
-            catch (Exception ex)
+    private static void CreateCollectionIfNotExists(string connection, string databaseName, string collectionName, CreateCollectionOptions options)
+    {
+        try
+        {
+            var database = GetMongoDatabase(connection, databaseName);
+            var collectionExists = CollectionExists(database, collectionName);
+
+            if (!collectionExists)
             {
-                Log.Error(ex, "Failed to create or verify collection '{CollectionName}' in '{DatabaseName}'.", collectionName, databaseName);
-                throw;
+                database.CreateCollection(collectionName, options);
+                Log.Information("Created collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
+            }
+            else if (!IsTimeSeriesCollection(database, collectionName))
+            {
+                Log.Warning("Collection '{CollectionName}' in database '{DatabaseName}' is not time-series. Recreating.", collectionName, databaseName);
+                database.DropCollection(collectionName);
+                database.CreateCollection(collectionName, options);
+                Log.Information("Recreated collection '{CollectionName}' as time-series in database '{DatabaseName}'.", collectionName, databaseName);
             }
         }
-
-        private static bool CollectionExists(IMongoDatabase database, string collectionName)
+        catch (Exception ex)
         {
-            var filter = new BsonDocument("name", collectionName);
-            var options = new ListCollectionNamesOptions { Filter = filter };
-
-            var collections = database.ListCollectionNames(options);
-            return collections.Any();
+            Log.Error(ex, "Failed to create or verify collection '{CollectionName}' in '{DatabaseName}'.", collectionName, databaseName);
+            throw;
         }
+    }
 
-        private static bool IsTimeSeriesCollection(IMongoDatabase database, string collectionName)
+    private static bool CollectionExists(IMongoDatabase database, string collectionName)
+    {
+        var filter = new BsonDocument("name", collectionName);
+        var options = new ListCollectionNamesOptions { Filter = filter };
+
+        var collections = database.ListCollectionNames(options);
+        return collections.Any();
+    }
+
+    private static bool IsTimeSeriesCollection(IMongoDatabase database, string collectionName)
+    {
+        var filter = new BsonDocument("name", collectionName);
+        var options = new ListCollectionsOptions { Filter = filter };
+        var collectionInfo = database.ListCollections(options).FirstOrDefault();
+
+        return collectionInfo != null
+            && collectionInfo.Contains("type")
+            && collectionInfo["type"].AsString == "timeseries";
+    }
+
+    public static void CreateIndex(
+        string connection,
+        string databaseName,
+        string collectionName,
+        IndexKeysDefinition<BsonDocument> indexKeys,
+        FilterDefinition<BsonDocument>? partialFilter = null)
+    {
+        var indexName = $"{collectionName}_Index";
+        var indexOptions = new CreateIndexOptions<BsonDocument> { Name = indexName };
+        if (partialFilter != null)
         {
-            var filter = new BsonDocument("name", collectionName);
-            var options = new ListCollectionsOptions { Filter = filter };
-            var collectionInfo = database.ListCollections(options).FirstOrDefault();
-
-            return collectionInfo != null
-                && collectionInfo.Contains("type")
-                && collectionInfo["type"].AsString == "timeseries";
+            indexOptions.PartialFilterExpression = partialFilter;
         }
+        var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
+        var serializerRegistry = BsonSerializer.SerializerRegistry;
+        var documentSerializer = serializerRegistry.GetSerializer<BsonDocument>();
+        var expectedIndexKeys = indexKeys.Render(new RenderArgs<BsonDocument>(documentSerializer, serializerRegistry));
 
-        public static void CreateIndex(
-            string connection,
-            string databaseName,
-            string collectionName,
-            IndexKeysDefinition<BsonDocument> indexKeys,
-            FilterDefinition<BsonDocument>? partialFilter = null)
+        try
         {
-            var indexName = $"{collectionName}_Index";
-            var indexOptions = new CreateIndexOptions<BsonDocument> { Name = indexName };
-            if (partialFilter != null)
-            {
-                indexOptions.PartialFilterExpression = partialFilter;
-            }
-            var collection = GetMongoCollection<BsonDocument>(connection, databaseName, collectionName);
-            var serializerRegistry = BsonSerializer.SerializerRegistry;
-            var documentSerializer = serializerRegistry.GetSerializer<BsonDocument>();
-            var expectedIndexKeys = indexKeys.Render(new RenderArgs<BsonDocument>(documentSerializer, serializerRegistry));
+            // Get existing indexes
+            var indexCursor = collection.Indexes.List();
+            var existingIndexes = indexCursor.ToList();
 
-            try
-            {
-                // Get existing indexes
-                var indexCursor = collection.Indexes.List();
-                var existingIndexes = indexCursor.ToList();
+            // Check if index with same name exists
+            var indexWithSameNameExists = existingIndexes.Any(idx =>
+                idx.Contains("name") && idx["name"].AsString == indexName);
 
-                // Check if index with same name exists
-                var indexWithSameNameExists = existingIndexes.Any(idx =>
-                    idx.Contains("name") && idx["name"].AsString == indexName);
+            // Check if index with same key definition exists but different name
+            var indexWithSameKeysExists = existingIndexes.Any(idx =>
+                idx.Contains("name")
+                && idx["name"].AsString != "_id_"
+                && idx.Contains("key")
+                && idx["key"].AsBsonDocument.Equals(expectedIndexKeys));
 
-                // Check if index with same key definition exists but different name
-                var indexWithSameKeysExists = existingIndexes.Any(idx =>
-                    idx.Contains("name")
-                    && idx["name"].AsString != "_id_"
-                    && idx.Contains("key")
-                    && idx["key"].AsBsonDocument.Equals(expectedIndexKeys));
-
-                // Create index if it doesn't exist with either the same name or key structure
-                if (!indexWithSameNameExists && !indexWithSameKeysExists)
-                {
-                    var indexModel = new CreateIndexModel<BsonDocument>(indexKeys, indexOptions);
-                    collection.Indexes.CreateOne(indexModel);
-                    Log.Information("Created index on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
-                }
-            }
-            catch (MongoCommandException ex) when (ex.Message.Contains("Index already exists with a different name"))
+            // Create index if it doesn't exist with either the same name or key structure
+            if (!indexWithSameNameExists && !indexWithSameKeysExists)
             {
-                // Handle specific case where the index exists with a different name
-                Log.Warning("Cannot create index: equivalent key-pattern already exists with a different name on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
+                var indexModel = new CreateIndexModel<BsonDocument>(indexKeys, indexOptions);
+                collection.Indexes.CreateOne(indexModel);
+                Log.Information("Created index on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
             }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error creating index on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
-                throw;
-            }
+        }
+        catch (MongoCommandException ex) when (ex.Message.Contains("Index already exists with a different name"))
+        {
+            // Handle specific case where the index exists with a different name
+            Log.Warning("Cannot create index: equivalent key-pattern already exists with a different name on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error creating index on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
+            throw;
         }
     }
 }

@@ -148,7 +148,7 @@ public class AzureKeyVaultTests
 
             var sut = new AzureKeyVault();
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => sut.ProcessSecretsAsync(new List<string> { "Key1" }));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => sut.ProcessSecretsAsync(["Key1"]));
         }
         finally
         {

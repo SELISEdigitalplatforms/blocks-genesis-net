@@ -60,29 +60,16 @@ public sealed class RabbitMessageWorker : BackgroundService
 
     private async Task HandleMessageAsync(object sender, BasicDeliverEventArgs ea)
     {
-        var subscription = _messageConfiguration.RabbitMqConfiguration.ConsumerSubscriptions
+        var subscription = _messageConfiguration.RabbitMqConfiguration!.ConsumerSubscriptions
             .FirstOrDefault(s => s.QueueName == ea.RoutingKey);
 
         try
         {
             if (subscription?.ParallelProcessing ?? false)
             {
-                _ = ProcessMessageInternalAsync(ea).ContinueWith(async t =>
-                {
-                    if (t.IsFaulted)
-                    {
-                        _logger.LogError(t.Exception, "Error in parallel message processing for queue {Queue}", ea.RoutingKey);
-                        try
-                        {
-                            if (_channel?.IsOpen == true)
-                                await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
-                        }
-                        catch (Exception nackEx)
-                        {
-                            _logger.LogError(nackEx, "Failed to NACK message after parallel processing error");
-                        }
-                    }
-                }, TaskScheduler.Default).Unwrap();
+                _ = ProcessMessageInternalAsync(ea)
+                    .ContinueWith(t => HandleParallelFaultAsync(t, ea), TaskScheduler.Default)
+                    .Unwrap();
             }
             else
             {
@@ -92,15 +79,7 @@ public sealed class RabbitMessageWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Critical error in message handler for queue {Queue}. Message will be NACKed.", ea.RoutingKey);
-            try
-            {
-                if (_channel?.IsOpen == true)
-                    await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
-            }
-            catch (Exception nackEx)
-            {
-                _logger.LogError(nackEx, "Failed to NACK message after critical error");
-            }
+            await SafeNackAsync(ea, "Failed to NACK message after critical error");
         }
     }
 
@@ -110,50 +89,10 @@ public sealed class RabbitMessageWorker : BackgroundService
         {
             ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext, out var baggage);
 
-            try
-            {
-                BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
-            }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                BlocksContext.SetContext(null);
-            }
+            SetSecurityContextFromHeader(securityContext);
+            ApplyBaggage(baggage, tenantId);
 
-            try
-            {
-                foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}") ?? new Dictionary<string, string>())
-                {
-                    Baggage.SetBaggage(kvp.Key, kvp.Value);
-                }
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Failed to deserialize baggage, skipping baggage context");
-            }
-            Baggage.SetBaggage("TenantId", tenantId);
-
-            ActivityContext parentContext;
-            try
-            {
-                parentContext = new ActivityContext(
-                    ActivityTraceId.CreateFromString(traceId ?? ActivityTraceId.CreateRandom().ToString()),
-                    spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
-                    ActivityTraceFlags.Recorded,
-                    traceState: null,
-                    isRemote: true
-                );
-            }
-            catch (ArgumentException ex)
-            {
-                _logger.LogWarning(ex, "Invalid trace context, creating new context");
-                parentContext = new ActivityContext(
-                    ActivityTraceId.CreateRandom(),
-                    ActivitySpanId.CreateRandom(),
-                    ActivityTraceFlags.Recorded,
-                    traceState: null,
-                    isRemote: false
-                );
-            }
+            var parentContext = BuildParentActivityContext(traceId, spanId);
 
             using var activity = _activitySource.StartActivity("process.messaging.rabbitmq", ActivityKind.Consumer, parentContext);
 
@@ -162,68 +101,15 @@ public sealed class RabbitMessageWorker : BackgroundService
             activity?.SetTag("messaging.system", "rabbitmq");
             activity?.SetTag("usage", true);
 
-
             var body = ea.Body.ToArray();
             _logger.LogInformation("Received message for queue {Queue}", ea.RoutingKey);
 
-            var processedSuccessfully = false;
-            try
-            {
-                var message = JsonSerializer.Deserialize<Message>(body);
-
-                if (message != null)
-                {
-                    await _consumer.ProcessMessageAsync(message.Type, message.Body);
-                    activity?.SetTag("response", "Successfully Completed");
-                    activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
-                    _logger.LogInformation("Message processed successfully.");
-                    processedSuccessfully = true;
-                }
-                else
-                {
-                    _logger.LogWarning("Received empty or invalid message envelope for queue {Queue}. Message will be acknowledged.", ea.RoutingKey);
-                    processedSuccessfully = true;
-                }
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Invalid JSON payload received for queue {Queue}. Message will be acknowledged.", ea.RoutingKey);
-                activity?.SetStatus(ActivityStatusCode.Error, "Invalid JSON payload");
-                processedSuccessfully = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error while processing message.");
-                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-                activity?.SetTag("error", ex.Message);
-            }
-            finally
-            {
-                if (processedSuccessfully)
-                {
-                    if (_channel?.IsOpen == true)
-                        await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
-                }
-                else
-                {
-                    if (_channel?.IsOpen == true)
-                        await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
-                }
-                activity?.Stop();
-            }
+            await DispatchAndAckAsync(body, activity, ea);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error in message processing for queue {Queue}", ea.RoutingKey);
-            try
-            {
-                if (_channel?.IsOpen == true)
-                    await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
-            }
-            catch (Exception nackEx)
-            {
-                _logger.LogError(nackEx, "Failed to NACK message after unexpected error");
-            }
+            await SafeNackAsync(ea, "Failed to NACK message after unexpected error");
         }
         finally
         {
@@ -238,9 +124,135 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
     }
 
+    private async Task SafeNackAsync(BasicDeliverEventArgs ea, string failureLogMessage)
+    {
+        try
+        {
+            if (_channel?.IsOpen == true)
+                await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
+        }
+        catch (Exception nackEx)
+        {
+            _logger.LogError(nackEx, failureLogMessage);
+        }
+    }
+
+    private async Task HandleParallelFaultAsync(Task t, BasicDeliverEventArgs ea)
+    {
+        if (!t.IsFaulted)
+        {
+            return;
+        }
+
+        _logger.LogError(t.Exception, "Error in parallel message processing for queue {Queue}", ea.RoutingKey);
+        await SafeNackAsync(ea, "Failed to NACK message after parallel processing error");
+    }
+
+    private static void SetSecurityContextFromHeader(string? securityContext)
+    {
+        try
+        {
+            BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext!));
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            BlocksContext.SetContext(null);
+        }
+    }
+
+    private void ApplyBaggage(string? baggage, string? tenantId)
+    {
+        try
+        {
+            foreach (var kvp in JsonSerializer.Deserialize<Dictionary<string, string>>(baggage ?? "{}") ?? [])
+            {
+                Baggage.SetBaggage(kvp.Key, kvp.Value);
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to deserialize baggage, skipping baggage context");
+        }
+        Baggage.SetBaggage("TenantId", tenantId);
+    }
+
+    private ActivityContext BuildParentActivityContext(string? traceId, string? spanId)
+    {
+        try
+        {
+            return new ActivityContext(
+                ActivityTraceId.CreateFromString(traceId ?? ActivityTraceId.CreateRandom().ToString()),
+                spanId != null ? ActivitySpanId.CreateFromString(spanId.AsSpan()) : ActivitySpanId.CreateRandom(),
+                ActivityTraceFlags.Recorded,
+                traceState: null,
+                isRemote: true
+            );
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid trace context, creating new context");
+            return new ActivityContext(
+                ActivityTraceId.CreateRandom(),
+                ActivitySpanId.CreateRandom(),
+                ActivityTraceFlags.Recorded,
+                traceState: null,
+                isRemote: false
+            );
+        }
+    }
+
+    private async Task DispatchAndAckAsync(byte[] body, Activity? activity, BasicDeliverEventArgs ea)
+    {
+        var processedSuccessfully = false;
+        try
+        {
+            var message = JsonSerializer.Deserialize<Message>(body);
+
+            if (message != null)
+            {
+                await _consumer.ProcessMessageAsync(message.Type, message.Body);
+                activity?.SetTag("response", "Successfully Completed");
+                activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
+                _logger.LogInformation("Message processed successfully.");
+                processedSuccessfully = true;
+            }
+            else
+            {
+                _logger.LogWarning("Received empty or invalid message envelope for queue {Queue}. Message will be acknowledged.", ea.RoutingKey);
+                processedSuccessfully = true;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Invalid JSON payload received for queue {Queue}. Message will be acknowledged.", ea.RoutingKey);
+            activity?.SetStatus(ActivityStatusCode.Error, "Invalid JSON payload");
+            processedSuccessfully = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while processing message.");
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetTag("error", ex.Message);
+        }
+        finally
+        {
+            if (processedSuccessfully)
+            {
+                if (_channel?.IsOpen == true)
+                    await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
+            }
+            else
+            {
+                if (_channel?.IsOpen == true)
+                    await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
+            }
+            activity?.Stop();
+        }
+    }
+
     private async Task StartConsumingAsync(AsyncEventingBasicConsumer consumer)
     {
-        foreach (var subscription in _messageConfiguration?.RabbitMqConfiguration?.ConsumerSubscriptions ?? new())
+        foreach (var subscription in _messageConfiguration?.RabbitMqConfiguration?.ConsumerSubscriptions ?? [])
         {
             await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
             _logger.LogInformation("Started consuming queue: {QueueName}, Parallel: {Parallel}, MaxConcurrency: {MaxConcurrency}",
@@ -263,7 +275,7 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         if (properties.Headers != null && properties.Headers.TryGetValue(key, out var value))
         {
-            return Encoding.UTF8.GetString((byte[])value);
+            return Encoding.UTF8.GetString((byte[])value!);
         }
         return null;
     }
