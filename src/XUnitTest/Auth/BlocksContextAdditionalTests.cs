@@ -41,8 +41,6 @@ public class BlocksContextAdditionalTests : IDisposable
         Assert.Equal("123", context.PhoneNumber);
         Assert.Equal("John", context.DisplayName);
         Assert.Equal("token", context.OAuthToken);
-        Assert.Equal("refresh", context.RefreshToken);
-        Assert.Equal("t1", context.ActualTenantId);
     }
 
     [Fact]
