@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace SeliseBlocks.LMT.Client;
 
-public class LmtServiceBusSender : ILmtMessageSender
+public sealed class LmtServiceBusSender : ILmtMessageSender
 {
     private readonly string _serviceName;
     private readonly int _maxRetries;

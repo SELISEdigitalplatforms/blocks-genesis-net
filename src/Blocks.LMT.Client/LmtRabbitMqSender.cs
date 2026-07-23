@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 namespace SeliseBlocks.LMT.Client;
 
 
-public class LmtRabbitMqSender : ILmtMessageSender
+public sealed class LmtRabbitMqSender : ILmtMessageSender
 {
     private readonly string _serviceName;
     private readonly int _maxRetries;
