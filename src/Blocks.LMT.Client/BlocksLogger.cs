@@ -31,13 +31,13 @@ public sealed class BlocksLogger : IBlocksLogger, IDisposable
         _flushTimer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, flushInterval, flushInterval);
     }
 
-    public void Log(LmtLogLevel level, string messageTemplate, Exception? exception = null, params object?[] args)
+    public void Log(LmtLogLevel level, string message, Exception? exception = null, params object?[] args)
     {
         if (!_options.EnableLogging) return;
 
         var activity = Activity.Current;
         var properties = new Dictionary<string, object>();
-        string formattedMessage = FormatLogMessage(messageTemplate, args, properties);
+        string formattedMessage = FormatLogMessage(message, args, properties);
 
         var logData = new LogData
         {

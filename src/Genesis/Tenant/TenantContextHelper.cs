@@ -204,10 +204,9 @@ internal static class TenantContextHelper
             if (Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
                 browserHost = NormalizeDomain(originUri.Host);
         }
-        else if (!string.IsNullOrWhiteSpace(referer) && !IsLocalhostHeader(referer))
+        else if (!string.IsNullOrWhiteSpace(referer) && !IsLocalhostHeader(referer) && Uri.TryCreate(referer, UriKind.Absolute, out var refererUri))
         {
-            if (Uri.TryCreate(referer, UriKind.Absolute, out var refererUri))
-                browserHost = NormalizeDomain(refererUri.Host);
+            browserHost = NormalizeDomain(refererUri.Host);
         }
 
         // Browser call: return the exact matching domain from Applications
