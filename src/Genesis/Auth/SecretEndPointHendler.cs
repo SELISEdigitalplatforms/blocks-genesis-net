@@ -1,41 +1,40 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+internal class SecretAuthorizationHandler : AuthorizationHandler<SecretEndPointRequirement>
 {
-    internal class SecretAuthorizationHandler : AuthorizationHandler<SecretEndPointRequirement>
+    private readonly ICryptoService _cryptoService;
+    private readonly ITenants _tenants;
+
+    public SecretAuthorizationHandler(ICryptoService cryptoService, ITenants tenants)
     {
-        private readonly ICryptoService _cryptoService;
-        private readonly ITenants _tenants;
+        _cryptoService = cryptoService;
+        _tenants = tenants;
+    }
 
-        public SecretAuthorizationHandler(ICryptoService cryptoService, ITenants tenants)
+    protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, SecretEndPointRequirement requirement)
+    {
+        if (context.Resource is HttpContext httpContext)
         {
-            _cryptoService = cryptoService;
-            _tenants = tenants;
-        }
+            var secret = httpContext.Request.Headers["Secret"].ToString();
+            var tenantId = BlocksContext.GetContext()?.TenantId;
+            var salt = _tenants.GetTenantByID(tenantId)?.TenantSalt;
+            var actualSecret = _cryptoService.ComputeHmacSha256(tenantId ?? string.Empty, salt ?? string.Empty);
+            var isValid = !string.IsNullOrEmpty(secret)
+                && _cryptoService.ConstantTimeEquals(secret, actualSecret);
 
-        protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, SecretEndPointRequirement requirement)
-        {
-            if (context.Resource is HttpContext httpContext)
+            if (!isValid)
             {
-                var secret = httpContext.Request.Headers["Secret"].ToString();
-                var tenantId = BlocksContext.GetContext()?.TenantId;
-                var salt = _tenants.GetTenantByID(tenantId)?.TenantSalt;
-                var actualSecret = _cryptoService.ComputeHmacSha256(tenantId ?? string.Empty, salt ?? string.Empty);
-                var isValid = !string.IsNullOrEmpty(secret)
-                    && _cryptoService.ConstantTimeEquals(secret, actualSecret);
-
-                if (!isValid)
-                {
-                    context.Fail();
-                }
-                else
-                {
-                    context.Succeed(requirement);
-                }
+                context.Fail();
             }
-
-            return Task.CompletedTask;
+            else
+            {
+                context.Succeed(requirement);
+            }
         }
+
+        return Task.CompletedTask;
     }
 }

@@ -1,43 +1,42 @@
 ﻿using Microsoft.Extensions.Configuration;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+internal static class LmtConfigurationProvider
 {
-    internal static class LmtConfigurationProvider
+    private static IConfiguration? _configuration;
+
+    public static void Initialize(IConfiguration configuration)
     {
-        private static IConfiguration? _configuration;
+        _configuration = configuration;
+    }
 
-        public static void Initialize(IConfiguration configuration)
-        {
-            _configuration = configuration;
-        }
+    public static string? GetServiceBusConnectionString()
+    {
+        return Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+    }
 
-        public static string? GetServiceBusConnectionString()
-        {
-            return Environment.GetEnvironmentVariable("ServiceBusConnectionString");
-        }
+    public static int GetMaxRetries()
+    {
+        var retries = _configuration?.GetSection("Lmt:MaxRetries")?.Value;
+        if (int.TryParse(retries, out var retriesValue))
+            return retriesValue;
 
-        public static int GetMaxRetries()
-        {
-            var retries = _configuration?.GetSection("Lmt:MaxRetries")?.Value;
-            if (int.TryParse(retries, out var retriesValue))
-                return retriesValue;
+        if (int.TryParse(Environment.GetEnvironmentVariable("MaxRetries"), out var envRetries))
+            return envRetries;
 
-            if (int.TryParse(Environment.GetEnvironmentVariable("MaxRetries"), out var envRetries))
-                return envRetries;
+        return 3;
+    }
 
-            return 3;
-        }
+    public static int GetMaxFailedBatches()
+    {
+        var batches = _configuration?.GetSection("Lmt:MaxFailedBatches")?.Value;
+        if (int.TryParse(batches, out var batchesValue))
+            return batchesValue;
 
-        public static int GetMaxFailedBatches()
-        {
-            var batches = _configuration?.GetSection("Lmt:MaxFailedBatches")?.Value;
-            if (int.TryParse(batches, out var batchesValue))
-                return batchesValue;
+        if (int.TryParse(Environment.GetEnvironmentVariable("MaxFailedBatches"), out var envBatches))
+            return envBatches;
 
-            if (int.TryParse(Environment.GetEnvironmentVariable("MaxFailedBatches"), out var envBatches))
-                return envBatches;
-
-            return 100;
-        }
+        return 100;
     }
 }
