@@ -90,7 +90,7 @@ public sealed class AzureMessageWorker : BackgroundService
 
             MessageProcessingStarted += async (sender, e) =>
             {
-               await StartAutoRenewalTask(e.Args, e.Token).ConfigureAwait(false);
+               await StartAutoRenewalTask(e.Args!, e.Token).ConfigureAwait(false);
             };
 
             var queueProcessingTask = ProcessQueues(stoppingToken);
@@ -149,7 +149,7 @@ public sealed class AzureMessageWorker : BackgroundService
 
         try
         {
-            BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString));
+            BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContextString!));
         }
         catch (JsonException)
         {

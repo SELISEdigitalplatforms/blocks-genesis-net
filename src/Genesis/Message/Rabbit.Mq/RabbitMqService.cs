@@ -29,7 +29,7 @@ public sealed class RabbitMqService : IRabbitMqService, IAsyncDisposable
         {
             var factory = new ConnectionFactory
             {
-                Uri = new Uri(_config.Connection),
+                Uri = new Uri(_config.Connection!),
                 VirtualHost = "/",
                 ContinuationTimeout = TimeSpan.FromSeconds(62),
                 AutomaticRecoveryEnabled = true
@@ -53,7 +53,7 @@ public sealed class RabbitMqService : IRabbitMqService, IAsyncDisposable
 
         try
         {
-            foreach (var subscription in _config.RabbitMqConfiguration.ConsumerSubscriptions)
+            foreach (var subscription in _config.RabbitMqConfiguration!.ConsumerSubscriptions)
             {
                 await DeclareQueueAsync(subscription);
 

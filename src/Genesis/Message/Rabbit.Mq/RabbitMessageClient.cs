@@ -82,7 +82,7 @@ public sealed class RabbitMessageClient : IMessageClient
 
         using var activity = _activitySource.StartActivity("messaging.rabbitmq.send", ActivityKind.Producer, Activity.Current?.Context ?? default);
 
-        activity.DisplayName = $"Rabbit Send to {consumerMessage.ConsumerName}";
+        if (activity is not null) activity.DisplayName = $"Rabbit Send to {consumerMessage.ConsumerName}";
         activity?.SetTag("messaging.system", "rabbitmq");
         activity?.SetTag("messaging.destination.name", consumerMessage.ConsumerName);
         activity?.SetTag("messaging.destination.kind", isExchange ? "exchange" : "queue");

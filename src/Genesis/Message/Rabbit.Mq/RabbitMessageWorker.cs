@@ -60,7 +60,7 @@ public sealed class RabbitMessageWorker : BackgroundService
 
     private async Task HandleMessageAsync(object sender, BasicDeliverEventArgs ea)
     {
-        var subscription = _messageConfiguration.RabbitMqConfiguration.ConsumerSubscriptions
+        var subscription = _messageConfiguration.RabbitMqConfiguration!.ConsumerSubscriptions
             .FirstOrDefault(s => s.QueueName == ea.RoutingKey);
 
         try
@@ -112,7 +112,7 @@ public sealed class RabbitMessageWorker : BackgroundService
 
             try
             {
-                BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext));
+                BlocksContext.SetContext(JsonSerializer.Deserialize<BlocksContext>(securityContext!));
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
@@ -263,7 +263,7 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         if (properties.Headers != null && properties.Headers.TryGetValue(key, out var value))
         {
-            return Encoding.UTF8.GetString((byte[])value);
+            return Encoding.UTF8.GetString((byte[])value!);
         }
         return null;
     }
