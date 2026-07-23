@@ -40,36 +40,9 @@ public class TenantValidationMiddleware
 
         activity?.SetTag("http.headers", JsonSerializer.Serialize(SanitizeDictionary(context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()))));
         activity?.SetTag("http.query", JsonSerializer.Serialize(SanitizeDictionary(context.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString()))));
-        var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request).ConfigureAwait(false);
-
-        Tenant? tenant = null;
-
-        if (string.IsNullOrWhiteSpace(tenantId))
-        {
-            if (TenantContextHelper.IsLocalhostHost(context.Request.Host.Host))
-            {
-                await TenantContextHelper.RejectRequest(context, StatusCodes.Status400BadRequest, "BadRequest: Missing_Tenant_Key_Or_Id").ConfigureAwait(false);
-                return;
-            }
-
-            var baseUrl = TenantContextHelper.NormalizeDomain(context.Request.Host.Host);
-
-            tenant = _tenants.GetTenantByApplicationDomain(baseUrl);
-
-            if (tenant is null)
-            {
-                await TenantContextHelper.RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
-                return;
-            }
-        }
-        else
-        {
-            tenant = _tenants.GetTenantByID(tenantId);
-        }
-
+        var tenant = await ResolveValidatedTenantAsync(context).ConfigureAwait(false);
         if (tenant is null)
         {
-            await TenantContextHelper.RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
             return;
         }
 
@@ -119,6 +92,38 @@ public class TenantValidationMiddleware
             context.Response.Body = originalBodyStream;
             BlocksContext.ClearContext();
         }
+    }
+
+    private async Task<Tenant?> ResolveValidatedTenantAsync(HttpContext context)
+    {
+        var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(tenantId))
+        {
+            var tenantById = _tenants.GetTenantByID(tenantId);
+            if (tenantById is null)
+            {
+                await TenantContextHelper.RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
+            }
+
+            return tenantById;
+        }
+
+        if (TenantContextHelper.IsLocalhostHost(context.Request.Host.Host))
+        {
+            await TenantContextHelper.RejectRequest(context, StatusCodes.Status400BadRequest, "BadRequest: Missing_Tenant_Key_Or_Id").ConfigureAwait(false);
+            return null;
+        }
+
+        var baseUrl = TenantContextHelper.NormalizeDomain(context.Request.Host.Host);
+        var tenantByDomain = _tenants.GetTenantByApplicationDomain(baseUrl);
+
+        if (tenantByDomain is null)
+        {
+            await TenantContextHelper.RejectRequest(context, StatusCodes.Status404NotFound, "Not_Found: Application_Not_Found").ConfigureAwait(false);
+        }
+
+        return tenantByDomain;
     }
 
     private sealed class CountingWriteStream : Stream
