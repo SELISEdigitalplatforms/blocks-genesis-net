@@ -72,10 +72,15 @@ public sealed class RabbitMessageClient : IMessageClient
         };
     }
 
-    public async Task SendMessageToConsumerAsync<T>(ConsumerMessage<T> consumerMessage, bool isExchange = false) where T : class
+    public Task SendMessageToConsumerAsync<T>(ConsumerMessage<T> consumerMessage, bool isExchange = false) where T : class
     {
         ArgumentNullException.ThrowIfNull(consumerMessage);
 
+        return SendMessageToConsumerInternalAsync(consumerMessage, isExchange);
+    }
+
+    private async Task SendMessageToConsumerInternalAsync<T>(ConsumerMessage<T> consumerMessage, bool isExchange) where T : class
+    {
         await EnsureInitializedAsync();
 
         var securityContext = BlocksContext.GetContext();

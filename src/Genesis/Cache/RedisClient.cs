@@ -190,11 +190,16 @@ public sealed class RedisClient : ICacheClient, IDisposable
 
     #region Pub/Sub Methods
 
-    public async Task<long> PublishAsync(string channel, string message)
+    public Task<long> PublishAsync(string channel, string message)
     {
         if (string.IsNullOrEmpty(channel))
             throw new ArgumentNullException(nameof(channel));
 
+        return PublishInternalAsync(channel, message);
+    }
+
+    private async Task<long> PublishInternalAsync(string channel, string message)
+    {
         using var activity = SetActivity(channel, "Publish");
         activity?.SetTag("MessageLength", message?.Length ?? 0);
 
@@ -212,13 +217,18 @@ public sealed class RedisClient : ICacheClient, IDisposable
         }
     }
 
-    public async Task SubscribeAsync(string channel, Action<RedisChannel, RedisValue> handler)
+    public Task SubscribeAsync(string channel, Action<RedisChannel, RedisValue> handler)
     {
         if (string.IsNullOrEmpty(channel))
             throw new ArgumentNullException(nameof(channel));
         if (handler == null)
             throw new ArgumentNullException(nameof(handler));
 
+        return SubscribeInternalAsync(channel, handler);
+    }
+
+    private async Task SubscribeInternalAsync(string channel, Action<RedisChannel, RedisValue> handler)
+    {
         using var activity = SetActivity(channel, "Subscribe");
 
         try
@@ -250,11 +260,16 @@ public sealed class RedisClient : ICacheClient, IDisposable
         }
     }
 
-    public async Task UnsubscribeAsync(string channel)
+    public Task UnsubscribeAsync(string channel)
     {
         if (string.IsNullOrEmpty(channel))
             throw new ArgumentNullException(nameof(channel));
 
+        return UnsubscribeInternalAsync(channel);
+    }
+
+    private async Task UnsubscribeInternalAsync(string channel)
+    {
         using var activity = SetActivity(channel, "Unsubscribe");
 
         try
