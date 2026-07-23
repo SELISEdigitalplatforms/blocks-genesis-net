@@ -195,6 +195,7 @@ public class RabbitMessageWorkerScaffoldTests
         channel
             .Setup(x => x.BasicAckAsync(It.IsAny<ulong>(), false, It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
+        channel.Setup(x => x.IsOpen).Returns(true);
 
         var worker = CreateWorker(logger.Object, rabbitService.Object, CreateConsumerWithProbe(), CreateConfiguration("orders.queue"));
         SetPrivateChannel(worker, channel.Object);
@@ -219,6 +220,7 @@ public class RabbitMessageWorkerScaffoldTests
         channel
             .Setup(x => x.BasicAckAsync(It.IsAny<ulong>(), false, It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
+        channel.Setup(x => x.IsOpen).Returns(true);
 
         var worker = CreateWorker(logger.Object, rabbitService.Object, CreateConsumer(), CreateConfiguration("orders.queue"));
         SetPrivateChannel(worker, channel.Object);
