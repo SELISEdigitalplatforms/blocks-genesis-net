@@ -139,21 +139,21 @@ internal static class JwtBearerAuthenticationExtension
     {
         return context.RequestServices?.GetService<ITenants>()
             ?? _compatTenants
-            ?? throw new ArgumentNullException("provider");
+            ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
     }
 
     private static IDatabase ResolveCacheDatabase(HttpContext context)
     {
         return context.RequestServices?.GetService<ICacheClient>()?.CacheDatabase()
             ?? _compatCacheDb
-            ?? throw new ArgumentNullException("provider");
+            ?? throw new InvalidOperationException("The cache database could not be resolved from the request services.");
     }
 
     private static IHttpClientFactory ResolveHttpClientFactory(HttpContext context)
     {
         return context.RequestServices?.GetService<IHttpClientFactory>()
             ?? _compatHttpClientFactory
-            ?? throw new ArgumentNullException("provider");
+            ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
     }
 
     private static async Task ConfigureTokenValidationAsync(
