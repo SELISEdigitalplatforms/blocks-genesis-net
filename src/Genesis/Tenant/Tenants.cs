@@ -97,13 +97,18 @@ public class Tenants : ITenants, IDisposable
         return tenant?.JwtTokenParameters;
     }
 
-    public async Task UpdateTenantVersionAsync(TenantCacheUpdateMessage cacheUpdate)
+    public Task UpdateTenantVersionAsync(TenantCacheUpdateMessage cacheUpdate)
     {
         if (cacheUpdate is null)
         {
             throw new ArgumentNullException(nameof(cacheUpdate));
         }
 
+        return UpdateTenantVersionInternalAsync(cacheUpdate);
+    }
+
+    private async Task UpdateTenantVersionInternalAsync(TenantCacheUpdateMessage cacheUpdate)
+    {
         try
         {
             var normalizedUpdate = NormalizeCacheUpdate(cacheUpdate);
