@@ -17,7 +17,6 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     private readonly IDbContextProvider _dbContextProvider;
     private readonly IDatabase _cacheDb;
     private readonly HttpClient _httpClient;
-    private readonly IBlocksSecret _blocksSecret;
 
     private readonly string _serviceName;
     private readonly string _connectionString;
@@ -43,12 +42,11 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     {
         _logger = logger;
         _dbContextProvider = dbContextProvider;
-        _blocksSecret = blocksSecret;
         _cacheDb = cacheClient.CacheDatabase();
 
-        _serviceName = _blocksSecret.ServiceName;
-        _connectionString = _blocksSecret.DatabaseConnectionString;
-        _databaseName = _blocksSecret.RootDatabaseName;
+        _serviceName = blocksSecret.ServiceName;
+        _connectionString = blocksSecret.DatabaseConnectionString;
+        _databaseName = blocksSecret.RootDatabaseName;
         _configKey = $"GenesisHealthConfig:{_serviceName}";
 
         // SocketsHttpHandler with PooledConnectionLifetime forces periodic DNS

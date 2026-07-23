@@ -104,7 +104,7 @@ internal static class JwtBearerAuthenticationExtension
     {
         BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
 
-        var tenants = ResolveTenants(context.HttpContext);
+        _ = ResolveTenants(context.HttpContext);
 
         if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
         {
@@ -307,7 +307,7 @@ internal static class JwtBearerAuthenticationExtension
     }
 
 
-    private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, string tenantId, IHttpClientFactory httpClientFactory)
+    private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, IHttpClientFactory httpClientFactory)
     {
         var cert = await GetThirdPartyCertificateAsync(tenant, httpClientFactory);
         if (cert == null)
@@ -340,7 +340,7 @@ internal static class JwtBearerAuthenticationExtension
         {
             var validationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl) ?
                                             await GetFromJwksUrl(tenant, httpClientFactory) :
-                                            await GetFromPublicCertificate(tenant, tenant.TenantId, httpClientFactory);
+                                            await GetFromPublicCertificate(tenant, httpClientFactory);
             var handler = new JwtSecurityTokenHandler();
             var validatedPrincipal = handler.ValidateToken(token, validationParams, out _);
 

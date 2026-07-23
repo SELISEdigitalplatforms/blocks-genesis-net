@@ -16,6 +16,8 @@ public class LmtOptions
 
 public class LmtConstants
 {
+    private LmtConstants() { }
+
     public const string LogSubscription = "blocks-lmt-service-logs";
     public const string TraceSubscription = "blocks-lmt-service-traces";
     public const string RabbitMqLogsRoutingKey = "logs";
