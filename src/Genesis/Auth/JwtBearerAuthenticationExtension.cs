@@ -42,89 +42,11 @@ internal static class JwtBearerAuthenticationExtension
             {
                 options.Events = new JwtBearerEvents
                 {
-                    OnMessageReceived = async context =>
-                    {
-                        var endpoint = context.HttpContext.GetEndpoint();
-                        var allowsAnonymous = endpoint?.Metadata?.GetMetadata<IAllowAnonymous>() != null;
-                        var hasAuthorizationMetadata = endpoint?.Metadata?.GetMetadata<IAuthorizeData>() != null;
-                        if (allowsAnonymous || !hasAuthorizationMetadata)
-                        {
-                            // Skip JWT parsing/validation for public endpoints.
-                            // Public means either [AllowAnonymous] or no auth attribute at all.
-                            return;
-                        }
+                    OnMessageReceived = HandleMessageReceivedAsync,
 
-                        BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
-                        var tenants = ResolveTenants(context.HttpContext);
-                        var cacheDb = ResolveCacheDatabase(context.HttpContext);
-                        var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
-                        var tokenResult = TokenHelper.GetToken(context.Request, tenants);
-                        SetRequestAccessToken(context.HttpContext, tokenResult.Token);
+                    OnTokenValidated = HandleTokenValidatedAsync,
 
-                        if (string.IsNullOrWhiteSpace(tokenResult.Token))
-                        {
-                            return;
-                        }
-
-                        var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request, tokenResult.Token).ConfigureAwait(true);
-                        SetRequestTenantId(context.HttpContext, tenantId);
-                        var tenant = tenantId != null ? tenants.GetTenantByID(tenantId) : null;
-                        TenantContextHelper.EnsureTenantContext(context.HttpContext, tenant);
-
-                        if (tokenResult.IsThirdPartyToken)
-                        {
-                            await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
-                                                   tenants,
-                                                   tokenResult.Token,
-                                                   tenantId,
-                                                   httpClientFactory).ConfigureAwait(true);
-                            return;
-                        }
-
-                        context.Token = tokenResult.Token;
-                        await ConfigureTokenValidationAsync(context, tenants, cacheDb, httpClientFactory, tenantId).ConfigureAwait(true);
-                    },
-
-                    OnTokenValidated = async context =>
-                    {
-                        BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
-
-                        var tenants = ResolveTenants(context.HttpContext);
-
-                        if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
-                        {
-                            HandleTokenIssuer(
-                                claimsIdentity,
-                                context.Request.GetDisplayUrl(),
-                                string.Empty);
-
-                            StoreBlocksContextInActivity(
-                                BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
-                        }
-                    },
-
-                    OnAuthenticationFailed = async context =>
-                    {
-                        BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
-                        var tenants = ResolveTenants(context.HttpContext);
-                        var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
-                        var ex = context.Exception;
-
-                        if (ex is SecurityTokenExpiredException)
-                        {
-                            SecurityLog("token_expired", "Fallback skipped for expired token.");
-                            return;
-                        }
-
-                        SecurityLog("authentication_failed", "Primary token validation failed, attempting fallback.", ex);
-                        await TryFallbackAsync(
-                            new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
-                            tenants,
-                            GetRequestAccessToken(context.HttpContext),
-                            GetRequestTenantId(context.HttpContext),
-                            httpClientFactory,
-                            ex);
-                    },
+                    OnAuthenticationFailed = HandleAuthenticationFailedAsync,
 
                     OnForbidden = context =>
                     {
@@ -133,6 +55,90 @@ internal static class JwtBearerAuthenticationExtension
                     }
                 };
             });
+    }
+
+    private static async Task HandleMessageReceivedAsync(MessageReceivedContext context)
+    {
+        var endpoint = context.HttpContext.GetEndpoint();
+        var allowsAnonymous = endpoint?.Metadata?.GetMetadata<IAllowAnonymous>() != null;
+        var hasAuthorizationMetadata = endpoint?.Metadata?.GetMetadata<IAuthorizeData>() != null;
+        if (allowsAnonymous || !hasAuthorizationMetadata)
+        {
+            // Skip JWT parsing/validation for public endpoints.
+            // Public means either [AllowAnonymous] or no auth attribute at all.
+            return;
+        }
+
+        BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
+        var tenants = ResolveTenants(context.HttpContext);
+        var cacheDb = ResolveCacheDatabase(context.HttpContext);
+        var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
+        var tokenResult = TokenHelper.GetToken(context.Request, tenants);
+        SetRequestAccessToken(context.HttpContext, tokenResult.Token);
+
+        if (string.IsNullOrWhiteSpace(tokenResult.Token))
+        {
+            return;
+        }
+
+        var tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request, tokenResult.Token).ConfigureAwait(true);
+        SetRequestTenantId(context.HttpContext, tenantId);
+        var tenant = tenantId != null ? tenants.GetTenantByID(tenantId) : null;
+        TenantContextHelper.EnsureTenantContext(context.HttpContext, tenant);
+
+        if (tokenResult.IsThirdPartyToken)
+        {
+            await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+                                   tenants,
+                                   tokenResult.Token,
+                                   tenantId,
+                                   httpClientFactory).ConfigureAwait(true);
+            return;
+        }
+
+        context.Token = tokenResult.Token;
+        await ConfigureTokenValidationAsync(context, tenants, cacheDb, httpClientFactory, tenantId).ConfigureAwait(true);
+    }
+
+    private static async Task HandleTokenValidatedAsync(TokenValidatedContext context)
+    {
+        BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
+
+        var tenants = ResolveTenants(context.HttpContext);
+
+        if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
+        {
+            HandleTokenIssuer(
+                claimsIdentity,
+                context.Request.GetDisplayUrl(),
+                string.Empty);
+
+            StoreBlocksContextInActivity(
+                BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
+        }
+    }
+
+    private static async Task HandleAuthenticationFailedAsync(AuthenticationFailedContext context)
+    {
+        BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
+        var tenants = ResolveTenants(context.HttpContext);
+        var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
+        var ex = context.Exception;
+
+        if (ex is SecurityTokenExpiredException)
+        {
+            SecurityLog("token_expired", "Fallback skipped for expired token.");
+            return;
+        }
+
+        SecurityLog("authentication_failed", "Primary token validation failed, attempting fallback.", ex);
+        await TryFallbackAsync(
+            new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+            tenants,
+            GetRequestAccessToken(context.HttpContext),
+            GetRequestTenantId(context.HttpContext),
+            httpClientFactory,
+            ex);
     }
 
     private static ITenants ResolveTenants(HttpContext context)
