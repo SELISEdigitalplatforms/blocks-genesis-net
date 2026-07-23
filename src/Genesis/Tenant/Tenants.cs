@@ -330,6 +330,7 @@ public sealed class Tenants : ITenants, IDisposable
             }
             catch (JsonException)
             {
+                // Malformed cache payload is ignored; the caller falls back to null.
             }
         }
 
