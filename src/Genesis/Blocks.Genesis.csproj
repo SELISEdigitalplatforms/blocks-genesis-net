@@ -50,7 +50,7 @@
 		<PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
 
 		<PackageReference Include="Grpc.AspNetCore" Version="2.80.0" />
-		<PackageReference Include="Google.Protobuf" Version="3.34.1" />
+		<PackageReference Include="Google.Protobuf" Version="3.35.1" />
 		<PackageReference Include="Grpc.Net.Client" Version="2.80.0" />
 		
 	</ItemGroup>
