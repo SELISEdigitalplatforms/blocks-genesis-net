@@ -135,7 +135,7 @@ public class HttpService : IHttpService
 
             // Use per-request timeout if specified, otherwise use the default pipeline
             var response = timeoutSeconds.HasValue
-                ? await ExecuteWithCustomTimeout<T>(method, url, payload, contentType, headers, cancellationToken, isFormUrlEncoded, timeoutSeconds.Value)
+                ? await ExecuteWithCustomTimeout(method, url, payload, contentType, headers, cancellationToken, isFormUrlEncoded, timeoutSeconds.Value)
                 : await _pipeline.ExecuteAsync(async token =>
                 {
                     using var request = CreateHttpRequest(method, url, payload, contentType, headers, isFormUrlEncoded);
@@ -190,10 +190,10 @@ public class HttpService : IHttpService
     /// Executes an HTTP request with a custom timeout by creating a dedicated resilience pipeline.
     /// This allows per-request timeout overrides without affecting the shared pipeline.
     /// </summary>
-    private async Task<HttpResponseMessage> ExecuteWithCustomTimeout<T>(
+    private async Task<HttpResponseMessage> ExecuteWithCustomTimeout(
         HttpMethod method, string url, object? payload, string? contentType,
         Dictionary<string, string>? headers, CancellationToken cancellationToken,
-        bool isFormUrlEncoded, int timeoutSeconds) where T : class
+        bool isFormUrlEncoded, int timeoutSeconds)
     {
         using var client = _httpClientFactory.CreateClient();
         

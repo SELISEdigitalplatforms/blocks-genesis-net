@@ -1,7 +1,6 @@
-﻿namespace Blocks.Genesis
+﻿namespace Blocks.Genesis;
+
+public interface IVault
 {
-    public interface IVault
-    {
-        Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys);
-    }
+    Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys);
 }
