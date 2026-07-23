@@ -98,7 +98,7 @@ public class BlocksLogger : IBlocksLogger, IDisposable
 
 
             var formatted = messageTemplate;
-            var regex = new Regex(@"\{(.*?)\}");
+            var regex = new Regex(@"\{(.*?)\}", RegexOptions.None, System.TimeSpan.FromSeconds(1));
 
             int index = 0;
             formatted = regex.Replace(formatted, match =>
