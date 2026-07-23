@@ -1,15 +1,14 @@
-﻿namespace Blocks.Genesis
+﻿namespace Blocks.Genesis;
+
+public static class Vault
 {
-    public static class Vault
+    public static IVault GetCloudVault(VaultType configType)
     {
-        public static IVault GetCloudVault(VaultType configType)
+        return configType switch
         {
-            return configType switch
-            {
-                VaultType.Azure => new AzureKeyVault(),
-                VaultType.OnPrem => new OnPremVault(),
-                _ => throw new Exception("ConfigType is missing. Please see the Secret.json file")
-            };
-        }
+            VaultType.Azure => new AzureKeyVault(),
+            VaultType.OnPrem => new OnPremVault(),
+            _ => throw new Exception("ConfigType is missing. Please see the Secret.json file")
+        };
     }
 }

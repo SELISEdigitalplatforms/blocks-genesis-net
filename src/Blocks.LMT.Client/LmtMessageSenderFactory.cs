@@ -5,26 +5,25 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace SeliseBlocks.LMT.Client
-{
-    public static class LmtMessageSenderFactory
-    {
-        public static ILmtMessageSender Create(LmtOptions options)
-        {
-            if (LmtTransportHelper.IsRabbitMq(options.ConnectionString))
-            {
-                return new LmtRabbitMqSender(
-                    options.ServiceId,
-                    options.ConnectionString,
-                    options.MaxRetries,
-                    options.MaxFailedBatches);
-            }
+namespace SeliseBlocks.LMT.Client;
 
-            return new LmtServiceBusSender(
+public static class LmtMessageSenderFactory
+{
+    public static ILmtMessageSender Create(LmtOptions options)
+    {
+        if (LmtTransportHelper.IsRabbitMq(options.ConnectionString))
+        {
+            return new LmtRabbitMqSender(
                 options.ServiceId,
                 options.ConnectionString,
                 options.MaxRetries,
                 options.MaxFailedBatches);
         }
+
+        return new LmtServiceBusSender(
+            options.ServiceId,
+            options.ConnectionString,
+            options.MaxRetries,
+            options.MaxFailedBatches);
     }
 }

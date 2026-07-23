@@ -1,8 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+internal class ProtectedEndpointAccessRequirement : IAuthorizationRequirement
 {
-    internal class ProtectedEndpointAccessRequirement : IAuthorizationRequirement
-    {
-    }
 }

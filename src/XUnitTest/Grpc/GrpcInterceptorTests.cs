@@ -35,7 +35,7 @@ public class GrpcInterceptorTests
     public async Task GrpcServerInterceptor_ShouldWorkWithoutActivity()
     {
         var interceptor = new GrpcServerInterceptor();
-        var context = TestServerCallContext.Create(new Metadata());
+        var context = TestServerCallContext.Create([]);
 
         Activity.Current = null;
 
@@ -228,7 +228,7 @@ public class GrpcInterceptorTests
             response,
             Task.FromResult(new Metadata()),
             () => new Status(StatusCode.OK, string.Empty),
-            () => new Metadata(),
+            () => [],
             () => { });
     }
 }
@@ -244,7 +244,7 @@ internal class TestServerCallContext : ServerCallContext
 
     public static TestServerCallContext Create(Metadata? requestHeaders = null)
     {
-        return new TestServerCallContext(requestHeaders ?? new Metadata());
+        return new TestServerCallContext(requestHeaders ?? []);
     }
 
     protected override string MethodCore => "test-method";
@@ -253,10 +253,10 @@ internal class TestServerCallContext : ServerCallContext
     protected override DateTime DeadlineCore => DateTime.UtcNow.AddHours(1);
     protected override Metadata RequestHeadersCore => _requestHeaders;
     protected override CancellationToken CancellationTokenCore => CancellationToken.None;
-    protected override Metadata ResponseTrailersCore => new Metadata();
+    protected override Metadata ResponseTrailersCore => [];
     protected override Status StatusCore { get; set; }
     protected override WriteOptions? WriteOptionsCore { get; set; }
-    protected override AuthContext AuthContextCore => new AuthContext(null, new Dictionary<string, List<AuthProperty>>());
+    protected override AuthContext AuthContextCore => new AuthContext(null, []);
 
     protected override ContextPropagationToken CreatePropagationTokenCore(ContextPropagationOptions? options) => throw new NotImplementedException();
     protected override Task WriteResponseHeadersAsyncCore(Metadata responseHeaders) => Task.CompletedTask;
