@@ -1,183 +1,170 @@
-# Blocks Genesis Service
+# Blocks Genesis for .NET
 
-SELISE `<blocks />` Genesis is a .NET service foundation for building APIs and workers with built-in configuration, middleware, messaging, cache, observability, and multi-tenant utilities.
+SELISE `<blocks />` Genesis is the .NET service foundation used by Blocks microservices. It packages application bootstrap, configuration and secrets loading, JWT authentication, multi-tenant request handling, MongoDB access, Redis caching, Azure Service Bus and RabbitMQ messaging, gRPC plumbing, and observability (logs, metrics, traces) behind a small set of entry points.
 
-Naming convention: `Blocks <Service_Name> Service`
+## Packages
 
-## Overview
+| Package | Project | Description |
+|---|---|---|
+| `SeliseBlocks.Genesis` | `src/Genesis` | The core service foundation described in this document |
+| `SeliseBlocks.LMT.Client` | `src/Blocks.LMT.Client` | Standalone logging and tracing client with Azure Service Bus and RabbitMQ transports, consumed by Genesis and usable on its own |
 
-This repository provides a multi-project .NET solution containing a reusable framework package, sample API/worker services, tests, and an LMT client package for both .NET and Node.js workloads.
+Package documentation lives next to each project: [src/Genesis/README.md](./src/Genesis/README.md) and the `SeliseBlocks.LMT.Client` README in `src/Blocks.LMT.Client`.
 
-## Table of Content
+## Requirements
 
-- [Overview](#overview)
-- [Table of Content](#table-of-content)
-- [Feature](#feature)
-- [Technology Stack](#technology-stack)
-- [Project Structure](#project-structure)
-- [Controller / Endpoint](#controller--endpoint)
-- [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-- [Installation](#installation)
-- [Environment Variables](#environment-variables)
-
-## Feature
-
-- Reusable application bootstrap and middleware pipeline for API and worker services
-- Built-in support for secrets, logging, tracing, metrics, and health integrations
-- Message broker integration patterns for Azure Service Bus and RabbitMQ consumers
-- Multi-tenant request context handling through `BlocksContext`
-- Sample HTTP and gRPC services demonstrating Genesis integration
-- Shared LMT client libraries for .NET and Node.js
-- Unit tests and driver utilities for validation and integration scenarios
-
-## Technology Stack
-
-- .NET 9
-- ASP.NET Core Web API
-- ASP.NET Core gRPC
-- Worker Service
-- MongoDB Driver
-- Azure Service Bus / RabbitMQ integration
-- xUnit + Moq + FluentAssertions
-- TypeScript (Node package)
-
-## Project Structure
-
-```text
-.
-├── src
-│   ├── Genesis                # Core framework package
-│   ├── Blocks.LMT.Client      # Shared .NET LMT client
-│   ├── Api1                   # Sample HTTP API service
-│   ├── Apis                   # Sample API + gRPC service
-│   ├── Workers                # Worker sample (Azure Service Bus)
-│   ├── WorkerTwo              # Worker sample (RabbitMQ)
-│   ├── TestDriver             # Helper driver utilities
-│   └── XUnitTest              # Unit test project
-├── node                       # @seliseblocks/lmt-client package
-├── Apis.Dockerfile            # API image definition
-└── Workers.Dockerfile         # Worker image definition
-```
-
-## Controller / Endpoint
-
-Routing pattern (HTTP): `/api/[controller]/[action-or-route]`
-
-### S1Controller (Api1)
-
-Base route: `/api/s1`
-
-- `GET /api/s1/process` - Processes a request with tenant context, triggers messaging and downstream API/gRPC calls, and returns aggregated data.
-- `GET /api/s1/cert` - Returns the current request context for protected certificate-authenticated access checks.
-
-### S2Controller (Apis)
-
-Base route: `/api/s2`
-
-- `GET /api/s2/process` - Handles a sample request, publishes a queue message, and returns the current `BlocksContext`.
-- `GET /api/s2/process_1` - Returns the current `BlocksContext` for a lightweight context-validation endpoint.
-
-### GreeterService (gRPC, Apis)
-
-Service route: `/Greeter/SayHello`
-
-- `RPC Greeter/SayHello` - Returns a serialized `BlocksContext` payload to verify request context propagation over gRPC.
-
-Note: Endpoints that use `Authorize` or `ProtectedEndPoint` require valid authentication and expected request headers/context.
-
-## Prerequisites
-
-- .NET SDK 9.0 or later
-- Node.js 16 or later (for `node/` package)
-- Access to required runtime dependencies for local integration (for example MongoDB, Redis, message broker)
-- Required secret/configuration provider values (environment variables or vault)
-- Docker Desktop (optional, for containerized builds)
-
-## Getting Started
-
-1. Clone the repository.
-2. Move to the solution root.
-3. Restore and build the solution.
-4. Configure environment settings and secrets.
-5. Run API and worker services.
-
-Basic build commands:
-
-```sh
-dotnet restore src/blocks-genesis-net.sln
-dotnet build src/blocks-genesis-net.sln
-```
-
-Run sample services locally in separate terminals:
-
-```sh
-dotnet run --project src/Api1/ApiOne.csproj
-dotnet run --project src/Apis/ApiTwo.csproj
-dotnet run --project src/Workers/WorkerOne.csproj
-dotnet run --project src/WorkerTwo/WorkerTwo.csproj
-```
-
-Run tests:
-
-```sh
-dotnet test src/XUnitTest/XUnitTest.csproj
-```
-
-Build Node package:
-
-```sh
-cd node
-npm install
-npm run build
-```
+- .NET SDK 10.0 or later (both packages target `net10.0`)
+- For local integration runs: MongoDB, Redis, and a message broker (Azure Service Bus or RabbitMQ). A `docker-compose.yml` at the repository root starts MongoDB, Redis, and RabbitMQ.
 
 ## Installation
 
-### 1. Clone the Repository
-
 ```sh
-git clone https://github.com/SELISEdigitalplatforms/blocks-genesis-net.git
-cd blocks-genesis-net
+dotnet add package SeliseBlocks.Genesis
 ```
 
-### 2. Restore Dependencies
+To use the logging and tracing client without the full foundation:
 
 ```sh
-dotnet restore src/blocks-genesis-net.sln
+dotnet add package SeliseBlocks.LMT.Client
 ```
 
-### 3. Configure Environment Variables and Secrets
+## Quickstart: API service
 
-Set required `BlocksSecret__*` values for your target environment.
+`ApplicationConfigurations` is the single entry point. Configure secrets and logging first, then services, then the middleware pipeline.
 
-Quick local setup helper:
+```csharp
+using Blocks.Genesis;
 
-```sh
-cd src/Genesis
-source setup_env.sh
+const string serviceName = "MyBlocksApi";
+
+// Loads .env if present, resolves secrets from the configured vault,
+// and initializes Serilog with console and MongoDB sinks.
+await ApplicationConfigurations.ConfigureLogAndSecretsAsync(
+    serviceName, ApplicationConfigurations.ResolveVaultType());
+
+var builder = WebApplication.CreateBuilder(args);
+ApplicationConfigurations.ConfigureApiEnv(builder, args);
+ApplicationConfigurations.ConfigureKestrel(builder);
+
+var services = builder.Services;
+ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
+{
+    ServiceName = serviceName,
+    AzureServiceBusConfiguration = new AzureServiceBusConfiguration
+    {
+        Queues = ["demo_queue"],
+        Topics = ["demo_topic"],
+    },
+});
+ApplicationConfigurations.ConfigureApi(services, serviceName);
+
+var app = builder.Build();
+ApplicationConfigurations.ConfigureMiddleware(app);
+
+await app.RunAsync();
 ```
 
-### 4. Build the Solution
+`ConfigureApi` requires the service name and optionally takes an API route prefix (default `api`, pass `"off"` to disable) and a service access resource name. Controllers are routed as `/{prefix}/[controller]/[action]`.
 
-```sh
-dotnet build src/blocks-genesis-net.sln
+## Quickstart: worker service
+
+Consumers implement `IConsumer<T>` and are discovered from the service collection. Messages are routed to a consumer by the payload type name.
+
+```csharp
+using Blocks.Genesis;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+const string serviceName = "MyBlocksWorker";
+
+await ApplicationConfigurations.ConfigureLogAndSecretsAsync(
+    serviceName, ApplicationConfigurations.ResolveVaultType());
+
+var messageConfiguration = new MessageConfiguration
+{
+    ServiceName = serviceName,
+    RabbitMqConfiguration = new RabbitMqConfiguration
+    {
+        ConsumerSubscriptions =
+        [
+            ConsumerSubscription.BindToQueue("demo_queue"),
+        ],
+    },
+};
+
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices(services =>
+    {
+        services.AddSingleton<IConsumer<DemoMessage>, DemoMessageConsumer>();
+        ApplicationConfigurations.ConfigureWorker(services, messageConfiguration);
+    })
+    .Build();
+
+await host.RunAsync();
+
+public sealed record DemoMessage(string Text);
+
+public sealed class DemoMessageConsumer : IConsumer<DemoMessage>
+{
+    public Task Consume(DemoMessage context)
+    {
+        Console.WriteLine($"Received: {context.Text}");
+        return Task.CompletedTask;
+    }
+}
 ```
 
-### 5. Optional Docker Builds
+## Sending messages
 
-From the repository root:
+Inject `IMessageClient` (registered by `ConfigureServices`) and wrap the payload in a `ConsumerMessage<T>`:
 
-```sh
-docker build -f Apis.Dockerfile -t blocks-genesis-api --build-arg git_branch=dev .
-docker build -f Workers.Dockerfile -t blocks-genesis-worker --build-arg git_branch=dev .
+```csharp
+using Blocks.Genesis;
+
+public sealed class DemoPublisher
+{
+    private readonly IMessageClient _messageClient;
+
+    public DemoPublisher(IMessageClient messageClient)
+    {
+        _messageClient = messageClient;
+    }
+
+    public Task PublishAsync(DemoMessage message) =>
+        _messageClient.SendToConsumerAsync(new ConsumerMessage<DemoMessage>
+        {
+            ConsumerName = "demo_queue",
+            Payload = message,
+        });
+}
 ```
 
-## Environment Variables
+## Public API surface
 
-### Essentials
+All types below live in the `Blocks.Genesis` namespace.
 
-- `BlocksSecret__CacheConnectionString`
+| Area | Types |
+|---|---|
+| Bootstrap | `ApplicationConfigurations` (`ConfigureLogAndSecretsAsync`, `ResolveVaultType`, `ConfigureKestrel`, `ConfigureApiEnv`, `ConfigureWorkerEnv`, `ConfigureServices`, `ConfigureApi`, `ConfigureWorker`, `ConfigureMiddleware`, `ConfigureMicroserviceMiddleware`, `ConfigureApiBranchMiddleware`) |
+| Request context | `BlocksContext` (tenant, user, roles, permissions of the current request), `TokenHelper` |
+| Authorization | `ProtectedEndPointAttribute` (resource-based access check), `SecretEndPointAttribute` (HMAC shared-secret check via the `Secret` header) |
+| Messaging | `IMessageClient`, `IConsumer<T>`, `ConsumerMessage<T>`, `MessageConfiguration`, `AzureServiceBusConfiguration`, `RabbitMqConfiguration`, `ConsumerSubscription`, `RoutingTable` |
+| Data | `IDbContextProvider` (MongoDB collections per tenant), `ICacheClient` (Redis strings, hashes, pub/sub) |
+| Tenancy | `ITenants`, `Tenant`, `TenantValidationMiddleware` |
+| HTTP and gRPC | `IHttpService` (typed HTTP calls with header propagation), `IGrpcClientFactory`, `GrpcClientInterceptor`, `GrpcServerInterceptor` |
+| Utilities | `ICryptoService` (SHA-256 hash, HMAC-SHA256, constant-time comparison), `IVault`, `VaultType` |
+| Middleware | `GlobalExceptionHandlerMiddleware`, `RequestMetricsMiddleware`, `TenantValidationMiddleware` |
+| API docs | `BlocksApiDocExtensions.AddBlocksSwagger`, `BlocksSwaggerOptions` |
+| Exceptions | `BlocksException`, `BlocksValidationException`, `BlocksAuthenticationException`, `BlocksNotFoundException`, `BlocksRateLimitException` |
+
+## Configuration
+
+Secrets are resolved by `ConfigureLogAndSecretsAsync` from Azure Key Vault (`VaultType.Azure`) or from environment variables (`VaultType.OnPrem`). `ResolveVaultType()` reads the `BLOCKS_VAULT_TYPE` environment variable (`Azure` or `OnPrem`) and falls back to the given default. A `.env` file at or above the working directory is loaded automatically.
+
+### Core secrets (OnPrem: environment variables with the `BlocksSecret__` prefix)
+
+- `BlocksSecret__DatabaseConnectionString` (required)
+- `BlocksSecret__CacheConnectionString` (required)
 - `BlocksSecret__MessageConnectionString`
 - `BlocksSecret__LogConnectionString`
 - `BlocksSecret__MetricConnectionString`
@@ -185,39 +172,76 @@ docker build -f Workers.Dockerfile -t blocks-genesis-worker --build-arg git_bran
 - `BlocksSecret__LogDatabaseName`
 - `BlocksSecret__MetricDatabaseName`
 - `BlocksSecret__TraceDatabaseName`
-- `BlocksSecret__DatabaseConnectionString`
 - `BlocksSecret__RootDatabaseName`
 - `BlocksSecret__EnableHsts`
-- `BlocksSecret__AllowedCorsOrigins` (comma-separated absolute origins, required for cross-origin credentialed requests)
+- `BlocksSecret__AllowedCorsOrigins` (comma-separated absolute origins for credentialed CORS)
 
-### KeyVault
+With Azure Key Vault the same names are used without the `BlocksSecret__` prefix (for example `DatabaseConnectionString`).
 
-If you want to access these environment variables from KeyVault then add the following variables instead:
+### Runtime settings (environment variables)
 
-- `CacheConnectionString`
-- `MessageConnectionString`
-- `LogConnectionString`
-- `MetricConnectionString`
-- `TraceConnectionString`
-- `LogDatabaseName`
-- `MetricDatabaseName`
-- `TraceDatabaseName`
-- `DatabaseConnectionString`
-- `RootDatabaseName`
-- `EnableHsts`
-- `AllowedCorsOrigins`
+| Variable | Default | Purpose |
+|---|---|---|
+| `BLOCKS_VAULT_TYPE` | none | Overrides the vault type passed to `ResolveVaultType` |
+| `HTTP1_PORT` | `5000` | Kestrel HTTP/1.1 listener (REST) |
+| `HTTP2_PORT` | `5001` | Kestrel HTTP/2 listener (gRPC) |
+| `BLOCKS_RATE_LIMIT_PER_MINUTE` | `120` | Fixed-window request limit per tenant, or per client IP when no `tenant-id` header is present |
+| `ServiceBusConnectionString` | none | When set, logs and traces are forwarded to the LMT pipeline over the message bus instead of being written directly to MongoDB |
+| `MaxRetries` | `3` | LMT send retry attempts (also settable as `Lmt:MaxRetries` in `appsettings.json`) |
+| `MaxFailedBatches` | `100` | LMT failed-batch queue size (also settable as `Lmt:MaxFailedBatches`) |
 
+`src/Genesis/setup_env.sh` exports placeholder values for all core secrets for a local session (`source setup_env.sh`), and `.env.example` at the repository root shows a working local configuration for the docker-compose services.
 
-## Architecture Overview
+## Built-in endpoints and pipeline
 
-Core Genesis pipeline:
+Every API service exposes health endpoints: `/ping` (all checks), `/health/live` (liveness), and `/health/ready` (MongoDB and Redis readiness).
 
-`HSTS -> SecurityHeaders -> RequestMetrics -> CORS -> Health -> Routing -> TenantValidation -> GlobalExceptionHandler -> AuthN/AuthZ -> Antiforgery -> Controllers`
+Middleware order set up by `ConfigureMiddleware`:
 
-## Local Infra
+`HSTS -> CORS -> Health endpoints -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> RateLimiter -> Authentication -> Authorization -> Antiforgery -> Controllers`
 
-```bash
+## Repository layout
+
+```text
+.
+├── src
+│   ├── Genesis                # SeliseBlocks.Genesis package source
+│   ├── Blocks.LMT.Client      # SeliseBlocks.LMT.Client package source
+│   ├── TestDriver             # Internal gRPC sample client, not published
+│   ├── XUnitTest              # Unit test suite (xUnit + Moq)
+│   └── blocks-genesis-net.sln
+├── docker-compose.yml         # Local MongoDB, Redis, RabbitMQ
+└── .env.example               # Sample local configuration
+```
+
+## Building and testing
+
+From the repository root:
+
+```sh
+dotnet restore src/blocks-genesis-net.sln
+dotnet build src/blocks-genesis-net.sln
+dotnet test src/XUnitTest/XUnitTest.csproj
+```
+
+Start local infrastructure for integration scenarios:
+
+```sh
 docker-compose up -d
 ```
 
-Use `.env.example` to bootstrap local configuration.
+## Versioning and compatibility
+
+- The package major version tracks the target framework: `SeliseBlocks.Genesis` 10.x targets `net10.0`.
+- Every public type and member is a compatibility contract. This package is consumed by the full set of Blocks services, so any change to a public signature, default value, or behavior is a breaking change for all of them and is only made deliberately with a version bump.
+- Superseded members are kept with `[Obsolete]` markers for at least one release before removal (see the migration notes in [src/Genesis/README.md](./src/Genesis/README.md)).
+
+## Contributing and security
+
+- Contribution workflow, branch model, and coding guidelines: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Vulnerability reporting: [SECURITY.md](./SECURITY.md)
+- Community standards: [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
+
+## License
+
+Distributed under the [MIT License](./LICENSE).
