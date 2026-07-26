@@ -350,6 +350,8 @@ public static class ApplicationConfigurations
         app.UseAuthentication();
         app.UseAuthorization();
 
+        app.UseMiddleware<OnboardingApiAccessMiddleware>((object)tenantPrefixes);
+
         afterAuthorization?.Invoke(app);
     }
 
