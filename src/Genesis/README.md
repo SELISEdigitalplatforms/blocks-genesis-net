@@ -1,42 +1,42 @@
 # SeliseBlocks.Genesis
 
+The .NET service foundation for SELISE `<blocks />` microservices. One package wires up configuration and secrets, JWT authentication, multi-tenant request handling, MongoDB, Redis, Azure Service Bus and RabbitMQ messaging, gRPC, and observability (logs, metrics, traces).
+
+Requires .NET 10 (`net10.0`). Full repository documentation: <https://github.com/SELISEdigitalplatforms/blocks-genesis-net>.
+
 ## Installation
 
-This package is **automatically included** in Blocks Genesis framework. No manual installation needed for Genesis-based services.
-
-For standalone use:
 ```bash
 dotnet add package SeliseBlocks.Genesis
 ```
 
-## Quick Start for Genesis Services
-
-### 1. API Service Example
+## Quick start: API service
 
 ```csharp
 using Blocks.Genesis;
-using TestDriver;
 
-const string _serviceName = "Service-API-Test_One";
+const string serviceName = "MyBlocksApi";
 
-// Configure logs and secrets - LMT is automatically initialized here
-await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure); // VaultType.OnPrem
+// Configure secrets and logging first. Pass VaultType.Azure or VaultType.OnPrem,
+// or let ResolveVaultType() read the BLOCKS_VAULT_TYPE environment variable.
+await ApplicationConfigurations.ConfigureLogAndSecretsAsync(
+    serviceName, ApplicationConfigurations.ResolveVaultType());
 
 var builder = WebApplication.CreateBuilder(args);
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
+ApplicationConfigurations.ConfigureKestrel(builder);
 
 var services = builder.Services;
 ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
 {
-    AzureServiceBusConfiguration = new()
+    ServiceName = serviceName,
+    AzureServiceBusConfiguration = new AzureServiceBusConfiguration
     {
-        Queues = new List<string> { "demo_queue" },
-        Topics = new List<string> { "demo_topic_1" },
+        Queues = ["demo_queue"],
+        Topics = ["demo_topic"],
     },
 });
-
-ApplicationConfigurations.ConfigureApi(services);
-services.AddSingleton<IGrpcClient, GrpcClient>();
+ApplicationConfigurations.ConfigureApi(services, serviceName);
 
 var app = builder.Build();
 ApplicationConfigurations.ConfigureMiddleware(app);
@@ -44,68 +44,70 @@ ApplicationConfigurations.ConfigureMiddleware(app);
 await app.RunAsync();
 ```
 
-### 2. Worker Service Example
+## Quick start: worker service
+
+Register one `IConsumer<T>` per message type; messages are routed to consumers by payload type name.
 
 ```csharp
 using Blocks.Genesis;
-using WorkerOne;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
-const string _serviceName = "Service-Worker-Test_One";
+const string serviceName = "MyBlocksWorker";
 
-// Configure logs and secrets - LMT is automatically initialized here
-var blocksSecrets = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure); // VaultType.OnPrem
+await ApplicationConfigurations.ConfigureLogAndSecretsAsync(
+    serviceName, ApplicationConfigurations.ResolveVaultType());
 
 var messageConfiguration = new MessageConfiguration
 {
-   AzureServiceBusConfiguration = new()
-   {
-       Queues = new List<string> { "demo_queue" },
-       Topics = new List<string> { "demo_topic", "demo_topic_1" }
-   }
+    ServiceName = serviceName,
+    AzureServiceBusConfiguration = new AzureServiceBusConfiguration
+    {
+        Queues = ["demo_queue"],
+        Topics = ["demo_topic"],
+    },
 };
 
-await CreateHostBuilder(args).Build().RunAsync();
-
-IHostBuilder CreateHostBuilder(string[] args) =>
-    Host.CreateDefaultBuilder(args).ConfigureServices((services) =>
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices(services =>
     {
-        services.AddHttpClient();
-        services.AddSingleton<IConsumer<W1Context>, W1Consumer>();
-        services.AddSingleton<IConsumer<W2Context>, W2Consumer>();
+        services.AddSingleton<IConsumer<DemoMessage>, DemoMessageConsumer>();
         ApplicationConfigurations.ConfigureWorker(services, messageConfiguration);
-    });
+    })
+    .Build();
+
+await host.RunAsync();
+
+public sealed record DemoMessage(string Text);
+
+public sealed class DemoMessageConsumer : IConsumer<DemoMessage>
+{
+    public Task Consume(DemoMessage context)
+    {
+        Console.WriteLine($"Received: {context.Text}");
+        return Task.CompletedTask;
+    }
+}
 ```
 
 ## Configuration
 
-LMT Client is automatically configured when you call `ApplicationConfigurations.ConfigureLogAndSecretsAsync()`. 
+`ConfigureLogAndSecretsAsync` loads a `.env` file when one exists at or above the working directory, then resolves secrets from Azure Key Vault (`VaultType.Azure`) or environment variables (`VaultType.OnPrem`, prefixed with `BlocksSecret__`). `DatabaseConnectionString` and `CacheConnectionString` are required; startup fails with a descriptive error when they are missing.
 
-### Option 1: Using `.env` File (Recommended for Local Development)
+### Log and trace forwarding (LMT)
 
-Create a `.env` file in your project root:
+By default, logs are written to the console and to MongoDB (`BlocksSecret__LogConnectionString`), and traces to MongoDB (`BlocksSecret__TraceConnectionString`). To forward logs and traces to the central LMT pipeline over a message bus instead, set:
 
 ```bash
-# LMT Service Bus Configuration
-LogsServiceBusConnectionString=Endpoint=sb://your-logs-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key
-TracesServiceBusConnectionString=Endpoint=sb://your-traces-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=your-key
+# Environment variable (or .env entry)
+ServiceBusConnectionString=<your-service-bus-connection-string>
 
-# Optional: Retry Configuration
+# Optional retry tuning
 MaxRetries=3
 MaxFailedBatches=100
-
-# Other service configuration
-ASPNETCORE_ENVIRONMENT=Development
-BlocksSecret__AllowedCorsOrigins=https://app.example.com,https://admin.example.com
 ```
 
-**Important:** Add `.env` to your `.gitignore`:
-```gitignore
-.env
-.env.local
-.env.*.local
-```
-
-### Option 2: Using `appsettings.json`
+`MaxRetries` and `MaxFailedBatches` can also be set in `appsettings.json`:
 
 ```json
 {
@@ -116,54 +118,40 @@ BlocksSecret__AllowedCorsOrigins=https://app.example.com,https://admin.example.c
 }
 ```
 
-**Note:** Service Bus connection strings must be set via environment variables (`.env` or system environment).
-
-### Option 3: Using Environment Variables (For Docker/Production)
-
-```bash
-export LogsServiceBusConnectionString="Endpoint=sb://your-logs-namespace.servicebus.windows.net/;..."
-export TracesServiceBusConnectionString="Endpoint=sb://your-traces-namespace.servicebus.windows.net/;..."
-export MaxRetries=3
-export MaxFailedBatches=100
-```
-
-### Configuration Priority
-
-1. **`.env` file** (loaded first, sets environment variables)
-2. **System environment variables** (can override .env)
-3. **appsettings.json** `Lmt:*` section (for MaxRetries and MaxFailedBatches only)
-4. **Default values** (MaxRetries=3, MaxFailedBatches=100)
-
-### Required vs Optional
-
 | Setting | Required | Source | Default |
 |---------|----------|--------|---------|
-| `LogsServiceBusConnectionString` | Required | Environment Variable | - |
-| `TracesServiceBusConnectionString` | Required | Environment Variable | - |
-| `MaxRetries` | Optional | appsettings.json or Environment | `3` |
-| `MaxFailedBatches` | Optional | appsettings.json or Environment | `100` |
+| `ServiceBusConnectionString` | Optional | Environment variable | unset (logs and traces go to console and MongoDB) |
+| `MaxRetries` | Optional | `appsettings.json` or environment | `3` |
+| `MaxFailedBatches` | Optional | `appsettings.json` or environment | `100` |
 
-*If not configured, logs will only write to console and MongoDB (Service Bus integration is disabled).
+**Important:** keep real connection strings out of source control. Add `.env` to your `.gitignore`:
 
+```gitignore
+.env
+.env.local
+.env.*.local
+```
 
-## Architecture Overview
+## Middleware pipeline (API)
 
-Middleware pipeline (API):
+`HSTS -> CORS -> Health endpoints (/ping, /health/live, /health/ready) -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> RateLimiter -> Authentication -> Authorization -> Antiforgery -> Controllers`
 
-`HSTS -> SecurityHeaders -> RequestMetrics -> CORS -> Health endpoints -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> Antiforgery -> Controllers`
+## Local development
 
-## Local Development
-
-Start local infrastructure:
+Start local infrastructure (MongoDB, Redis, RabbitMQ) from the repository root:
 
 ```bash
 docker-compose up -d
 ```
 
-Use `.env.example` as baseline for environment variables.
+Use `.env.example` as the baseline for environment variables.
 
-## Migration Notes
+## Migration notes
 
-- `ConsumerMessage.ScheduledEnqueueTimeUtc` is the corrected property name.
-- `ConfigureAzureServiceBus` replaces `ConfigerAzureServiceBus`.
-- `SecretEndPointAttribute` replaces `SecretEnpPointAttribute`.
+- `ConsumerMessage.ScheduledEnqueueTimeUtc` is the corrected property name; `SccheduledEnqueueTimeUtc` remains as an obsolete alias.
+- `ConfigureAzureServiceBus` replaces `ConfigerAzureServiceBus`; the old name remains as an obsolete shim and will be removed in the next major version.
+- `SecretEndPointAttribute` replaces the misspelled `SecretEnpPointAttribute`, which has been removed.
+
+## License
+
+MIT. See the repository LICENSE file.

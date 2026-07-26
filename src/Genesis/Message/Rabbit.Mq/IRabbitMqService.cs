@@ -1,11 +1,10 @@
 ﻿using RabbitMQ.Client;
 
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public interface IRabbitMqService
 {
-    public interface IRabbitMqService
-    {
-        IChannel RabbitMqChannel { get; }
-        Task CreateConnectionAsync();
-        Task InitializeSubscriptionsAsync();
-    }
+    IChannel RabbitMqChannel { get; }
+    Task CreateConnectionAsync();
+    Task InitializeSubscriptionsAsync();
 }
