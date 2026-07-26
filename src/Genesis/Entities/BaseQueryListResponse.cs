@@ -1,8 +1,7 @@
 ﻿
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public class BaseQueryListResponse<T> : BaseQueryResponse<T>
 {
-    public class BaseQueryListResponse<T> : BaseQueryResponse<T>
-    {
-        public long TotalCount { get; set; }
-    }
+    public long TotalCount { get; set; }
 }
