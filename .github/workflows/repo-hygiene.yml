@@ -1,9 +1,11 @@
 name: repo-hygiene
 on:
-  push:
-    branches: [inception]
   pull_request:
     branches: [inception, main]
+
+permissions:
+  contents: read
+
 jobs:
   repo-hygiene:
     runs-on: ubuntu-latest
