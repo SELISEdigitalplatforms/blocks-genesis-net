@@ -1,7 +1,6 @@
-﻿namespace TestDriver
+﻿namespace TestDriver;
+
+public interface IGrpcClient
 {
-    public interface IGrpcClient
-    {
-        Task<HelloReply?> ExecuteAsync();
-    }
+    Task<HelloReply?> ExecuteAsync();
 }

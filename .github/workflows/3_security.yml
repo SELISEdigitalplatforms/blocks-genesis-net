@@ -20,7 +20,7 @@ jobs:
           varFilePath: ./.github/variables/vars.env
 
       - name: Initialize dotnet
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             9.0.x

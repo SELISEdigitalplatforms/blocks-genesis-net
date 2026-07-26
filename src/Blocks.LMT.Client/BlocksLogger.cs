@@ -3,174 +3,173 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions; // For parsing message templates
 
-namespace SeliseBlocks.LMT.Client
+namespace SeliseBlocks.LMT.Client;
+
+public sealed class BlocksLogger : IBlocksLogger, IDisposable
 {
-    public class BlocksLogger : IBlocksLogger, IDisposable
+    private readonly LmtOptions _options;
+    private readonly ConcurrentQueue<LogData> _logBatch;
+    private readonly Timer _flushTimer;
+    private readonly ILmtMessageSender _serviceBusSender;
+    private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    private bool _disposed;
+
+    public BlocksLogger(LmtOptions options)
     {
-        private readonly LmtOptions _options;
-        private readonly ConcurrentQueue<LogData> _logBatch;
-        private readonly Timer _flushTimer;
-        private readonly ILmtMessageSender _serviceBusSender;
-        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
-        private bool _disposed;
+        _options = options ?? throw new ArgumentNullException(nameof(options));
 
-        public BlocksLogger(LmtOptions options)
+        if (string.IsNullOrWhiteSpace(_options.ServiceId))
+            throw new ArgumentException("ServiceName is required", nameof(options));
+
+        if (string.IsNullOrWhiteSpace(_options.ConnectionString))
+            throw new ArgumentException("ServiceBusConnectionString is required", nameof(options));
+
+        _logBatch = new ConcurrentQueue<LogData>();
+        _serviceBusSender= LmtMessageSenderFactory.Create(_options);
+
+        var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
+        _flushTimer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, flushInterval, flushInterval);
+    }
+
+    public void Log(LmtLogLevel level, string message, Exception? exception = null, params object?[] args)
+    {
+        if (!_options.EnableLogging) return;
+
+        var activity = Activity.Current;
+        var properties = new Dictionary<string, object>();
+        string formattedMessage = FormatLogMessage(message, args, properties);
+
+        var logData = new LogData
         {
-            _options = options ?? throw new ArgumentNullException(nameof(options));
+            Timestamp = DateTime.UtcNow,
+            Level = level.ToString(),
+            Message = formattedMessage,
+            Exception = exception?.ToString() ?? string.Empty,
+            ServiceName = _options.ServiceId,
+            Properties = properties, // Use the parsed properties
+            TenantId = _options.XBlocksKey
+        };
 
-            if (string.IsNullOrWhiteSpace(_options.ServiceId))
-                throw new ArgumentException("ServiceName is required", nameof(options));
-
-            if (string.IsNullOrWhiteSpace(_options.ConnectionString))
-                throw new ArgumentException("ServiceBusConnectionString is required", nameof(options));
-
-            _logBatch = new ConcurrentQueue<LogData>();
-            _serviceBusSender= LmtMessageSenderFactory.Create(_options);
-
-            var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
-            _flushTimer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, flushInterval, flushInterval);
+        if (activity != null)
+        {
+            logData.Properties["TraceId"] = activity.TraceId.ToString();
+            logData.Properties["SpanId"] = activity.SpanId.ToString();
         }
 
-        public void Log(LmtLogLevel level, string messageTemplate, Exception? exception = null, params object?[] args)
+        _logBatch.Enqueue(logData);
+
+        if (_logBatch.Count >= _options.LogBatchSize)
         {
-            if (!_options.EnableLogging) return;
+            // Do not await to avoid blocking the caller of Log.
+            // This will run on a ThreadPool thread.
+            _ = Task.Run(() => FlushBatchAsync());
+        }
+    }
 
-            var activity = Activity.Current;
-            var properties = new Dictionary<string, object>();
-            string formattedMessage = FormatLogMessage(messageTemplate, args, properties);
+    public void LogTrace(string message, params object?[] args)
+        => Log(LmtLogLevel.Trace, message, null, args);
 
-            var logData = new LogData
+    public void LogDebug(string message, params object?[] args)
+        => Log(LmtLogLevel.Debug, message, null, args);
+
+    public void LogInformation(string message, params object?[] args)
+        => Log(LmtLogLevel.Information, message, null, args);
+
+    public void LogWarning(string message, params object?[] args)
+        => Log(LmtLogLevel.Warning, message, null, args);
+
+    public void LogError(string messageTemplate, Exception? exception = null, params object?[] args)
+        => Log(LmtLogLevel.Error, messageTemplate, exception, args);
+
+    public void LogCritical(string message, Exception? exception = null, params object?[] args)
+        => Log(LmtLogLevel.Critical, message, exception, args);
+
+
+    private static string FormatLogMessage(string messageTemplate, object?[] args, Dictionary<string, object> properties)
+    {
+        if (args.Length > 0)
+        {
+            // Add each arg as Arg0, Arg1, etc. to the properties dictionary
+            for (int i = 0; i < args.Length; i++)
             {
-                Timestamp = DateTime.UtcNow,
-                Level = level.ToString(),
-                Message = formattedMessage,
-                Exception = exception?.ToString() ?? string.Empty,
-                ServiceName = _options.ServiceId,
-                Properties = properties, // Use the parsed properties
-                TenantId = _options.XBlocksKey
-            };
-
-            if (activity != null)
-            {
-                logData.Properties["TraceId"] = activity.TraceId.ToString();
-                logData.Properties["SpanId"] = activity.SpanId.ToString();
+                if (!properties.ContainsKey($"Arg{i}"))
+                    properties[$"Arg{i}"] = args[i];
             }
 
-            _logBatch.Enqueue(logData);
 
-            if (_logBatch.Count >= _options.LogBatchSize)
+            var formatted = messageTemplate;
+            var regex = new Regex(@"\{(.*?)\}", RegexOptions.None, System.TimeSpan.FromSeconds(1));
+
+            int index = 0;
+            formatted = regex.Replace(formatted, match =>
             {
-                // Do not await to avoid blocking the caller of Log.
-                // This will run on a ThreadPool thread.
-                _ = Task.Run(() => FlushBatchAsync());
-            }
+                // If we run out of args, leave placeholder as-is
+                if (index >= args.Length)
+                    return match.Value;
+
+                var value = args[index]?.ToString() ?? string.Empty;
+                index++;
+                return value;
+            });
+
+            return formatted;
         }
 
-        public void LogTrace(string message, params object?[] args)
-            => Log(LmtLogLevel.Trace, message, null, args);
-
-        public void LogDebug(string message, params object?[] args)
-            => Log(LmtLogLevel.Debug, message, null, args);
-
-        public void LogInformation(string message, params object?[] args)
-            => Log(LmtLogLevel.Information, message, null, args);
-
-        public void LogWarning(string message, params object?[] args)
-            => Log(LmtLogLevel.Warning, message, null, args);
-
-        public void LogError(string messageTemplate, Exception? exception = null, params object?[] args)
-            => Log(LmtLogLevel.Error, messageTemplate, exception, args);
-
-        public void LogCritical(string message, Exception? exception = null, params object?[] args)
-            => Log(LmtLogLevel.Critical, message, exception, args);
+        return messageTemplate;
+    }
 
 
-        private static string FormatLogMessage(string messageTemplate, object?[] args, Dictionary<string, object> properties)
+
+    private async Task FlushBatchAsync()
+    {
+        await _semaphore.WaitAsync().ConfigureAwait(false);
+        try
         {
-            if (args.Length > 0)
+            var logs = new List<LogData>();
+            while (_logBatch.TryDequeue(out var log))
             {
-                // Add each arg as Arg0, Arg1, etc. to the properties dictionary
-                for (int i = 0; i < args.Length; i++)
-                {
-                    if (!properties.ContainsKey($"Arg{i}"))
-                        properties[$"Arg{i}"] = args[i];
-                }
-
-
-                var formatted = messageTemplate;
-                var regex = new Regex(@"\{(.*?)\}");
-
-                int index = 0;
-                formatted = regex.Replace(formatted, match =>
-                {
-                    // If we run out of args, leave placeholder as-is
-                    if (index >= args.Length)
-                        return match.Value;
-
-                    var value = args[index]?.ToString() ?? string.Empty;
-                    index++;
-                    return value;
-                });
-
-                return formatted;
+                logs.Add(log);
             }
 
-            return messageTemplate;
-        }
-
-
-
-        private async Task FlushBatchAsync()
-        {
-            await _semaphore.WaitAsync().ConfigureAwait(false);
-            try
+            if (logs.Count > 0)
             {
-                var logs = new List<LogData>();
-                while (_logBatch.TryDequeue(out var log))
-                {
-                    logs.Add(log);
-                }
-
-                if (logs.Count > 0)
-                {
-                    await _serviceBusSender.SendLogsAsync(logs).ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error flushing logs: {ex}");
-            }
-            finally
-            {
-                _semaphore.Release();
+                await _serviceBusSender.SendLogsAsync(logs).ConfigureAwait(false);
             }
         }
-
-        public void Dispose()
+        catch (Exception ex)
         {
-            if (_disposed) return;
-
-            _flushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-            _flushTimer?.Dispose();
-
-            try
-            {
-                // FlushBatchAsync already synchronizes with _semaphore; waiting here causes a self-deadlock.
-                FlushBatchAsync().GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error during synchronous flush on dispose: {ex}");
-            }
-            finally
-            {
-                _semaphore?.Dispose();
-            }
-
-            _serviceBusSender?.Dispose();
-
-            _disposed = true;
-            GC.SuppressFinalize(this);
+            Debug.WriteLine($"Error flushing logs: {ex}");
         }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        _flushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _flushTimer?.Dispose();
+
+        try
+        {
+            // FlushBatchAsync already synchronizes with _semaphore; waiting here causes a self-deadlock.
+            FlushBatchAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error during synchronous flush on dispose: {ex}");
+        }
+        finally
+        {
+            _semaphore?.Dispose();
+        }
+
+        _serviceBusSender?.Dispose();
+
+        _disposed = true;
+        GC.SuppressFinalize(this);
     }
 }

@@ -2,121 +2,120 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace SeliseBlocks.LMT.Client
+namespace SeliseBlocks.LMT.Client;
+
+public class LmtTraceProcessor : BaseProcessor<Activity>
 {
-    public class LmtTraceProcessor : BaseProcessor<Activity>
+    private readonly LmtOptions _options;
+    private readonly ConcurrentQueue<TraceData> _traceBatch;
+    private readonly Timer _flushTimer;
+    private readonly ILmtMessageSender _serviceBusSender;
+    private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    private bool _disposed;
+
+    public LmtTraceProcessor(LmtOptions options)
     {
-        private readonly LmtOptions _options;
-        private readonly ConcurrentQueue<TraceData> _traceBatch;
-        private readonly Timer _flushTimer;
-        private readonly ILmtMessageSender _serviceBusSender;
-        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
-        private bool _disposed;
+        _options = options ?? throw new ArgumentNullException(nameof(options));
 
-        public LmtTraceProcessor(LmtOptions options)
+        _traceBatch = new ConcurrentQueue<TraceData>();
+
+        // Use shared sender
+        _serviceBusSender = LmtMessageSenderFactory.Create(_options);
+
+        var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
+        _flushTimer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, flushInterval, flushInterval);
+    }
+
+    public override void OnEnd(Activity activity)
+    {
+        if (!_options.EnableTracing) return;
+
+        var endTime = activity.StartTimeUtc.Add(activity.Duration);
+
+        var traceData = new TraceData
         {
-            _options = options ?? throw new ArgumentNullException(nameof(options));
+            Timestamp = endTime,
+            TraceId = activity.TraceId.ToString(),
+            SpanId = activity.SpanId.ToString(),
+            ParentSpanId = activity.ParentSpanId.ToString(),
+            ParentId = activity.ParentId?.ToString() ?? string.Empty,
+            Kind = activity.Kind.ToString(),
+            ActivitySourceName = activity.Source.Name,
+            OperationName = activity.DisplayName,
+            StartTime = activity.StartTimeUtc,
+            EndTime = endTime,
+            Duration = activity.Duration.TotalMilliseconds,
+            Attributes = activity.TagObjects?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value
+            ) ?? [],
+            Status = activity.Status.ToString(),
+            StatusDescription = activity.StatusDescription ?? string.Empty,
+            Baggage = GetBaggageItems(),
+            ServiceName = _options.ServiceId,
+            TenantId = _options.XBlocksKey
+        };
 
-            _traceBatch = new ConcurrentQueue<TraceData>();
+        _traceBatch.Enqueue(traceData);
 
-            // Use shared sender
-            _serviceBusSender = LmtMessageSenderFactory.Create(_options);
-
-            var flushInterval = TimeSpan.FromSeconds(_options.FlushIntervalSeconds);
-            _flushTimer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, flushInterval, flushInterval);
+        if (_traceBatch.Count >= _options.TraceBatchSize)
+        {
+            _ = Task.Run(() => FlushBatchAsync());
         }
+    }
 
-        public override void OnEnd(Activity activity)
+    private static Dictionary<string, string> GetBaggageItems()
+    {
+        var baggage = new Dictionary<string, string>();
+        foreach (var item in Baggage.Current)
         {
-            if (!_options.EnableTracing) return;
-
-            var endTime = activity.StartTimeUtc.Add(activity.Duration);
-
-            var traceData = new TraceData
-            {
-                Timestamp = endTime,
-                TraceId = activity.TraceId.ToString(),
-                SpanId = activity.SpanId.ToString(),
-                ParentSpanId = activity.ParentSpanId.ToString(),
-                ParentId = activity.ParentId?.ToString() ?? string.Empty,
-                Kind = activity.Kind.ToString(),
-                ActivitySourceName = activity.Source.Name,
-                OperationName = activity.DisplayName,
-                StartTime = activity.StartTimeUtc,
-                EndTime = endTime,
-                Duration = activity.Duration.TotalMilliseconds,
-                Attributes = activity.TagObjects?.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => kvp.Value
-                ) ?? new Dictionary<string, object?>(),
-                Status = activity.Status.ToString(),
-                StatusDescription = activity.StatusDescription ?? string.Empty,
-                Baggage = GetBaggageItems(),
-                ServiceName = _options.ServiceId,
-                TenantId = _options.XBlocksKey
-            };
-
-            _traceBatch.Enqueue(traceData);
-
-            if (_traceBatch.Count >= _options.TraceBatchSize)
-            {
-                _ = Task.Run(() => FlushBatchAsync());
-            }
+            baggage[item.Key] = item.Value;
         }
+        return baggage;
+    }
 
-        private static Dictionary<string, string> GetBaggageItems()
+    private async Task FlushBatchAsync()
+    {
+        await _semaphore.WaitAsync().ConfigureAwait(false);
+        try
         {
-            var baggage = new Dictionary<string, string>();
-            foreach (var item in Baggage.Current)
-            {
-                baggage[item.Key] = item.Value;
-            }
-            return baggage;
-        }
+            var tenantBatches = new Dictionary<string, List<TraceData>>();
 
-        private async Task FlushBatchAsync()
-        {
-            await _semaphore.WaitAsync().ConfigureAwait(false);
-            try
+            while (_traceBatch.TryDequeue(out var trace))
             {
-                var tenantBatches = new Dictionary<string, List<TraceData>>();
-
-                while (_traceBatch.TryDequeue(out var trace))
+                if (!tenantBatches.TryGetValue(trace.TenantId, out var tenantBatch))
                 {
-                    if (!tenantBatches.TryGetValue(trace.TenantId, out var tenantBatch))
-                    {
-                        tenantBatch = new List<TraceData>();
-                        tenantBatches[trace.TenantId] = tenantBatch;
-                    }
-
-                    tenantBatch.Add(trace);
+                    tenantBatch = [];
+                    tenantBatches[trace.TenantId] = tenantBatch;
                 }
 
-                if (tenantBatches.Count > 0)
-                {
-                    await _serviceBusSender.SendTracesAsync(tenantBatches).ConfigureAwait(false);
-                }
+                tenantBatch.Add(trace);
             }
-            finally
+
+            if (tenantBatches.Count > 0)
             {
-                _semaphore.Release();
+                await _serviceBusSender.SendTracesAsync(tenantBatches).ConfigureAwait(false);
             }
         }
-
-        protected override void Dispose(bool disposing)
+        finally
         {
-            if (_disposed) return;
-
-            if (disposing)
-            {
-                _flushTimer?.Dispose();
-                FlushBatchAsync().GetAwaiter().GetResult();
-                _semaphore?.Dispose();
-                _serviceBusSender?.Dispose();
-            }
-
-            _disposed = true;
-            base.Dispose(disposing);
+            _semaphore.Release();
         }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+
+        if (disposing)
+        {
+            _flushTimer?.Dispose();
+            FlushBatchAsync().GetAwaiter().GetResult();
+            _semaphore?.Dispose();
+            _serviceBusSender?.Dispose();
+        }
+
+        _disposed = true;
+        base.Dispose(disposing);
     }
 }

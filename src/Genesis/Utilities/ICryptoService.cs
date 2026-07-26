@@ -1,10 +1,9 @@
-﻿namespace Blocks.Genesis
+﻿namespace Blocks.Genesis;
+
+public interface ICryptoService
 {
-    public interface ICryptoService
-    {
-        string Hash(string value, string? optionalSalt = null, bool makeBase64 = false);
-        string Hash(byte[] value, bool makeBase64 = false);
-        string ComputeHmacSha256(string message, string key, bool makeBase64 = false);
-        bool ConstantTimeEquals(string left, string right);
-    }
+    string Hash(string value, string? optionalSalt = null, bool makeBase64 = false);
+    string Hash(byte[] value, bool makeBase64 = false);
+    string ComputeHmacSha256(string message, string key, bool makeBase64 = false);
+    bool ConstantTimeEquals(string left, string right);
 }

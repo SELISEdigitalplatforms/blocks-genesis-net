@@ -1,9 +1,8 @@
-namespace Blocks.Genesis
+namespace Blocks.Genesis;
+
+public sealed record TenantCacheUpdateMessage
 {
-    public sealed record TenantCacheUpdateMessage
-    {
-        public Tenant? Tenant { get; init; }
-        public string? TenantId { get; init; }
-        public string Action { get; init; } = Tenants.TenantCacheUpdateActionUpsert;
-    }
+    public Tenant? Tenant { get; init; }
+    public string? TenantId { get; init; }
+    public string Action { get; init; } = Tenants.TenantCacheUpdateActionUpsert;
 }
