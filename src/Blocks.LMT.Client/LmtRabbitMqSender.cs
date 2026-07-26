@@ -319,26 +319,68 @@ public sealed class LmtRabbitMqSender : ILmtMessageSender
     }
 }
 
-internal static partial class LmtRabbitMqSenderLog
+internal static class LmtRabbitMqSenderLog
 {
-    [LoggerMessage(EventId = 5000, Level = LogLevel.Warning, Message = "Exception sending logs to RabbitMQ. Retry {CurrentRetry}/{MaxRetries}.")]
-    public static partial void SendingLogsFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+    private static readonly Action<ILogger, int, int, Exception?> SendingLogsFailedMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Warning,
+            new EventId(5000),
+            "Exception sending logs to RabbitMQ. Retry {CurrentRetry}/{MaxRetries}.");
 
-    [LoggerMessage(EventId = 5001, Level = LogLevel.Warning, Message = "Failed log batch queue is full ({MaxFailedBatches}). Dropping batch.")]
-    public static partial void LogBatchQueueFull(ILogger logger, int maxFailedBatches);
+    private static readonly Action<ILogger, int, Exception?> LogBatchQueueFullMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Warning,
+            new EventId(5001),
+            "Failed log batch queue is full ({MaxFailedBatches}). Dropping batch.");
 
-    [LoggerMessage(EventId = 5002, Level = LogLevel.Warning, Message = "Exception sending traces to RabbitMQ. Retry {CurrentRetry}/{MaxRetries}.")]
-    public static partial void SendingTracesFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+    private static readonly Action<ILogger, int, int, Exception?> SendingTracesFailedMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Warning,
+            new EventId(5002),
+            "Exception sending traces to RabbitMQ. Retry {CurrentRetry}/{MaxRetries}.");
 
-    [LoggerMessage(EventId = 5003, Level = LogLevel.Warning, Message = "Failed trace batch queue is full ({MaxFailedBatches}). Dropping batch.")]
-    public static partial void TraceBatchQueueFull(ILogger logger, int maxFailedBatches);
+    private static readonly Action<ILogger, int, Exception?> TraceBatchQueueFullMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Warning,
+            new EventId(5003),
+            "Failed trace batch queue is full ({MaxFailedBatches}). Dropping batch.");
 
-    [LoggerMessage(EventId = 5004, Level = LogLevel.Debug, Message = "Publishing RabbitMQ message exchange={ExchangeName}, routingKey={RoutingKey}, messageId={MessageId}.")]
-    public static partial void PublishingMessage(ILogger logger, string exchangeName, string routingKey, string messageId);
+    private static readonly Action<ILogger, string, string, string, Exception?> PublishingMessageMessage =
+        LoggerMessage.Define<string, string, string>(
+            LogLevel.Debug,
+            new EventId(5004),
+            "Publishing RabbitMQ message exchange={ExchangeName}, routingKey={RoutingKey}, messageId={MessageId}.");
 
-    [LoggerMessage(EventId = 5005, Level = LogLevel.Warning, Message = "Log batch exceeded max retries ({MaxRetries}). Dropping batch with {LogCount} logs.")]
-    public static partial void LogBatchExceededRetries(ILogger logger, int maxRetries, int logCount);
+    private static readonly Action<ILogger, int, int, Exception?> LogBatchExceededRetriesMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Warning,
+            new EventId(5005),
+            "Log batch exceeded max retries ({MaxRetries}). Dropping batch with {LogCount} logs.");
 
-    [LoggerMessage(EventId = 5006, Level = LogLevel.Warning, Message = "Trace batch exceeded max retries ({MaxRetries}). Dropping batch.")]
-    public static partial void TraceBatchExceededRetries(ILogger logger, int maxRetries);
+    private static readonly Action<ILogger, int, Exception?> TraceBatchExceededRetriesMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Warning,
+            new EventId(5006),
+            "Trace batch exceeded max retries ({MaxRetries}). Dropping batch.");
+
+    public static void SendingLogsFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries) =>
+        SendingLogsFailedMessage(logger, currentRetry, maxRetries, exception);
+
+    public static void LogBatchQueueFull(ILogger logger, int maxFailedBatches) =>
+        LogBatchQueueFullMessage(logger, maxFailedBatches, null);
+
+    public static void SendingTracesFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries) =>
+        SendingTracesFailedMessage(logger, currentRetry, maxRetries, exception);
+
+    public static void TraceBatchQueueFull(ILogger logger, int maxFailedBatches) =>
+        TraceBatchQueueFullMessage(logger, maxFailedBatches, null);
+
+    public static void PublishingMessage(ILogger logger, string exchangeName, string routingKey, string messageId) =>
+        PublishingMessageMessage(logger, exchangeName, routingKey, messageId, null);
+
+    public static void LogBatchExceededRetries(ILogger logger, int maxRetries, int logCount) =>
+        LogBatchExceededRetriesMessage(logger, maxRetries, logCount, null);
+
+    public static void TraceBatchExceededRetries(ILogger logger, int maxRetries) =>
+        TraceBatchExceededRetriesMessage(logger, maxRetries, null);
 }
