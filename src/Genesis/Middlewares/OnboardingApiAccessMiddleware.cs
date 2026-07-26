@@ -46,25 +46,18 @@ public class OnboardingApiAccessMiddleware
 
         var tenantId = blocksContext.TenantId;
         var originalTenantId = blocksContext.OriginalTenantId;
-
-        if (string.Equals(originalTenantId, tenantId, StringComparison.OrdinalIgnoreCase))
-        {
-            await _next(context).ConfigureAwait(false);
-            return;
-        }
-
         _osAllowedApis = _osAllowedApis.Count == 0? LoadOsAllowedApisFromRootDatabase(_blocksSecret): _osAllowedApis;
 
         var isOsAllowedApi = IsOsAllowedApi(context.Request.Path);
         var isRootTenant = IsRootTenant(tenantId);
 
-        if (!isOsAllowedApi && !isRootTenant)
+        if (!isOsAllowedApi && isRootTenant && originalTenantId != tenantId)
         {
-            await _next(context).ConfigureAwait(false);
+            await TenantContextHelper.RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Cross_Tenant_Access_Not_Allowed").ConfigureAwait(false);
             return;
         }
 
-        await TenantContextHelper.RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Cross_Tenant_Access_Not_Allowed").ConfigureAwait(false);
+        await _next(context).ConfigureAwait(false);
     }
 
     private bool IsRootTenant(string tenantId)
