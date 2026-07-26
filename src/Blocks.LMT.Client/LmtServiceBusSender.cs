@@ -294,38 +294,104 @@ public sealed class LmtServiceBusSender : ILmtMessageSender
     }
 }
 
-internal static partial class LmtServiceBusSenderLog
+internal static class LmtServiceBusSenderLog
 {
-    [LoggerMessage(EventId = 5100, Level = LogLevel.Warning, Message = "Service Bus sender not initialized.")]
-    public static partial void SenderNotInitialized(ILogger logger);
+    private static readonly Action<ILogger, Exception?> SenderNotInitializedMessage =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(5100),
+            "Service Bus sender not initialized.");
 
-    [LoggerMessage(EventId = 5101, Level = LogLevel.Warning, Message = "Exception sending logs to Service Bus. Retry {CurrentRetry}/{MaxRetries}.")]
-    public static partial void SendingLogsFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+    private static readonly Action<ILogger, int, int, Exception?> SendingLogsFailedMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Warning,
+            new EventId(5101),
+            "Exception sending logs to Service Bus. Retry {CurrentRetry}/{MaxRetries}.");
 
-    [LoggerMessage(EventId = 5102, Level = LogLevel.Information, Message = "Queued log batch for retry. Failed batches in queue: {QueueCount}.")]
-    public static partial void LogBatchQueuedForRetry(ILogger logger, int queueCount);
+    private static readonly Action<ILogger, int, Exception?> LogBatchQueuedForRetryMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Information,
+            new EventId(5102),
+            "Queued log batch for retry. Failed batches in queue: {QueueCount}.");
 
-    [LoggerMessage(EventId = 5103, Level = LogLevel.Warning, Message = "Failed log batch queue is full ({MaxFailedBatches}). Dropping batch.")]
-    public static partial void LogBatchQueueFull(ILogger logger, int maxFailedBatches);
+    private static readonly Action<ILogger, int, Exception?> LogBatchQueueFullMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Warning,
+            new EventId(5103),
+            "Failed log batch queue is full ({MaxFailedBatches}). Dropping batch.");
 
-    [LoggerMessage(EventId = 5104, Level = LogLevel.Warning, Message = "Exception sending traces to Service Bus. Retry {CurrentRetry}/{MaxRetries}.")]
-    public static partial void SendingTracesFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries);
+    private static readonly Action<ILogger, int, int, Exception?> SendingTracesFailedMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Warning,
+            new EventId(5104),
+            "Exception sending traces to Service Bus. Retry {CurrentRetry}/{MaxRetries}.");
 
-    [LoggerMessage(EventId = 5105, Level = LogLevel.Information, Message = "Queued trace batch for retry. Failed batches in queue: {QueueCount}.")]
-    public static partial void TraceBatchQueuedForRetry(ILogger logger, int queueCount);
+    private static readonly Action<ILogger, int, Exception?> TraceBatchQueuedForRetryMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Information,
+            new EventId(5105),
+            "Queued trace batch for retry. Failed batches in queue: {QueueCount}.");
 
-    [LoggerMessage(EventId = 5106, Level = LogLevel.Warning, Message = "Failed trace batch queue is full ({MaxFailedBatches}). Dropping batch.")]
-    public static partial void TraceBatchQueueFull(ILogger logger, int maxFailedBatches);
+    private static readonly Action<ILogger, int, Exception?> TraceBatchQueueFullMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Warning,
+            new EventId(5106),
+            "Failed trace batch queue is full ({MaxFailedBatches}). Dropping batch.");
 
-    [LoggerMessage(EventId = 5107, Level = LogLevel.Warning, Message = "Log batch exceeded max retries ({MaxRetries}). Dropping batch with {LogCount} logs.")]
-    public static partial void LogBatchExceededRetries(ILogger logger, int maxRetries, int logCount);
+    private static readonly Action<ILogger, int, int, Exception?> LogBatchExceededRetriesMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Warning,
+            new EventId(5107),
+            "Log batch exceeded max retries ({MaxRetries}). Dropping batch with {LogCount} logs.");
 
-    [LoggerMessage(EventId = 5108, Level = LogLevel.Information, Message = "Retrying failed log batch attempt {Attempt}/{MaxRetries}.")]
-    public static partial void RetryingLogBatch(ILogger logger, int attempt, int maxRetries);
+    private static readonly Action<ILogger, int, int, Exception?> RetryingLogBatchMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Information,
+            new EventId(5108),
+            "Retrying failed log batch attempt {Attempt}/{MaxRetries}.");
 
-    [LoggerMessage(EventId = 5109, Level = LogLevel.Warning, Message = "Trace batch exceeded max retries ({MaxRetries}). Dropping batch.")]
-    public static partial void TraceBatchExceededRetries(ILogger logger, int maxRetries);
+    private static readonly Action<ILogger, int, Exception?> TraceBatchExceededRetriesMessage =
+        LoggerMessage.Define<int>(
+            LogLevel.Warning,
+            new EventId(5109),
+            "Trace batch exceeded max retries ({MaxRetries}). Dropping batch.");
 
-    [LoggerMessage(EventId = 5110, Level = LogLevel.Information, Message = "Retrying failed trace batch attempt {Attempt}/{MaxRetries}.")]
-    public static partial void RetryingTraceBatch(ILogger logger, int attempt, int maxRetries);
+    private static readonly Action<ILogger, int, int, Exception?> RetryingTraceBatchMessage =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Information,
+            new EventId(5110),
+            "Retrying failed trace batch attempt {Attempt}/{MaxRetries}.");
+
+    public static void SenderNotInitialized(ILogger logger) =>
+        SenderNotInitializedMessage(logger, null);
+
+    public static void SendingLogsFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries) =>
+        SendingLogsFailedMessage(logger, currentRetry, maxRetries, exception);
+
+    public static void LogBatchQueuedForRetry(ILogger logger, int queueCount) =>
+        LogBatchQueuedForRetryMessage(logger, queueCount, null);
+
+    public static void LogBatchQueueFull(ILogger logger, int maxFailedBatches) =>
+        LogBatchQueueFullMessage(logger, maxFailedBatches, null);
+
+    public static void SendingTracesFailed(ILogger logger, Exception exception, int currentRetry, int maxRetries) =>
+        SendingTracesFailedMessage(logger, currentRetry, maxRetries, exception);
+
+    public static void TraceBatchQueuedForRetry(ILogger logger, int queueCount) =>
+        TraceBatchQueuedForRetryMessage(logger, queueCount, null);
+
+    public static void TraceBatchQueueFull(ILogger logger, int maxFailedBatches) =>
+        TraceBatchQueueFullMessage(logger, maxFailedBatches, null);
+
+    public static void LogBatchExceededRetries(ILogger logger, int maxRetries, int logCount) =>
+        LogBatchExceededRetriesMessage(logger, maxRetries, logCount, null);
+
+    public static void RetryingLogBatch(ILogger logger, int attempt, int maxRetries) =>
+        RetryingLogBatchMessage(logger, attempt, maxRetries, null);
+
+    public static void TraceBatchExceededRetries(ILogger logger, int maxRetries) =>
+        TraceBatchExceededRetriesMessage(logger, maxRetries, null);
+
+    public static void RetryingTraceBatch(ILogger logger, int attempt, int maxRetries) =>
+        RetryingTraceBatchMessage(logger, attempt, maxRetries, null);
 }
