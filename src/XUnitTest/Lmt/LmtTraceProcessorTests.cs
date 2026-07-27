@@ -87,8 +87,9 @@ public class LmtTraceProcessorTests
         using var listener = CreateListener("test-trace-duration");
         using var activity = source.StartActivity("op-duration");
         Assert.NotNull(activity);
-        Thread.Sleep(10);
-        activity!.Stop();
+        // Set an explicit end time so the duration is deterministic without sleeping
+        activity!.SetEndTime(activity.StartTimeUtc.AddMilliseconds(25));
+        activity.Stop();
 
         processor.OnEnd(activity);
 

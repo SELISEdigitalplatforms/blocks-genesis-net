@@ -53,6 +53,7 @@ public class OnboardingApiAccessMiddleware
 
         if (!isOsAllowedApi && isRootTenant && originalTenantId != tenantId)
         {
+            _logger.LogWarning("Blocked cross-tenant onboarding API access to {Path} for tenant {TenantId}.", context.Request.Path, tenantId);
             await TenantContextHelper.RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Cross_Tenant_Access_Not_Allowed").ConfigureAwait(false);
             return;
         }
@@ -79,7 +80,7 @@ public class OnboardingApiAccessMiddleware
             return false;
         }
 
-        return _osAllowedApis.Contains(requestPath);
+        return _osAllowedApis.Contains(normalized);
     }
 
     private static string NormalizePath(PathString requestPath)
@@ -88,7 +89,7 @@ public class OnboardingApiAccessMiddleware
         return value;
     }
 
-    private HashSet<string> LoadOsAllowedApisFromRootDatabase(IBlocksSecret blocksSecret)
+    private static HashSet<string> LoadOsAllowedApisFromRootDatabase(IBlocksSecret blocksSecret)
     {
        
        var database = new MongoClient(blocksSecret.DatabaseConnectionString)

@@ -277,9 +277,9 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
 
             return false;
         }
-        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
-            _logger.LogWarning("[{Service}] Ping timed out for {Endpoint}", _serviceName, MaskUrl(config.Endpoint));
+            _logger.LogWarning(ex, "[{Service}] Ping timed out for {Endpoint}", _serviceName, MaskUrl(config.Endpoint));
             return false;
         }
         catch (HttpRequestException ex)

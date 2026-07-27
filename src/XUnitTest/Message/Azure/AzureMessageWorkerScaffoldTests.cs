@@ -241,7 +241,10 @@ public class AzureMessageWorkerScaffoldTests
             consumer,
             new System.Diagnostics.ActivitySource("test-azure-worker"));
 
-        await worker.StopAsync(CancellationToken.None);
+        var exception = await Record.ExceptionAsync(() => worker.StopAsync(CancellationToken.None));
+
+        Assert.Null(exception);
+        Assert.Empty(GetField<ConcurrentDictionary<string, CancellationTokenSource>>(worker, "_activeMessageRenewals"));
     }
 
     [Fact]
