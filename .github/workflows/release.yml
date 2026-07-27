@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # needed to push the version tag
+  contents: write   # needed to push the version tag 
   id-token: write   # needed for NuGet OIDC login
 concurrency:
   group: nuget-publish
