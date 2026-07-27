@@ -27,12 +27,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # The solution targets net10.0. 8.0.x/9.0.x stay installed only so the
+      # global tools above (which target older runtimes) can run.
       - name: Initialize dotnet
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
-            9.0.x
             8.0.x
+            9.0.x
+            10.0.x
 
       - name: Find test projects
         id: find-projects
@@ -40,7 +43,7 @@ jobs:
           test_projects=$(find . -type f \( -name '*Test.csproj' -o -name '*Tests.csproj' -o -name 'Test*.csproj' \) -exec dirname {} \;)
           test_projects=${test_projects//$'\n'/ }
           test_projects=${test_projects//.\/src\//.\/}
-          echo "::set-output name=projects::${test_projects}"
+          echo "projects=${test_projects}" >> "$GITHUB_OUTPUT"
 
       - name: Run Tests
         working-directory: ./src
@@ -54,10 +57,6 @@ jobs:
           for project in $PROJECTS; do
             dotnet test "$project" --no-build --verbosity normal --logger "trx;LogFileName=test_results.trx" /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
           done
-
-      - name: List all files
-        run: |
-          find . -type f
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
