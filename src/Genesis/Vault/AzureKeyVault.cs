@@ -70,7 +70,7 @@ public class AzureKeyVault : IVault
 
         throw new InvalidOperationException("Unable to authenticate to Key Vault: no credential succeeded.");
     }
-    private async Task<bool> CanAcquireTokenAsync(TokenCredential credential)
+    private static async Task<bool> CanAcquireTokenAsync(TokenCredential credential)
     {
         try
         {

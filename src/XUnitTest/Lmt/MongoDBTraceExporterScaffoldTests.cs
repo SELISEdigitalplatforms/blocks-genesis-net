@@ -225,7 +225,7 @@ public class MongoDBTraceExporterScaffoldTests
     }
 
     [Fact]
-    public void Dispose_ShouldThrowObjectDisposedException_DueToCurrentImplementationOrder()
+    public void Dispose_ShouldFlushBeforeReleasingSemaphore_AndNotThrow()
     {
         var previous = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
         try
@@ -235,7 +235,12 @@ public class MongoDBTraceExporterScaffoldTests
             secret.SetupGet(s => s.TraceConnectionString).Returns(string.Empty);
             var exporter = new MongoDBTraceExporter("svc-dispose-known", 10, secret.Object);
 
-            Assert.Throws<ObjectDisposedException>(() => exporter.Dispose());
+            // The dispose-order bug this test used to pin is fixed: the final
+            // flush now runs before the semaphore is disposed, so Dispose no
+            // longer throws ObjectDisposedException.
+            var exception = Record.Exception(() => exporter.Dispose());
+
+            Assert.Null(exception);
         }
         finally
         {

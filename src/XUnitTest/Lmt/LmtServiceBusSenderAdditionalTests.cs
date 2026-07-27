@@ -197,7 +197,10 @@ public class LmtServiceBusSenderAdditionalTests
     {
         var sender = new LmtServiceBusSender("svc", string.Empty);
         sender.Dispose();
-        sender.Dispose(); // second call should be no-op
+        var exception = Record.Exception(() => sender.Dispose()); // second call should be no-op
+
+        Assert.Null(exception);
+        Assert.True(GetField<bool>(sender, "_disposed"));
     }
 
     [Fact]
