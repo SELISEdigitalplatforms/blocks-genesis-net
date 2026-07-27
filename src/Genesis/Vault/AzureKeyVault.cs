@@ -8,6 +8,9 @@ namespace Blocks.Genesis
     {
         private SecretClient _secretClient;
         private string _keyVaultUrl;
+        private string _tenantId;
+        private string _clientId;
+        private string _clientSecret;
 
         public async Task<Dictionary<string, string>> ProcessSecretsAsync(List<string> keys)
         {
@@ -27,18 +30,18 @@ namespace Blocks.Genesis
 
         private void ExtractValuesFromGlobalConfig(Dictionary<string, string> cloudConfig)
         {
-            if (!cloudConfig.TryGetValue("KeyVaultUrl", out _keyVaultUrl) || string.IsNullOrWhiteSpace(_keyVaultUrl))
+            if (!cloudConfig.TryGetValue("KeyVaultUrl", out _keyVaultUrl) ||
+                !cloudConfig.TryGetValue("TenantId", out _tenantId) ||
+                !cloudConfig.TryGetValue("ClientId", out _clientId) ||
+                !cloudConfig.TryGetValue("ClientSecret", out _clientSecret))
             {
-                throw new InvalidOperationException("Required Azure config value 'KeyVaultUrl' is missing. Please check your environment configuration.");
+                throw new InvalidOperationException("One or more required Azure config values are missing. Please check your environment configuration.");
             }
         }
 
         private void ConnectToAzureKeyVaultSecret()
         {
-            // DefaultAzureCredential covers local dev (az login, VS, VS Code) and
-            // production (Managed Identity, Workload Identity) in a single credential.
-            var credential = new DefaultAzureCredential();
-
+            var credential = new ClientSecretCredential(_tenantId, _clientId, _clientSecret);
             _secretClient = new SecretClient(new Uri(_keyVaultUrl), credential);
         }
 
