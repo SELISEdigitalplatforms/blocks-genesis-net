@@ -76,10 +76,7 @@ namespace Blocks.Genesis
             tenant.TenantId.Equals(projectKey, StringComparison.OrdinalIgnoreCase))
             {
                 InitializeAllowedUrls(tenant.TenantId);
-                if (!_allowedApis.Any(item => path.Equals(item, StringComparison.OrdinalIgnoreCase) || path.StartsWith(item + "/", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return false;
-                }
+                if (!_allowedApis.Contains(path, StringComparer.OrdinalIgnoreCase)) return false;
             }
             return true;
         }
