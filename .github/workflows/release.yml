@@ -1,13 +1,21 @@
 name: Publish NuGet package
 
+# Invoked only by main.yml, after the test/security/sonar gates pass on a
+# push to main. workflow_dispatch is kept as a manual escape hatch.
 on:
-  release:
-    types: [published]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  id-token: write
+  contents: write   # needed to push the version tag 
+  id-token: write   # needed for NuGet OIDC login
+concurrency:
+  group: nuget-publish
+  cancel-in-progress: false
+
+env:
+  # PackageId is read from the csproj, so a rename can't silently desync from here.
+  PROJECT: src/Genesis/Blocks.Genesis.csproj
 
 jobs:
   publish:
@@ -23,14 +31,58 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Resolve next version
+        id: version
+        run: |
+          set -euo pipefail
+
+          declared=$(grep -oPm1 '(?<=<Version>)[^<]+' "$PROJECT")
+          major=$(echo "$declared" | cut -d. -f1 | sed 's/^0*//')
+          major=${major:-0}
+          echo "Declared version in csproj: $declared (major: $major)"
+
+          PACKAGE_ID=$(grep -oPm1 '(?<=<PackageId>)[^<]+' "$PROJECT")
+          echo "Package id: $PACKAGE_ID"
+
+          lower_id=$(echo "$PACKAGE_ID" | tr '[:upper:]' '[:lower:]')
+          index="https://api.nuget.org/v3-flatcontainer/${lower_id}/index.json"
+          published=$(curl -sfL "$index" | jq -r '.versions[]' || true)
+
+          latest=$(echo "$published" \
+            | grep -E "^${major}\.[0-9]+\.[0-9]+$" \
+            | sort -t. -k2,2n -k3,3n \
+            | tail -n1 || true)
+
+          if [ -z "$latest" ]; then
+            minor=0
+            patch=0
+            echo "No published $major.x.y found — starting this major at $major.0.0"
+          else
+            echo "Highest published for major $major: $latest"
+            counter=$(( $(echo "$latest" | cut -d. -f2) * 10 + $(echo "$latest" | cut -d. -f3) + 1 ))
+            minor=$(( counter / 10 ))
+            patch=$(( counter % 10 ))
+          fi
+
+          version="${major}.${minor}.${patch}"
+          echo "Next version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing \`$PACKAGE_ID\` **$version**" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Restore dependencies
-        run: dotnet restore src/Genesis/Blocks.Genesis.csproj
+        run: dotnet restore "$PROJECT"
 
       - name: Build package project
-        run: dotnet build src/Genesis/Blocks.Genesis.csproj --configuration Release --no-restore
+        run: >
+          dotnet build "$PROJECT"
+          --configuration Release --no-restore
+          -p:Version=${{ steps.version.outputs.version }}
 
       - name: Pack NuGet package
-        run: dotnet pack src/Genesis/Blocks.Genesis.csproj --configuration Release --no-build --output artifacts
+        run: >
+          dotnet pack "$PROJECT"
+          --configuration Release --no-build --output artifacts
+          -p:Version=${{ steps.version.outputs.version }}
 
       - name: NuGet login (OIDC to temporary API key)
         id: login
@@ -43,4 +95,12 @@ jobs:
           dotnet nuget push "artifacts/*.nupkg"
           --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
           --source "https://api.nuget.org/v3/index.json"
-          --skip-duplicate
+
+      - name: Tag the release
+        run: |
+          set -euo pipefail
+          tag="v${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
