@@ -19,7 +19,7 @@ public class HttpService : IHttpService
     private readonly IOptions<HttpServiceOptions> _options;
     private readonly ResiliencePipeline<HttpResponseMessage> _pipeline;
 
-    private const string ContentType = "application/json";
+    private const string DefaultContentType = "application/json";
 
     private sealed record HttpRequestSpec(
         HttpMethod Method,
@@ -44,22 +44,22 @@ public class HttpService : IHttpService
         _pipeline = BuildPipeline(TimeSpan.FromSeconds(_options.Value.RequestTimeoutSeconds));
     }
 
-    public Task<(T, string)> Post<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+    public Task<(T, string)> Post<T>(object payload, string url, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
         => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Post, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
     public Task<(T, string)> Get<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
         => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Get, url, null, null, headers, false, timeoutSeconds), cancellationToken);
 
-    public Task<(T, string)> Put<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+    public Task<(T, string)> Put<T>(object payload, string url, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
         => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Put, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
     public Task<(T, string)> Delete<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
         => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Delete, url, null, null, headers, false, timeoutSeconds), cancellationToken);
 
-    public Task<(T, string)> Patch<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+    public Task<(T, string)> Patch<T>(object payload, string url, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
         => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Patch, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
-    public Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object? payload = null, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+    public Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object? payload = null, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
         => MakeRequest<T>(new HttpRequestSpec(method, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
     public Task<(T, string)> PostFormUrlEncoded<T>(Dictionary<string, string> formData, string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
