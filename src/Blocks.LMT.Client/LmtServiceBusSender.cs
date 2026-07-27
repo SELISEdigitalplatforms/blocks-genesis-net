@@ -196,88 +196,36 @@ public sealed class LmtServiceBusSender : ILmtMessageSender
         }
     }
 
-    private async Task RetryFailedBatchesAsync()
-    {
-        if (!await _retrySemaphore.WaitAsync(0).ConfigureAwait(false))
-            return;
+    private Task RetryFailedBatchesAsync() =>
+        LmtFailedBatchRetryHelper.RetryFailedBatchesAsync(_retrySemaphore, RetryFailedLogsAsync, RetryFailedTracesAsync);
 
-        try
-        {
-            var now = DateTime.UtcNow;
-
-            // Retry failed logs
-            await RetryFailedLogsAsync(now).ConfigureAwait(false);
-
-            // Retry failed traces
-            await RetryFailedTracesAsync(now).ConfigureAwait(false);
-        }
-        finally
-        {
-            _retrySemaphore.Release();
-        }
-    }
-
-    private async Task RetryFailedLogsAsync(DateTime now)
-    {
-        var batchesToRetry = new List<FailedLogBatch>();
-        var batchesToRequeue = new List<FailedLogBatch>();
-
-        while (_failedLogBatches.TryDequeue(out var failedBatch))
-        {
-            if (failedBatch.NextRetryTime <= now)
-                batchesToRetry.Add(failedBatch);
-            else
-                batchesToRequeue.Add(failedBatch);
-        }
-
-        foreach (var batch in batchesToRequeue)
-        {
-            _failedLogBatches.Enqueue(batch);
-        }
-
-        foreach (var failedBatch in batchesToRetry)
-        {
-            if (failedBatch.RetryCount >= _maxRetries)
+    private Task RetryFailedLogsAsync(DateTime now) =>
+        LmtFailedBatchRetryHelper.RetryDueBatchesAsync(
+            _failedLogBatches,
+            now,
+            _maxRetries,
+            batch => batch.NextRetryTime,
+            batch => batch.RetryCount,
+            batch => LmtServiceBusSenderLog.LogBatchExceededRetries(Logger, _maxRetries, batch.Logs.Count),
+            async batch =>
             {
-                LmtServiceBusSenderLog.LogBatchExceededRetries(Logger, _maxRetries, failedBatch.Logs.Count);
-                continue;
-            }
+                LmtServiceBusSenderLog.RetryingLogBatch(Logger, batch.RetryCount + 1, _maxRetries);
+                await SendLogsAsync(batch.Logs, batch.RetryCount).ConfigureAwait(false);
+            });
 
-            LmtServiceBusSenderLog.RetryingLogBatch(Logger, failedBatch.RetryCount + 1, _maxRetries);
-            await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount).ConfigureAwait(false);
-        }
-    }
-
-    private async Task RetryFailedTracesAsync(DateTime now)
-    {
-        var batchesToRetry = new List<FailedTraceBatch>();
-        var batchesToRequeue = new List<FailedTraceBatch>();
-
-        while (_failedTraceBatches.TryDequeue(out var failedBatch))
-        {
-            if (failedBatch.NextRetryTime <= now)
-                batchesToRetry.Add(failedBatch);
-            else
-                batchesToRequeue.Add(failedBatch);
-        }
-
-        foreach (var batch in batchesToRequeue)
-        {
-            _failedTraceBatches.Enqueue(batch);
-        }
-
-        foreach (var failedBatch in batchesToRetry)
-        {
-            if (failedBatch.RetryCount >= _maxRetries)
+    private Task RetryFailedTracesAsync(DateTime now) =>
+        LmtFailedBatchRetryHelper.RetryDueBatchesAsync(
+            _failedTraceBatches,
+            now,
+            _maxRetries,
+            batch => batch.NextRetryTime,
+            batch => batch.RetryCount,
+            _ => LmtServiceBusSenderLog.TraceBatchExceededRetries(Logger, _maxRetries),
+            async batch =>
             {
-                LmtServiceBusSenderLog.TraceBatchExceededRetries(Logger, _maxRetries);
-                continue;
-            }
-
-            LmtServiceBusSenderLog.RetryingTraceBatch(Logger, failedBatch.RetryCount + 1, _maxRetries);
-            await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount).ConfigureAwait(false);
-        }
-    }
+                LmtServiceBusSenderLog.RetryingTraceBatch(Logger, batch.RetryCount + 1, _maxRetries);
+                await SendTracesAsync(batch.TenantBatches, batch.RetryCount).ConfigureAwait(false);
+            });
 
     public void Dispose()
     {

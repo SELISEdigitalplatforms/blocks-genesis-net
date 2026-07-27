@@ -180,7 +180,16 @@ public class MongoDBDynamicSinkTests
             blocksSecret.SetupGet(x => x.LogConnectionString).Returns(string.Empty);
 
             var sink = new MongoDBDynamicSink("svc", blocksSecret.Object);
-            sink.Dispose();
+            try
+            {
+                var field = typeof(MongoDBDynamicSink).GetField("_serviceBusSender", BindingFlags.NonPublic | BindingFlags.Instance);
+                Assert.NotNull(field);
+                Assert.NotNull(field!.GetValue(sink));
+            }
+            finally
+            {
+                sink.Dispose();
+            }
         }
         finally
         {

@@ -128,7 +128,7 @@ public class MongoDbContextProvider : IDbContextProvider
             return new MongoClient(settings);
         });
     }
-    private bool IsSameDbConnection ( IMongoDatabase database, string connectionString )
+    private static bool IsSameDbConnection ( IMongoDatabase database, string connectionString )
     {
 
         MongoClientSettings existingSettings = database.Client.Settings;

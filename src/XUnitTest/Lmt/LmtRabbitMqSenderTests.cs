@@ -265,6 +265,14 @@ public class LmtRabbitMqSenderTests
     public async Task RetryFailedBatchesAsync_ShouldReturnImmediately_WhenSemaphoreHeld()
     {
         var sender = CreateUninitializedSender(maxRetries: 3, maxFailedBatches: 10);
+        var queue = GetLogQueue(sender);
+        queue.Enqueue(new FailedLogBatch
+        {
+            Logs = [new LogData { Message = "due" }],
+            RetryCount = 0,
+            NextRetryTime = DateTime.UtcNow.AddMinutes(-1)
+        });
+
         var semaphore = GetField<SemaphoreSlim>(sender, "_retrySemaphore");
         await semaphore.WaitAsync();
 
@@ -272,6 +280,11 @@ public class LmtRabbitMqSenderTests
         {
             // Should not block, should return immediately
             await InvokePrivateAsync(sender, "RetryFailedBatchesAsync");
+
+            // The due batch was left untouched because the retry pass was skipped
+            Assert.Single(queue);
+            Assert.Equal(0, queue.First().RetryCount);
+            Assert.Equal(0, semaphore.CurrentCount);
         }
         finally
         {
@@ -305,6 +318,10 @@ public class LmtRabbitMqSenderTests
         SetField(sender, "_channel", channel.Object);
 
         await InvokePrivateAsync(sender, "EnsureChannelAsync");
+
+        // No reconnect happened, the existing open connection and channel were kept
+        Assert.Same(connection.Object, GetField<IConnection>(sender, "_connection"));
+        Assert.Same(channel.Object, GetField<IChannel>(sender, "_channel"));
     }
 
     [Fact]

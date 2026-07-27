@@ -128,7 +128,10 @@ public class MongoEventSubscriberTests
         subscriber.TryGetEventHandler<CommandSucceededEvent>(out var handler);
 
         var evt = CreateCommandSucceededEvent(9999, TimeSpan.FromMilliseconds(1));
-        handler!(evt); // Should not throw
+        var exception = Record.Exception(() => handler!(evt));
+
+        Assert.Null(exception);
+        Assert.Empty(GetActivitiesField(subscriber));
     }
 
     private static System.Collections.Concurrent.ConcurrentDictionary<int, Activity> GetActivitiesField(MongoEventSubscriber subscriber)
