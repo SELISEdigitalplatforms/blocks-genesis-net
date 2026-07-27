@@ -1,6 +1,15 @@
 name: Analyze Code Quality
-on: 
+on:
   workflow_call:
+    inputs:
+      run_quality_gate:
+        description: >
+          Fail the job if the SonarQube quality gate fails. Enabled on pull
+          requests (this is the merge blocker); disabled on push to main, where
+          the gate has already been enforced by the PR check.
+        type: boolean
+        required: false
+        default: true
     secrets:
       SONAR_TOKEN:
         required: true
@@ -16,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0  
+          fetch-depth: 0
 
       - name: Set Environment Variables
         uses: ./.github/actions/setvars
@@ -29,56 +38,65 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # The solution targets net10.0. 8.0.x/9.0.x stay installed only so the
+      # global tools below (which target older runtimes) can run.
       - name: Initialize dotnet
         uses: actions/setup-dotnet@v6
         with:
-            dotnet-version: | 
+            dotnet-version: |
                 8.0.x
-                9.0.x    
-        
+                9.0.x
+                10.0.x
+
       - name: Cache SonarCloud packages
         uses: actions/cache@v4
         with:
-          path: ~\sonar\cache
+          path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
-      
+
       - name: Cache SonarCloud scanner
         id: cache-sonar-scanner
         uses: actions/cache@v4
         with:
-          path: .\.sonar\scanner
+          path: ~/.dotnet/tools
           key: ${{ runner.os }}-sonar-scanner
           restore-keys: ${{ runner.os }}-sonar-scanner
-      
+
       - name: Install SonarCloud scanner
         if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
-        shell: pwsh
         run: |
-          dotnet tool install --global dotnet-sonarscanner --version 5.5.3
-      
+          dotnet tool install --global dotnet-sonarscanner
+
       - name: Install coverlet
         run: |
-          dotnet tool install --global coverlet.console 
-         
+          dotnet tool install --global coverlet.console
+
       - name: SonarQube Analysis
         working-directory: ./src
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_KEY: ${{ env.SONAR_KEY }}
           AUTHOR: ${{ env.AUTHOR }}
-          SONAR_TOKEN_SECRET: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONARQUBE_HOST_URL: ${{ env.SONARQUBE_HOST }}
           SOLUTION: ${{ env.SOLUTION_NAME }}
-        shell: pwsh
+          # Display name in the SonarQube portal.
+          PROJECT_NAME: ${{ env.REPO_NAME }}
+        shell: bash
         run: |
-          dotnet-sonarscanner begin /k:"${{ env.SONAR_KEY }}" /o:"${{ env.AUTHOR }}" /d:sonar.login=${{ secrets.SONAR_TOKEN }} /d:sonar.host.url="${{ env.SONARQUBE_HOST }}" /d:sonar.cs.opencover.reportsPaths=coverage.xml
+          set -euo pipefail
+          dotnet-sonarscanner begin /k:"${SONAR_KEY}" /n:"${PROJECT_NAME}" /o:"${AUTHOR}" /d:sonar.token="${SONAR_TOKEN}" /d:sonar.host.url="${SONARQUBE_HOST_URL}" /d:sonar.cs.opencover.reportsPaths=coverage.xml
           dotnet restore "./${SOLUTION}" -s https://api.nuget.org/v3/index.json -s https://nuget.selise.biz/nuget
           dotnet build "./${SOLUTION}" --no-incremental
-          coverlet ./XUnitTest/bin/Debug/net9.0/XUnitTest.dll --target "dotnet" --targetargs "test ./${SOLUTION} --no-build" -f=opencover -o="coverage.xml"
-          dotnet-sonarscanner end /d:sonar.login=${{ secrets.SONAR_TOKEN }}
+          # Resolved rather than hardcoded, so a TargetFramework bump can't break this.
+          test_dll=$(find ./XUnitTest/bin/Debug -name 'XUnitTest.dll' | head -n1)
+          echo "Test assembly: $test_dll"
+          coverlet "$test_dll" --target "dotnet" --targetargs "test ./${SOLUTION} --no-build" -f=opencover -o="coverage.xml"
+          dotnet-sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
 
       - name: SonarQube Quality Gate check
+        if: ${{ inputs.run_quality_gate }}
         uses: sonarsource/sonarqube-quality-gate-action@master
         # Force to fail step after specific time.
         timeout-minutes: 5
