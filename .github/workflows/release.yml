@@ -69,20 +69,27 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Publishing \`$PACKAGE_ID\` **$version**" >> "$GITHUB_STEP_SUMMARY"
 
+      # Written into the csproj rather than passed as -p:Version. A global
+      # MSBuild property propagates into every referenced project, which would
+      # override Blocks.LMT.Client's own version and make Genesis declare a
+      # dependency on a LMT.Client release that does not exist.
+      # The edit is never committed; it lives only in this runner's checkout.
+      - name: Stamp version into csproj
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i "0,/<Version>.*<\/Version>/s//<Version>${VERSION}<\/Version>/" "$PROJECT"
+          grep -m1 '<Version>' "$PROJECT"
+
       - name: Restore dependencies
         run: dotnet restore "$PROJECT"
 
       - name: Build package project
-        run: >
-          dotnet build "$PROJECT"
-          --configuration Release --no-restore
-          -p:Version=${{ steps.version.outputs.version }}
+        run: dotnet build "$PROJECT" --configuration Release --no-restore
 
       - name: Pack NuGet package
-        run: >
-          dotnet pack "$PROJECT"
-          --configuration Release --no-build --output artifacts
-          -p:Version=${{ steps.version.outputs.version }}
+        run: dotnet pack "$PROJECT" --configuration Release --no-build --output artifacts
 
       - name: NuGet login (OIDC to temporary API key)
         id: login
