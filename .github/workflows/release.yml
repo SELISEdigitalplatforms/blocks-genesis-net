@@ -1,8 +1,9 @@
 name: Publish NuGet package
 
+# Invoked only by main.yml, after the test/security/sonar gates pass on a
+# push to main. workflow_dispatch is kept as a manual escape hatch.
 on:
-  push:
-    branches: [feat/version]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -13,8 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # PackageId is read from the csproj, so a rename can't silently desync from here.
   PROJECT: src/Genesis/Blocks.Genesis.csproj
-  PACKAGE_ID: Net.Genesis
 
 jobs:
   publish:
@@ -39,6 +40,9 @@ jobs:
           major=$(echo "$declared" | cut -d. -f1 | sed 's/^0*//')
           major=${major:-0}
           echo "Declared version in csproj: $declared (major: $major)"
+
+          PACKAGE_ID=$(grep -oPm1 '(?<=<PackageId>)[^<]+' "$PROJECT")
+          echo "Package id: $PACKAGE_ID"
 
           lower_id=$(echo "$PACKAGE_ID" | tr '[:upper:]' '[:lower:]')
           index="https://api.nuget.org/v3-flatcontainer/${lower_id}/index.json"
