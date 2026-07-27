@@ -5,7 +5,7 @@
     <Version>4.0.0</Version>
 
 
-    <PackageId>Net.Genesis</PackageId>
+    <PackageId>SeliseBlocks.Genesis.OS</PackageId>
     <Authors>Selise Blocks</Authors>
     <Company>Selise</Company>
     <Description>Blocks Genesis</Description>
