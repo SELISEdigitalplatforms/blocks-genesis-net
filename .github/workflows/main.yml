@@ -40,13 +40,17 @@ jobs:
 
   security-job:
     if: ${{ needs.initialization.outputs.envvalue2 == 'true' }}
-    needs: [test-job]
+    needs: [initialization]
     uses: ./.github/workflows/3_security.yml
 
   sonarqube-job:
     if: ${{ needs.initialization.outputs.envvalue3 == 'true' }}
-    needs: [security-job]
+    needs: [initialization]
     uses: ./.github/workflows/2_sonar.yml
+    with:
+      # The gate blocks the merge on PRs. On push to main it is skipped — the
+      # same commit already cleared the gate as part of the PR check.
+      run_quality_gate: ${{ github.event_name == 'pull_request' }}
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_GLOBAL }}
 
