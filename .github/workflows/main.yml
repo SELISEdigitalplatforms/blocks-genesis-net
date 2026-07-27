@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -46,3 +49,11 @@ jobs:
     uses: ./.github/workflows/2_sonar.yml
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_GLOBAL }}
+
+  release-job:
+    if: ${{ github.event_name == 'push' }}
+    needs: [test-job, security-job, sonarqube-job]
+    permissions:
+      contents: write   # push the version tag
+      id-token: write   # NuGet OIDC login
+    uses: ./.github/workflows/release.yml
