@@ -254,6 +254,8 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         foreach (var subscription in _messageConfiguration?.RabbitMqConfiguration?.ConsumerSubscriptions ?? [])
         {
+            if (subscription.IsDeclareOnly) continue;
+
             await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
             _logger.LogInformation("Started consuming queue: {QueueName}, Parallel: {Parallel}, MaxConcurrency: {MaxConcurrency}",
             subscription.QueueName,
