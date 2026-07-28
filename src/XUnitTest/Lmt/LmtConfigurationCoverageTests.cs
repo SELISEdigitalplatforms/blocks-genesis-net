@@ -144,6 +144,41 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    public void CreateIndex_ShouldSkipCreation_WhenExistingKeySpecWasNormalizedByServer()
+    {
+        var collectionName = $"idx-equivalent-{Guid.NewGuid():N}";
+        var database = LmtConfiguration.GetMongoDatabase(MongoConnectionString, LmtConfiguration.TraceDatabaseName);
+        try
+        {
+            database.CreateCollection(collectionName);
+            var collection = database.GetCollection<BsonDocument>(collectionName);
+
+            // The server normalizes { TraceId: 1.0 } to { TraceId: 1 } when the
+            // index is created, so the client-side key comparison still matches
+            // and creation is skipped without touching the server-error path.
+            collection.Indexes.CreateOne(new CreateIndexModel<BsonDocument>(
+                new BsonDocument { { "TraceId", 1.0 } },
+                new CreateIndexOptions { Name = "equivalent-under-other-name" }));
+
+            var ex = Record.Exception(() => LmtConfiguration.CreateIndex(
+                MongoConnectionString,
+                LmtConfiguration.TraceDatabaseName,
+                collectionName,
+                new BsonDocument { { "TraceId", 1 } }));
+
+            Assert.Null(ex);
+
+            var indexes = collection.Indexes.List().ToList();
+            Assert.Contains(indexes, i => i["name"].AsString == "equivalent-under-other-name");
+            Assert.DoesNotContain(indexes, i => i["name"].AsString == $"{collectionName}_Index");
+        }
+        finally
+        {
+            database.DropCollection(collectionName);
+        }
+    }
+
+    [Fact]
     public void CreateIndex_ShouldSkipCreation_WhenIndexWithSameKeysExistsUnderDifferentName()
     {
         var collectionName = $"idx-samekeys-{Guid.NewGuid():N}";

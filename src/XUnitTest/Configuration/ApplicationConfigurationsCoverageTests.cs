@@ -1,8 +1,15 @@
 using Blocks.Genesis;
+using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson.Serialization;
 using Moq;
 using OpenTelemetry.Metrics;
@@ -561,6 +568,186 @@ public class ApplicationConfigurationsCoverageTests
         var ex = Record.Exception(() => ApplicationConfigurations.ConfigureMicroserviceMiddleware(app));
 
         Assert.Null(ex);
+    }
+
+    [Fact]
+    public void ConfigureKestrel_ShouldApplyEndpointCallbacks_WhenOptionsAreResolved()
+    {
+        var previousHttp1 = Environment.GetEnvironmentVariable("HTTP1_PORT");
+        var previousHttp2 = Environment.GetEnvironmentVariable("HTTP2_PORT");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("HTTP1_PORT", "5111");
+            Environment.SetEnvironmentVariable("HTTP2_PORT", "5112");
+
+            var builder = WebApplication.CreateBuilder();
+            ApplicationConfigurations.ConfigureKestrel(builder);
+            using var app = builder.Build();
+
+            // Resolving the options executes the ConfigureKestrel callback,
+            // including both ListenAnyIP endpoint lambdas. Nothing binds until
+            // the server starts, which this test never does.
+            var options = app.Services.GetRequiredService<IOptions<KestrelServerOptions>>().Value;
+
+            Assert.Equal(10 * 1024 * 1024, options.Limits.MaxRequestBodySize);
+
+            var codeBacked = options.GetType()
+                .GetProperty("CodeBackedListenOptions", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(codeBacked);
+            var listenOptions = ((System.Collections.IEnumerable)codeBacked!.GetValue(options)!)
+                .Cast<object>()
+                .Select(o => (
+                    Port: ((System.Net.IPEndPoint)o.GetType().GetProperty("IPEndPoint")!.GetValue(o)!).Port,
+                    Protocols: (HttpProtocols)o.GetType().GetProperty("Protocols")!.GetValue(o)!))
+                .ToList();
+
+            Assert.Contains(listenOptions, l => l.Port == 5111 && l.Protocols == HttpProtocols.Http1);
+            Assert.Contains(listenOptions, l => l.Port == 5112 && l.Protocols == HttpProtocols.Http2);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("HTTP1_PORT", previousHttp1);
+            Environment.SetEnvironmentVariable("HTTP2_PORT", previousHttp2);
+        }
+    }
+
+    [Fact]
+    public void ConfigureApi_ShouldAddGrpcServerInterceptor_WhenGrpcOptionsAreResolved()
+    {
+        SetPrivateStaticField("_blocksSecret", new BlocksSecret { EnableHsts = false });
+        SetPrivateStaticField("_blocksSwaggerOptions", null);
+        SetPrivateStaticField("_serviceName", "svc-grpc-options");
+
+        var builder = WebApplication.CreateBuilder();
+        RegisterApiPrerequisites(builder.Services);
+        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-grpc-options");
+        using var app = builder.Build();
+
+        var grpcOptions = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
+
+        Assert.Contains(grpcOptions.Interceptors, r => r.Type == typeof(GrpcServerInterceptor));
+    }
+
+    [Fact]
+    public async Task ConfigureApi_RateLimiterPartitioner_ShouldPartitionByTenantHeaderOrClientIp()
+    {
+        SetPrivateStaticField("_blocksSecret", new BlocksSecret { EnableHsts = false });
+        SetPrivateStaticField("_blocksSwaggerOptions", null);
+        SetPrivateStaticField("_serviceName", "svc-rate-limit");
+
+        var builder = WebApplication.CreateBuilder();
+        RegisterApiPrerequisites(builder.Services);
+        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-rate-limit");
+        using var app = builder.Build();
+
+        var limiterOptions = app.Services.GetRequiredService<IOptions<RateLimiterOptions>>().Value;
+        Assert.NotNull(limiterOptions.GlobalLimiter);
+
+        // No tenant header and no remote address: partitions on "ip:unknown".
+        var anonymousContext = new DefaultHttpContext();
+        using var ipLease = await limiterOptions.GlobalLimiter!.AcquireAsync(anonymousContext);
+        Assert.True(ipLease.IsAcquired);
+
+        // Tenant header present: partitions on the tenant id.
+        var tenantContext = new DefaultHttpContext();
+        tenantContext.Request.Headers["tenant-id"] = "tenant-1";
+        tenantContext.Connection.RemoteIpAddress = System.Net.IPAddress.Loopback;
+        using var tenantLease = await limiterOptions.GlobalLimiter.AcquireAsync(tenantContext);
+        Assert.True(tenantLease.IsAcquired);
+    }
+
+    [Fact]
+    public async Task ConfigureMiddleware_ShouldServeHealthAndSwaggerEndpoints_WhenServerRuns()
+    {
+        SetPrivateStaticField("_blocksSecret", new BlocksSecret { EnableHsts = false });
+        SetPrivateStaticField("_blocksSwaggerOptions", new BlocksSwaggerOptions
+        {
+            ServiceName = "svc",
+            Version = "v1",
+            PathBase = "/svc",
+            EndpointUrl = "/swagger/v1/swagger.json",
+            XmlCommentsFilePath = "swagger-enabled.xml",
+            EnableBearerAuth = false
+        });
+        SetPrivateStaticField("_serviceName", "svc-live-endpoints");
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        RegisterApiPrerequisites(builder.Services);
+        builder.Services.AddSingleton<IBlocksSecret>(new BlocksSecret { EnableHsts = false });
+        builder.Services.AddSingleton(Mock.Of<ICryptoService>());
+        builder.Services.AddHealthChecks()
+            .AddCheck("ready-probe", () => HealthCheckResult.Healthy(), tags: ["ready"]);
+        builder.Services.AddBlocksSwagger(new BlocksSwaggerOptions
+        {
+            ServiceName = "svc",
+            Version = "v1",
+            XmlCommentsFilePath = "swagger-enabled.xml",
+            EnableBearerAuth = false
+        });
+        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-live-endpoints");
+        var app = builder.Build();
+        ApplicationConfigurations.ConfigureMiddleware(app);
+
+        await app.StartAsync();
+        try
+        {
+            var baseAddress = app.Urls.First();
+            using var http = new HttpClient();
+
+            var ping = await http.GetAsync($"{baseAddress}/ping");
+            var live = await http.GetAsync($"{baseAddress}/health/live");
+            var ready = await http.GetAsync($"{baseAddress}/health/ready");
+            var swaggerDoc = await http.GetStringAsync($"{baseAddress}/swagger/v1/swagger.json");
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, ping.StatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.OK, live.StatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.OK, ready.StatusCode);
+
+            // The pre-serialize filter rewrites the server url to the path base.
+            Assert.Contains("/svc", swaggerDoc);
+        }
+        finally
+        {
+            await app.StopAsync();
+            await app.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ConfigureServices_HealthChecks_ShouldReportMongoAndRedis_WhenExecuted()
+    {
+        SetPrivateStaticField("_serviceName", "svc-health-exec");
+        SetPrivateStaticField("_blocksSwaggerOptions", null);
+        SetPrivateStaticField("_blocksSecret", new BlocksSecret
+        {
+            DatabaseConnectionString = "mongodb://127.0.0.1:27017/genesis-health-check-tests",
+            CacheConnectionString = "localhost:6379,abortConnect=false",
+            MessageConnectionString = string.Empty,
+            TraceConnectionString = string.Empty
+        });
+
+        RemoveRegisteredObjectBsonSerializer();
+
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+
+        ApplicationConfigurations.ConfigureServices(services, new MessageConfiguration
+        {
+            AzureServiceBusConfiguration = new AzureServiceBusConfiguration(),
+            RabbitMqConfiguration = new RabbitMqConfiguration()
+        });
+
+        await using var provider = services.BuildServiceProvider();
+        var healthService = provider.GetRequiredService<HealthCheckService>();
+
+        var report = await healthService.CheckHealthAsync();
+
+        Assert.Contains("mongodb", report.Entries.Keys);
+        Assert.Contains("redis", report.Entries.Keys);
+        Assert.Equal(HealthStatus.Healthy, report.Entries["mongodb"].Status);
+        Assert.Equal(HealthStatus.Healthy, report.Entries["redis"].Status);
     }
 
     private static Blocks.Genesis.Tenant CreateTenant()

@@ -209,6 +209,42 @@ public class RabbitMessageClientCoverageTests
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task InitializeRabbitMq_ShouldLogReturnedMessage_WhenBrokerReturnsIt()
+    {
+        var logger = new Mock<ILogger<RabbitMessageClient>>();
+        var channel = CreatePublishableChannel();
+        var rabbitService = new Mock<IRabbitMqService>();
+        rabbitService.Setup(s => s.CreateConnectionAsync()).Returns(Task.CompletedTask);
+        rabbitService.SetupGet(s => s.RabbitMqChannel).Returns(channel.Object);
+
+        var client = CreateClient(logger.Object, rabbitService.Object, CreateConfiguration());
+
+        // First send runs InitializeRabbitMqAsync, which attaches the
+        // returned-message handler to the channel.
+        await client.SendToConsumerAsync(new ConsumerMessage<CoveragePayload>
+        {
+            ConsumerName = "orders.queue",
+            Payload = new CoveragePayload { Value = "returned" },
+            Context = string.Empty
+        });
+
+        channel.Raise(c => c.BasicReturnAsync += null, channel.Object, new RabbitMQ.Client.Events.BasicReturnEventArgs(
+            replyCode: 312,
+            replyText: "NO_ROUTE",
+            exchange: "orders-exchange",
+            routingKey: "orders.queue",
+            basicProperties: new BasicProperties(),
+            body: new ReadOnlyMemory<byte>(System.Text.Encoding.UTF8.GetBytes("payload"))));
+
+        logger.Verify(l => l.Log(
+            LogLevel.Warning,
+            It.IsAny<EventId>(),
+            It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("Message returned")),
+            It.IsAny<Exception>(),
+            It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.Once);
+    }
+
     private static RabbitMessageClient CreateClient(
         ILogger<RabbitMessageClient> logger,
         IRabbitMqService rabbitService,
