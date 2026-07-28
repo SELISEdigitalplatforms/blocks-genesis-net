@@ -108,14 +108,7 @@ public sealed class AzureMessageClient : IMessageClient
             return providedContext;
         }
 
-        try
-        {
-            return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
-        }
-        catch
-        {
-            return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
-        }
+        return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
     }
 
     public async Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class

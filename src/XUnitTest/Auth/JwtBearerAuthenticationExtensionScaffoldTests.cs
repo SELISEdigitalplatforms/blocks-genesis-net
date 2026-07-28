@@ -39,9 +39,9 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var tenants = new Mock<ITenants>();
         var cacheDb = new Mock<IDatabase>();
         var clientFactory = new Mock<IHttpClientFactory>();
-        var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
+        var events = BuildJwtEvents();
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object);
         httpContext.Request.Headers[BlocksConstants.AuthorizationHeaderName] = "Bearer not-a-jwt";
         ApplyProtectedEndpoint(httpContext);
 
@@ -63,7 +63,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var tenants = new Mock<ITenants>();
         var cacheDb = new Mock<IDatabase>();
         var clientFactory = new Mock<IHttpClientFactory>();
-        var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
+        var events = BuildJwtEvents();
 
         var identity = new ClaimsIdentity(
         [
@@ -71,10 +71,8 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
             new Claim(BlocksContext.USER_ID_CLAIM, "user-1")
         ], "Bearer");
 
-        var httpContext = new DefaultHttpContext
-        {
-            User = new ClaimsPrincipal(identity)
-        };
+        var httpContext = CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object);
+        httpContext.User = new ClaimsPrincipal(identity);
         httpContext.Request.Scheme = "https";
         httpContext.Request.Host = new HostString("example.local");
         httpContext.Request.Path = "/api/orders";
@@ -126,7 +124,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         var clientFactory = new Mock<IHttpClientFactory>();
         var context = new MessageReceivedContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions())
         {
@@ -199,7 +197,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         Assert.NotNull(method);
 
         var context = new TokenValidatedContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
@@ -240,7 +238,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         Assert.NotNull(type);
 
         var context = new TokenValidatedContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
@@ -393,7 +391,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         Assert.NotNull(setTenant);
         Assert.NotNull(getTenant);
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = CreateHttpContext();
 
         setToken!.Invoke(null, [httpContext, "abc-token"]);
         setTenant!.Invoke(null, [httpContext, "tenant-x"]);
@@ -489,9 +487,9 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var tenants = new Mock<ITenants>();
         var cacheDb = new Mock<IDatabase>();
         var clientFactory = new Mock<IHttpClientFactory>();
-        var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
+        var events = BuildJwtEvents();
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object);
         ApplyProtectedEndpoint(httpContext);
         var context = new MessageReceivedContext(
             httpContext,
@@ -539,9 +537,9 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
             var cacheDb = new Mock<IDatabase>();
             var clientFactory = new Mock<IHttpClientFactory>();
-            var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
+            var events = BuildJwtEvents();
 
-            var http = new DefaultHttpContext();
+            var http = CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object);
             http.Request.Headers[BlocksConstants.BlocksKey] = "tenant-third";
             http.Request.Headers.Append("Cookie", "tp_cookie=third-party-token");
             ApplyProtectedEndpoint(http);
@@ -649,7 +647,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var method = type!.GetMethod("ConfigureTokenValidationAsync", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = CreateHttpContext();
         var scheme = new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler));
         var options = new JwtBearerOptions();
         var messageContext = new MessageReceivedContext(httpContext, scheme, options)
@@ -677,7 +675,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var method = type!.GetMethod("ConfigureTokenValidationAsync", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = CreateHttpContext();
         var scheme = new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler));
         var options = new JwtBearerOptions();
         var messageContext = new MessageReceivedContext(httpContext, scheme, options)
@@ -713,7 +711,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         Assert.NotNull(method);
 
         var context = new TokenValidatedContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
@@ -733,10 +731,10 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var tenants = new Mock<ITenants>();
         var cacheDb = new Mock<IDatabase>();
         var clientFactory = new Mock<IHttpClientFactory>();
-        var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
+        var events = BuildJwtEvents();
 
         var context = new AuthenticationFailedContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions())
         {
@@ -771,10 +769,10 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
 
         var cacheDb = new Mock<IDatabase>();
         var clientFactory = new Mock<IHttpClientFactory>();
-        var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
+        var events = BuildJwtEvents();
 
         var context = new AuthenticationFailedContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions())
         {
@@ -793,10 +791,10 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var tenants = new Mock<ITenants>();
         var cacheDb = new Mock<IDatabase>();
         var clientFactory = new Mock<IHttpClientFactory>();
-        var events = BuildJwtEvents(tenants.Object, cacheDb.Object, clientFactory.Object);
+        var events = BuildJwtEvents();
 
         var context = new ForbiddenContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(tenants.Object, cacheDb.Object, clientFactory.Object),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
@@ -816,7 +814,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         try
         {
             var context = new TokenValidatedContext(
-                new DefaultHttpContext(),
+                CreateHttpContext(),
                 new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
                 new JwtBearerOptions());
 
@@ -862,7 +860,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
     public async Task TryFallbackAsync_ShouldReturnFalse_WhenTenantConfigIsMissing()
     {
         var context = new TokenValidatedContext(
-            new DefaultHttpContext(),
+            CreateHttpContext(),
             new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
             new JwtBearerOptions());
 
@@ -958,25 +956,39 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         };
     }
 
-    private static void SetStaticField(Type type, string name, object value)
+    // The JWT events resolve ITenants, ICacheClient and IHttpClientFactory from the request
+    // services, exactly like production; build a real service provider for each HttpContext.
+    private static DefaultHttpContext CreateHttpContext(ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
     {
-        var field = type.GetField(name, BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(field);
-        field!.SetValue(null, value);
+        var cacheClient = new Mock<ICacheClient>();
+        cacheClient.Setup(c => c.CacheDatabase()).Returns(cacheDb);
+
+        var services = new ServiceCollection();
+        services.AddHttpContextAccessor();
+        services.AddSingleton(tenants);
+        services.AddSingleton(cacheClient.Object);
+        services.AddSingleton(httpClientFactory);
+
+        return new DefaultHttpContext
+        {
+            RequestServices = services.BuildServiceProvider()
+        };
     }
 
-    private static JwtBearerEvents BuildJwtEvents(ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
+    private static DefaultHttpContext CreateHttpContext()
+    {
+        return CreateHttpContext(
+            new Mock<ITenants>().Object,
+            new Mock<IDatabase>().Object,
+            new Mock<IHttpClientFactory>().Object);
+    }
+
+    private static JwtBearerEvents BuildJwtEvents()
     {
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
         var method = type!.GetMethod("ConfigureAuthenticationInternal", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
-
-        // The JWT events resolve their dependencies from the request services, falling back to
-        // the static compat fields; seed those so the events can run without a live DI container.
-        SetStaticField(type, "_compatTenants", tenants);
-        SetStaticField(type, "_compatCacheDb", cacheDb);
-        SetStaticField(type, "_compatHttpClientFactory", httpClientFactory);
 
         var services = new ServiceCollection();
         services.AddHttpContextAccessor();

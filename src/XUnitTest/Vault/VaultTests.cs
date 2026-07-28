@@ -23,6 +23,8 @@ public class VaultTests
     [Fact]
     public void GetCloudVault_ShouldThrow_ForUnknownType()
     {
-        Assert.Throws<Exception>(() => Blocks.Genesis.Vault.GetCloudVault(VaultType.Unknown));
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => Blocks.Genesis.Vault.GetCloudVault(VaultType.Unknown));
+
+        Assert.Equal("configType", ex.ParamName);
     }
 }

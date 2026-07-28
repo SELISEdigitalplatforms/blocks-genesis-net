@@ -22,9 +22,6 @@ internal static class JwtBearerAuthenticationExtension
 {
     private const string RequestAccessTokenItemKey = "blocks.auth.accessToken";
     private const string RequestTenantIdItemKey = "blocks.auth.tenantId";
-    private static ITenants? _compatTenants;
-    private static IDatabase? _compatCacheDb;
-    private static IHttpClientFactory? _compatHttpClientFactory;
 
     public static void JwtBearerAuthentication(this IServiceCollection services)
     {
@@ -144,21 +141,18 @@ internal static class JwtBearerAuthenticationExtension
     private static ITenants ResolveTenants(HttpContext context)
     {
         return context.RequestServices?.GetService<ITenants>()
-            ?? _compatTenants
             ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
     }
 
     private static IDatabase ResolveCacheDatabase(HttpContext context)
     {
         return context.RequestServices?.GetService<ICacheClient>()?.CacheDatabase()
-            ?? _compatCacheDb
             ?? throw new InvalidOperationException("The cache database could not be resolved from the request services.");
     }
 
     private static IHttpClientFactory ResolveHttpClientFactory(HttpContext context)
     {
         return context.RequestServices?.GetService<IHttpClientFactory>()
-            ?? _compatHttpClientFactory
             ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
     }
 
@@ -316,12 +310,9 @@ internal static class JwtBearerAuthenticationExtension
             return new TokenValidationParameters();
         }
 
+        // A non-null certificate implies ThirdPartyJwtTokenParameters was set,
+        // since the certificate path is read from it.
         var validationParams = tenant.ThirdPartyJwtTokenParameters;
-        if (validationParams == null)
-        {
-            Log.Warning("[Fallback] No validation parameters found.");
-            return new TokenValidationParameters();
-        }
 
         var parameters = CreateTokenValidationParameters(cert, new JwtTokenParameters
         {
@@ -516,7 +507,7 @@ internal static class JwtBearerAuthenticationExtension
             isAuthenticated: identity.IsAuthenticated,
             requestUri: context.Request.Host.ToString(),
             organizationId: string.Empty,
-            expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, out var exp)
+            expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var exp)
                       ? exp : DateTime.MinValue,
 
             email: !string.IsNullOrWhiteSpace(emailClaim)? emailClaim: 
@@ -540,12 +531,12 @@ internal static class JwtBearerAuthenticationExtension
 
     private static string ExtractClaimProperty(string claimObject)
     {
-        return claimObject.Split('.').Last();
+        return claimObject.Split('.')[^1];
     }
 
     private static string GetClaimObjectName(string claimObject)
     {
-        return claimObject.Split('.').First();
+        return claimObject.Split('.')[0];
     }
 
    private static string ExtractClaimValue(ClaimsIdentity identity, string claimObject)

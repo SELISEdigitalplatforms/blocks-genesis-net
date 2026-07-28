@@ -231,78 +231,28 @@ public sealed class LmtRabbitMqSender : ILmtMessageSender
         }
     }
 
-    private async Task RetryFailedBatchesAsync()
-    {
-        if (!await _retrySemaphore.WaitAsync(0).ConfigureAwait(false))
-            return;
+    private Task RetryFailedBatchesAsync() =>
+        LmtFailedBatchRetryHelper.RetryFailedBatchesAsync(_retrySemaphore, RetryFailedLogsAsync, RetryFailedTracesAsync);
 
-        try
-        {
-            var now = DateTime.UtcNow;
-            await RetryFailedLogsAsync(now).ConfigureAwait(false);
-            await RetryFailedTracesAsync(now).ConfigureAwait(false);
-        }
-        finally
-        {
-            _retrySemaphore.Release();
-        }
-    }
+    private Task RetryFailedLogsAsync(DateTime now) =>
+        LmtFailedBatchRetryHelper.RetryDueBatchesAsync(
+            _failedLogBatches,
+            now,
+            _maxRetries,
+            batch => batch.NextRetryTime,
+            batch => batch.RetryCount,
+            batch => LmtRabbitMqSenderLog.LogBatchExceededRetries(Logger, _maxRetries, batch.Logs.Count),
+            batch => SendLogsAsync(batch.Logs, batch.RetryCount));
 
-    private async Task RetryFailedLogsAsync(DateTime now)
-    {
-        var batchesToRetry = new List<FailedLogBatch>();
-        var batchesToRequeue = new List<FailedLogBatch>();
-
-        while (_failedLogBatches.TryDequeue(out var failedBatch))
-        {
-            if (failedBatch.NextRetryTime <= now)
-                batchesToRetry.Add(failedBatch);
-            else
-                batchesToRequeue.Add(failedBatch);
-        }
-
-        foreach (var batch in batchesToRequeue)
-            _failedLogBatches.Enqueue(batch);
-
-        foreach (var failedBatch in batchesToRetry)
-        {
-            if (failedBatch.RetryCount >= _maxRetries)
-            {
-                LmtRabbitMqSenderLog.LogBatchExceededRetries(Logger, _maxRetries, failedBatch.Logs.Count);
-                continue;
-            }
-
-            await SendLogsAsync(failedBatch.Logs, failedBatch.RetryCount).ConfigureAwait(false);
-        }
-    }
-
-    private async Task RetryFailedTracesAsync(DateTime now)
-    {
-        var batchesToRetry = new List<FailedTraceBatch>();
-        var batchesToRequeue = new List<FailedTraceBatch>();
-
-        while (_failedTraceBatches.TryDequeue(out var failedBatch))
-        {
-            if (failedBatch.NextRetryTime <= now)
-                batchesToRetry.Add(failedBatch);
-            else
-                batchesToRequeue.Add(failedBatch);
-        }
-
-        foreach (var batch in batchesToRequeue)
-            _failedTraceBatches.Enqueue(batch);
-
-        foreach (var failedBatch in batchesToRetry)
-        {
-            if (failedBatch.RetryCount >= _maxRetries)
-            {
-                LmtRabbitMqSenderLog.TraceBatchExceededRetries(Logger, _maxRetries);
-                continue;
-            }
-
-            await SendTracesAsync(failedBatch.TenantBatches, failedBatch.RetryCount).ConfigureAwait(false);
-        }
-    }
+    private Task RetryFailedTracesAsync(DateTime now) =>
+        LmtFailedBatchRetryHelper.RetryDueBatchesAsync(
+            _failedTraceBatches,
+            now,
+            _maxRetries,
+            batch => batch.NextRetryTime,
+            batch => batch.RetryCount,
+            _ => LmtRabbitMqSenderLog.TraceBatchExceededRetries(Logger, _maxRetries),
+            batch => SendTracesAsync(batch.TenantBatches, batch.RetryCount));
 
     public void Dispose()
     {

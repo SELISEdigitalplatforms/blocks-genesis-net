@@ -33,6 +33,35 @@ public class LmtTraceProcessorTests
     }
 
     [Fact]
+    public void OnEnd_ShouldCaptureAmbientBaggage_WhenBaggageIsSet()
+    {
+        var processor = CreateProcessorWithMockSender(out _, enableTracing: true);
+
+        using var source = new ActivitySource("test-trace-baggage");
+        using var listener = CreateListener("test-trace-baggage");
+
+        var previousBaggage = OpenTelemetry.Baggage.Current;
+        try
+        {
+            OpenTelemetry.Baggage.SetBaggage("baggage-key", "baggage-value");
+
+            using var activity = source.StartActivity("baggage-operation");
+            Assert.NotNull(activity);
+            activity!.Stop();
+
+            processor.OnEnd(activity);
+
+            var queue = GetTraceQueue(processor);
+            Assert.True(queue.TryPeek(out var trace));
+            Assert.Equal("baggage-value", trace!.Baggage["baggage-key"]);
+        }
+        finally
+        {
+            OpenTelemetry.Baggage.Current = previousBaggage;
+        }
+    }
+
+    [Fact]
     public void OnEnd_ShouldEnqueueTraceData_WhenTracingEnabled()
     {
         var processor = CreateProcessorWithMockSender(out _, enableTracing: true, serviceId: "svc-1", xBlocksKey: "tenant-1");
@@ -87,8 +116,9 @@ public class LmtTraceProcessorTests
         using var listener = CreateListener("test-trace-duration");
         using var activity = source.StartActivity("op-duration");
         Assert.NotNull(activity);
-        Thread.Sleep(10);
-        activity!.Stop();
+        // Set an explicit end time so the duration is deterministic without sleeping
+        activity!.SetEndTime(activity.StartTimeUtc.AddMilliseconds(25));
+        activity.Stop();
 
         processor.OnEnd(activity);
 

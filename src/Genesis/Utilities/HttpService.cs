@@ -19,7 +19,16 @@ public class HttpService : IHttpService
     private readonly IOptions<HttpServiceOptions> _options;
     private readonly ResiliencePipeline<HttpResponseMessage> _pipeline;
 
-    private const string ContentType = "application/json";
+    private const string DefaultContentType = "application/json";
+
+    private sealed record HttpRequestSpec(
+        HttpMethod Method,
+        string Url,
+        object? Payload,
+        string? ContentType,
+        Dictionary<string, string>? Headers,
+        bool IsFormUrlEncoded,
+        int? TimeoutSeconds);
 
     public HttpService(
         IHttpClientFactory httpClientFactory,
@@ -32,101 +41,48 @@ public class HttpService : IHttpService
         _activitySource = activitySource;
         _options = options ?? Options.Create(new HttpServiceOptions());
 
-        var opts = _options.Value;
-        var retryOptions = new RetryStrategyOptions<HttpResponseMessage>
-        {
-            MaxRetryAttempts = opts.MaxRetryAttempts,
-            Delay = TimeSpan.FromSeconds(opts.RetryDelaySeconds),
-            BackoffType = DelayBackoffType.Exponential,
-            UseJitter = true,
-            ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                .Handle<HttpRequestException>()
-                .Handle<TimeoutRejectedException>()
-                .HandleResult(response =>
-                    response.StatusCode == HttpStatusCode.TooManyRequests ||
-                    (int)response.StatusCode >= 500),
-            OnRetry = args =>
-            {
-                HttpServiceLog.HttpRetry(_logger, args.AttemptNumber + 1, args.RetryDelay);
-                using var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal, Activity.Current?.Context ?? default);
-                retryActivity?.SetTag("retry.count", args.AttemptNumber + 1);
-                retryActivity?.SetTag("retry.waitTime", args.RetryDelay.ToString());
-                return ValueTask.CompletedTask;
-            }
-        };
-
-        var circuitBreakerOptions = new CircuitBreakerStrategyOptions<HttpResponseMessage>
-        {
-            FailureRatio = opts.CircuitBreakerFailureRatio,
-            SamplingDuration = TimeSpan.FromSeconds(opts.CircuitBreakerSamplingDurationSeconds),
-            BreakDuration = TimeSpan.FromSeconds(opts.CircuitBreakerBreakDurationSeconds),
-            MinimumThroughput = opts.CircuitBreakerMinimumThroughput,
-            ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                .Handle<HttpRequestException>()
-                .Handle<TimeoutRejectedException>()
-                .HandleResult(response =>
-                    response.StatusCode == HttpStatusCode.TooManyRequests ||
-                    (int)response.StatusCode >= 500),
-            OnOpened = _ =>
-            {
-                HttpServiceLog.CircuitOpened(_logger);
-                return ValueTask.CompletedTask;
-            },
-            OnClosed = _ =>
-            {
-                HttpServiceLog.CircuitClosed(_logger);
-                return ValueTask.CompletedTask;
-            }
-        };
-
-        _pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
-            .AddTimeout(TimeSpan.FromSeconds(opts.RequestTimeoutSeconds))
-            .AddRetry(retryOptions)
-            .AddCircuitBreaker(circuitBreakerOptions)
-            .Build();
+        _pipeline = BuildPipeline(TimeSpan.FromSeconds(_options.Value.RequestTimeoutSeconds));
     }
 
-    public Task<(T, string)> Post<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(HttpMethod.Post, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
+    public Task<(T, string)> Post<T>(object payload, string url, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Post, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
     public Task<(T, string)> Get<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(HttpMethod.Get, url, null, null, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
+        => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Get, url, null, null, headers, false, timeoutSeconds), cancellationToken);
 
-    public Task<(T, string)> Put<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(HttpMethod.Put, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
+    public Task<(T, string)> Put<T>(object payload, string url, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Put, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
     public Task<(T, string)> Delete<T>(string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(HttpMethod.Delete, url, null, null, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
+        => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Delete, url, null, null, headers, false, timeoutSeconds), cancellationToken);
 
-    public Task<(T, string)> Patch<T>(object payload, string url, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(HttpMethod.Patch, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
+    public Task<(T, string)> Patch<T>(object payload, string url, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Patch, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
-    public Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object? payload = null, string contentType = ContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(method, url, payload, contentType, headers, cancellationToken, timeoutSeconds: timeoutSeconds);
+    public Task<(T, string)> SendRequest<T>(HttpMethod method, string url, object? payload = null, string contentType = DefaultContentType, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
+        => MakeRequest<T>(new HttpRequestSpec(method, url, payload, contentType, headers, false, timeoutSeconds), cancellationToken);
 
     public Task<(T, string)> PostFormUrlEncoded<T>(Dictionary<string, string> formData, string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(HttpMethod.Post, url, formData, "application/x-www-form-urlencoded", headers, cancellationToken, isFormUrlEncoded: true, timeoutSeconds: timeoutSeconds);
+        => MakeRequest<T>(new HttpRequestSpec(HttpMethod.Post, url, formData, "application/x-www-form-urlencoded", headers, true, timeoutSeconds), cancellationToken);
 
     public Task<(T, string)> SendFormUrlEncoded<T>(HttpMethod method, Dictionary<string, string> formData, string url, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default, int? timeoutSeconds = null) where T : class
-        => MakeRequest<T>(method, url, formData, "application/x-www-form-urlencoded", headers, cancellationToken, isFormUrlEncoded: true, timeoutSeconds: timeoutSeconds);
+        => MakeRequest<T>(new HttpRequestSpec(method, url, formData, "application/x-www-form-urlencoded", headers, true, timeoutSeconds), cancellationToken);
 
-    private async Task<(T, string)> MakeRequest<T>(HttpMethod method, string url, object? payload = null,
-        string? contentType = ContentType, Dictionary<string, string>? headers = null,
-        CancellationToken cancellationToken = default, bool isFormUrlEncoded = false, int? timeoutSeconds = null) where T : class
+    private async Task<(T, string)> MakeRequest<T>(HttpRequestSpec spec, CancellationToken cancellationToken) where T : class
     {
         using var client = _httpClientFactory.CreateClient();
         using var requestActivity = _activitySource.StartActivity("OutgoingHttpRequest", ActivityKind.Client, Activity.Current?.Context ?? default);
 
-        requestActivity?.SetTag("url.full", url);
-        requestActivity?.SetTag("server.address", new Uri(url).Host);
-        requestActivity?.SetTag("http.request.method", method.Method);
-        requestActivity?.SetTag("content.type", contentType ?? string.Empty);
+        requestActivity?.SetTag("url.full", spec.Url);
+        requestActivity?.SetTag("server.address", new Uri(spec.Url).Host);
+        requestActivity?.SetTag("http.request.method", spec.Method.Method);
+        requestActivity?.SetTag("content.type", spec.ContentType ?? string.Empty);
 
         // Log if per-request timeout is being used
-        if (timeoutSeconds.HasValue)
+        if (spec.TimeoutSeconds.HasValue)
         {
-            requestActivity?.SetTag("http.timeout.override_seconds", timeoutSeconds.Value);
-            HttpServiceLog.RequestTimeoutOverride(_logger, timeoutSeconds.Value);
+            requestActivity?.SetTag("http.timeout.override_seconds", spec.TimeoutSeconds.Value);
+            HttpServiceLog.RequestTimeoutOverride(_logger, spec.TimeoutSeconds.Value);
         }
 
         try
@@ -134,11 +90,11 @@ public class HttpService : IHttpService
             requestActivity?.Start();
 
             // Use per-request timeout if specified, otherwise use the default pipeline
-            var response = timeoutSeconds.HasValue
-                ? await ExecuteWithCustomTimeout(method, url, payload, contentType, headers, cancellationToken, isFormUrlEncoded, timeoutSeconds.Value)
+            var response = spec.TimeoutSeconds.HasValue
+                ? await ExecuteWithCustomTimeout(spec, cancellationToken)
                 : await _pipeline.ExecuteAsync(async token =>
                 {
-                    using var request = CreateHttpRequest(method, url, payload, contentType, headers, isFormUrlEncoded);
+                    using var request = CreateHttpRequest(spec);
                     return await client.SendAsync(request, token).ConfigureAwait(false);
                 }, cancellationToken).ConfigureAwait(false);
 
@@ -190,29 +146,37 @@ public class HttpService : IHttpService
     /// Executes an HTTP request with a custom timeout by creating a dedicated resilience pipeline.
     /// This allows per-request timeout overrides without affecting the shared pipeline.
     /// </summary>
-    private async Task<HttpResponseMessage> ExecuteWithCustomTimeout(
-        HttpMethod method, string url, object? payload, string? contentType,
-        Dictionary<string, string>? headers, CancellationToken cancellationToken,
-        bool isFormUrlEncoded, int timeoutSeconds)
+    private async Task<HttpResponseMessage> ExecuteWithCustomTimeout(HttpRequestSpec spec, CancellationToken cancellationToken)
     {
         using var client = _httpClientFactory.CreateClient();
-        
+
+        // Create a custom pipeline with the override timeout
+        var customPipeline = BuildPipeline(TimeSpan.FromSeconds(spec.TimeoutSeconds!.Value));
+
+        return await customPipeline.ExecuteAsync(async token =>
+        {
+            using var request = CreateHttpRequest(spec);
+            return await client.SendAsync(request, token).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private ResiliencePipeline<HttpResponseMessage> BuildPipeline(TimeSpan timeout)
+    {
         var opts = _options.Value;
+
         var retryOptions = new RetryStrategyOptions<HttpResponseMessage>
         {
             MaxRetryAttempts = opts.MaxRetryAttempts,
             Delay = TimeSpan.FromSeconds(opts.RetryDelaySeconds),
             BackoffType = DelayBackoffType.Exponential,
             UseJitter = true,
-            ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                .Handle<HttpRequestException>()
-                .Handle<TimeoutRejectedException>()
-                .HandleResult(response =>
-                    response.StatusCode == HttpStatusCode.TooManyRequests ||
-                    (int)response.StatusCode >= 500),
+            ShouldHandle = TransientFailurePredicate(),
             OnRetry = args =>
             {
                 HttpServiceLog.HttpRetry(_logger, args.AttemptNumber + 1, args.RetryDelay);
+                using var retryActivity = _activitySource.StartActivity("HttpRequestRetry", ActivityKind.Internal, Activity.Current?.Context ?? default);
+                retryActivity?.SetTag("retry.count", args.AttemptNumber + 1);
+                retryActivity?.SetTag("retry.waitTime", args.RetryDelay.ToString());
                 return ValueTask.CompletedTask;
             }
         };
@@ -223,57 +187,62 @@ public class HttpService : IHttpService
             SamplingDuration = TimeSpan.FromSeconds(opts.CircuitBreakerSamplingDurationSeconds),
             BreakDuration = TimeSpan.FromSeconds(opts.CircuitBreakerBreakDurationSeconds),
             MinimumThroughput = opts.CircuitBreakerMinimumThroughput,
-            ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                .Handle<HttpRequestException>()
-                .Handle<TimeoutRejectedException>()
-                .HandleResult(response =>
-                    response.StatusCode == HttpStatusCode.TooManyRequests ||
-                    (int)response.StatusCode >= 500),
+            ShouldHandle = TransientFailurePredicate(),
+            OnOpened = _ =>
+            {
+                HttpServiceLog.CircuitOpened(_logger);
+                return ValueTask.CompletedTask;
+            },
+            OnClosed = _ =>
+            {
+                HttpServiceLog.CircuitClosed(_logger);
+                return ValueTask.CompletedTask;
+            }
         };
 
-        // Create a custom pipeline with the override timeout
-        var customPipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
-            .AddTimeout(TimeSpan.FromSeconds(timeoutSeconds))
+        return new ResiliencePipelineBuilder<HttpResponseMessage>()
+            .AddTimeout(timeout)
             .AddRetry(retryOptions)
             .AddCircuitBreaker(circuitBreakerOptions)
             .Build();
-
-        return await customPipeline.ExecuteAsync(async token =>
-        {
-            using var request = CreateHttpRequest(method, url, payload, contentType, headers, isFormUrlEncoded);
-            return await client.SendAsync(request, token).ConfigureAwait(false);
-        }, cancellationToken).ConfigureAwait(false);
     }
 
-    private static HttpRequestMessage CreateHttpRequest(HttpMethod method, string url, object? payload,
-        string? contentType, Dictionary<string, string>? headers, bool isFormUrlEncoded = false)
-    {
-        var request = new HttpRequestMessage(method, url);
+    private static PredicateBuilder<HttpResponseMessage> TransientFailurePredicate() =>
+        new PredicateBuilder<HttpResponseMessage>()
+            .Handle<HttpRequestException>()
+            .Handle<TimeoutRejectedException>()
+            .HandleResult(response =>
+                response.StatusCode == HttpStatusCode.TooManyRequests ||
+                (int)response.StatusCode >= 500);
 
-        if (payload != null)
+    private static HttpRequestMessage CreateHttpRequest(HttpRequestSpec spec)
+    {
+        var request = new HttpRequestMessage(spec.Method, spec.Url);
+
+        if (spec.Payload != null)
         {
-            if (isFormUrlEncoded && payload is Dictionary<string, string> formData)
+            if (spec.IsFormUrlEncoded && spec.Payload is Dictionary<string, string> formData)
             {
                 request.Content = new FormUrlEncodedContent(formData);
             }
-            else if (contentType == "application/x-www-form-urlencoded" && payload is Dictionary<string, string> formUrlEncodedData)
+            else if (spec.ContentType == "application/x-www-form-urlencoded" && spec.Payload is Dictionary<string, string> formUrlEncodedData)
             {
                 request.Content = new FormUrlEncodedContent(formUrlEncodedData);
             }
-            else if (!string.IsNullOrEmpty(contentType))
+            else if (!string.IsNullOrEmpty(spec.ContentType))
             {
                 request.Content = new StringContent(
-                    payload is string payloadString ? payloadString : JsonSerializer.Serialize(payload),
+                    spec.Payload is string payloadString ? payloadString : JsonSerializer.Serialize(spec.Payload),
                     Encoding.UTF8,
-                    contentType);
+                    spec.ContentType);
             }
         }
 
-        if (headers != null)
+        if (spec.Headers != null)
         {
-            foreach (var key in headers.Keys)
+            foreach (var key in spec.Headers.Keys)
             {
-                request.Headers.TryAddWithoutValidation(key, headers[key]);
+                request.Headers.TryAddWithoutValidation(key, spec.Headers[key]);
             }
         }
 
