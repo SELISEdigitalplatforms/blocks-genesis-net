@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -69,7 +70,8 @@ namespace Blocks.Genesis
         private async Task<bool> IsAllowed(HttpContext context, Tenant tenant)
         {
             var path = context.Request.Path.Value ?? "/";
-            var isProtected = context.GetEndpoint()?.Metadata.GetMetadata<ProtectedEndPointAttribute>() != null;
+            var isProtected = context.GetEndpoint()?.Metadata.GetMetadata<AuthorizeAttribute>() != null ||
+            context.GetEndpoint()?.Metadata.GetMetadata<ProtectedEndPointAttribute>() != null;
             var projectKey = await ExtractProjectKeyAsync(context) ?? tenant.TenantId;
 
             if (isProtected &&
