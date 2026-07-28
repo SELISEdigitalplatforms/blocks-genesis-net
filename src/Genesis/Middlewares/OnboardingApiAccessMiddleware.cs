@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 
 namespace Blocks.Genesis;
@@ -12,7 +13,7 @@ public class OnboardingApiAccessMiddleware
     private readonly ILogger<OnboardingApiAccessMiddleware> _logger;
     private readonly IBlocksSecret _blocksSecret;
     private HashSet<string> _osAllowedApis = [];
-
+    private const string _identityConfigurations = "IdentityConfigurations"; 
     public OnboardingApiAccessMiddleware(
         RequestDelegate next,
         ITenants tenants,
@@ -96,7 +97,7 @@ public class OnboardingApiAccessMiddleware
            .GetDatabase(blocksSecret.RootDatabaseName);
 
        var document = database
-           .GetCollection<BsonDocument>("AuthenticationConfigurations")
+           .GetCollection<BsonDocument>(_identityConfigurations)
            .Find(FilterDefinition<BsonDocument>.Empty)
            .FirstOrDefault();
 
