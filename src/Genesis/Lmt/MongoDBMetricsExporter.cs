@@ -63,18 +63,7 @@ public class MongoDBMetricsExporter : BaseExporter<Metric>
             }
         }
 
-        try
-        {
-            return ExportResult.Success;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Error exporting metrics for service '{ServiceName}'.", _serviceName);
-            return ExportResult.Failure;
-        }
-        finally
-        {
-            documents.Clear();
-        }
+        documents.Clear();
+        return ExportResult.Success;
     }
 }

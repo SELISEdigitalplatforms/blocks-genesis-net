@@ -195,8 +195,8 @@ public class MongoDBTraceExporter : BaseProcessor<Activity>
         if (disposing)
         {
             _timer.Dispose();
-            _semaphore.Dispose();
             FlushBatchAsync().GetAwaiter().GetResult();
+            _semaphore.Dispose();
             _serviceBusSender?.Dispose();
         }
 

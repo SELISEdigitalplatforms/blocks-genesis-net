@@ -18,7 +18,7 @@ public class LmtServiceBusSenderScaffoldTests
     {
         using var sender = new LmtServiceBusSender("svc", string.Empty, maxRetries: 1, maxFailedBatches: 2);
 
-        await sender.SendLogsAsync([
+        var logsException = await Record.ExceptionAsync(() => sender.SendLogsAsync([
             new LogData
             {
                 Message = "m",
@@ -26,12 +26,19 @@ public class LmtServiceBusSenderScaffoldTests
                 ServiceName = "svc",
                 Timestamp = DateTime.UtcNow
             }
-        ]);
+        ]));
 
-        await sender.SendTracesAsync(new Dictionary<string, List<TraceData>>
+        var tracesException = await Record.ExceptionAsync(() => sender.SendTracesAsync(new Dictionary<string, List<TraceData>>
         {
             ["tenant-1"] = [new TraceData { TraceId = "t", SpanId = "s" }]
-        });
+        }));
+
+        Assert.Null(logsException);
+        Assert.Null(tracesException);
+
+        // An uninitialized sender returns early, so nothing is queued for retry
+        Assert.Empty(GetLogQueue(sender));
+        Assert.Empty(GetTraceQueue(sender));
     }
 
     [Fact]

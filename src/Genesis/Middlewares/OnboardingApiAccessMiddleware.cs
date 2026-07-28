@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 
 namespace Blocks.Genesis;
@@ -12,7 +13,7 @@ public class OnboardingApiAccessMiddleware
     private readonly ILogger<OnboardingApiAccessMiddleware> _logger;
     private readonly IBlocksSecret _blocksSecret;
     private HashSet<string> _osAllowedApis = [];
-
+    private const string _identityConfigurations = "IdentityConfigurations"; 
     public OnboardingApiAccessMiddleware(
         RequestDelegate next,
         ITenants tenants,
@@ -53,6 +54,7 @@ public class OnboardingApiAccessMiddleware
 
         if (!isOsAllowedApi && isRootTenant && originalTenantId != tenantId)
         {
+            _logger.LogWarning("Blocked cross-tenant onboarding API access to {Path} for tenant {TenantId}.", context.Request.Path, tenantId);
             await TenantContextHelper.RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Cross_Tenant_Access_Not_Allowed").ConfigureAwait(false);
             return;
         }
@@ -79,7 +81,7 @@ public class OnboardingApiAccessMiddleware
             return false;
         }
 
-        return _osAllowedApis.Contains(requestPath);
+        return _osAllowedApis.Contains(normalized);
     }
 
     private static string NormalizePath(PathString requestPath)
@@ -88,14 +90,14 @@ public class OnboardingApiAccessMiddleware
         return value;
     }
 
-    private HashSet<string> LoadOsAllowedApisFromRootDatabase(IBlocksSecret blocksSecret)
+    private static HashSet<string> LoadOsAllowedApisFromRootDatabase(IBlocksSecret blocksSecret)
     {
        
        var database = new MongoClient(blocksSecret.DatabaseConnectionString)
            .GetDatabase(blocksSecret.RootDatabaseName);
 
        var document = database
-           .GetCollection<BsonDocument>("AuthenticationConfigurations")
+           .GetCollection<BsonDocument>(_identityConfigurations)
            .Find(FilterDefinition<BsonDocument>.Empty)
            .FirstOrDefault();
 

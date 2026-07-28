@@ -109,8 +109,7 @@ public static class LmtConfiguration
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to create or verify collection '{CollectionName}' in '{DatabaseName}'.", collectionName, databaseName);
-            throw;
+            throw new InvalidOperationException($"Failed to create or verify collection '{collectionName}' in '{databaseName}'.", ex);
         }
     }
 
@@ -180,12 +179,11 @@ public static class LmtConfiguration
         catch (MongoCommandException ex) when (ex.Message.Contains("Index already exists with a different name"))
         {
             // Handle specific case where the index exists with a different name
-            Log.Warning("Cannot create index: equivalent key-pattern already exists with a different name on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
+            Log.Warning(ex, "Cannot create index: equivalent key-pattern already exists with a different name on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error creating index on collection '{CollectionName}' in database '{DatabaseName}'.", collectionName, databaseName);
-            throw;
+            throw new InvalidOperationException($"Error creating index on collection '{collectionName}' in database '{databaseName}'.", ex);
         }
     }
 }
