@@ -124,6 +124,45 @@ public class HttpServiceCoverageTests
     }
 
     [Fact]
+    public async Task SendRequest_ShouldRecover_WhenCircuitBreakerClosesAfterBreak()
+    {
+        var failing = true;
+        var service = CreateService(_ => Task.FromResult(failing
+            ? new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("down") }
+            : new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new TestResponse { Name = "recovered" }))
+            }), new HttpServiceOptions
+        {
+            MaxRetryAttempts = 1,
+            RetryDelaySeconds = 0,
+            CircuitBreakerFailureRatio = 0.1,
+            CircuitBreakerSamplingDurationSeconds = 1,
+            CircuitBreakerBreakDurationSeconds = 1,
+            CircuitBreakerMinimumThroughput = 2
+        });
+
+        // Trip the breaker with repeated transient failures.
+        for (var i = 0; i < 6; i++)
+        {
+            await service.SendRequest<TestResponse>(HttpMethod.Get, "http://localhost/broken");
+        }
+
+        // After the break duration the half-open probe succeeds and the
+        // breaker closes again, firing the OnClosed callback.
+        failing = false;
+        TestResponse? recovered = null;
+        for (var i = 0; i < 20 && recovered is null; i++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+            (recovered, _) = await service.SendRequest<TestResponse>(HttpMethod.Get, "http://localhost/broken");
+        }
+
+        Assert.NotNull(recovered);
+        Assert.Equal("recovered", recovered!.Name);
+    }
+
+    [Fact]
     public async Task PostFormUrlEncoded_ShouldUseCustomTimeout_WhenProvided()
     {
         HttpRequestMessage? seen = null;

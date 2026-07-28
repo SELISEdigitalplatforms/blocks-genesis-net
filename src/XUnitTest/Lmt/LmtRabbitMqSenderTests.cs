@@ -67,6 +67,26 @@ public class LmtRabbitMqSenderTests
     }
 
     [Fact]
+    public async Task SendLogsAndTraces_ShouldPublishThroughRealChannel_AgainstLocalBroker()
+    {
+        using var sender = new LmtRabbitMqSender(
+            "lmt-live-tests",
+            "amqp://guest:guest@127.0.0.1:5672",
+            maxRetries: 0,
+            maxFailedBatches: 10);
+
+        await sender.SendLogsAsync([new LogData { Message = "live-log", Level = "Info", ServiceName = "lmt-live-tests", Timestamp = DateTime.UtcNow }]);
+        await sender.SendTracesAsync(new Dictionary<string, List<TraceData>>
+        {
+            ["tenant-live"] = [new TraceData { TraceId = "trace-live", SpanId = "span-live" }]
+        });
+
+        // A successful publish never queues a failed batch.
+        Assert.Empty(GetLogQueue(sender));
+        Assert.Empty(GetTraceQueue(sender));
+    }
+
+    [Fact]
     public async Task SendLogsAsync_ShouldDropBatch_WhenQueueIsFull()
     {
         var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 1);

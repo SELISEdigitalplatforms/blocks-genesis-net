@@ -28,6 +28,24 @@ public class TenantContextHelperCoverageTests
     }
 
     [Fact]
+    public async Task ResolveTenantIdAsync_ShouldFallThroughToToken_WhenFormHasNoTenantId()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/x-www-form-urlencoded";
+        context.Request.Form = new FormCollection(new Dictionary<string, StringValues>
+        {
+            ["unrelated-field"] = "value"
+        });
+
+        var token = new JwtSecurityTokenHandler().WriteToken(
+            new JwtSecurityToken(claims: [new Claim(BlocksContext.TENANT_ID_CLAIM, "tenant-after-empty-form")]));
+
+        var tenantId = await ResolveTenantIdAsync(context.Request, token);
+
+        Assert.Equal("tenant-after-empty-form", tenantId);
+    }
+
+    [Fact]
     public async Task ResolveTenantIdAsync_ShouldIgnoreUnparseableForm_AndFallBackToToken()
     {
         var context = new DefaultHttpContext();

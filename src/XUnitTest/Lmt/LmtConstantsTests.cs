@@ -39,4 +39,14 @@ public class LmtConstantsTests
     {
         Assert.Equal("lmt-my-service", LmtConstants.GetRabbitMqExchangeName("my-service"));
     }
+
+    [Fact]
+    public void Constructor_ShouldBePrivate_AndOnlyReachableViaReflection()
+    {
+        var constructor = Assert.Single(typeof(LmtConstants)
+            .GetConstructors(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+
+        Assert.True(constructor.IsPrivate);
+        Assert.NotNull(constructor.Invoke(null));
+    }
 }
