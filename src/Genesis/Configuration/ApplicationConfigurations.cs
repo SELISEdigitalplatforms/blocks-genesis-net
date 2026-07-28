@@ -391,6 +391,7 @@ public static class ApplicationConfigurations
         {
             services.AddSingleton<IRabbitMqService, RabbitMqService>();
             services.AddSingleton<IMessageClient, RabbitMessageClient>();
+            await ConfigureRabbitMq.ConfigureQueuesAndExchangesAsync(messageConfiguration);
         }
     }
 
