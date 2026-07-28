@@ -31,15 +31,9 @@ public sealed class Tenants : ITenants, IDisposable
 
         _database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RootDatabaseName);
 
-        try
-        {
-            // Subscribe to tenant updates
-            SubscribeToTenantUpdates().ConfigureAwait(true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to initialize tenant cache.");
-        }
+        // Subscribe to tenant updates. The async method reports its own
+        // failures internally and never throws synchronously.
+        SubscribeToTenantUpdates().ConfigureAwait(true);
     }
 
     public Tenant? GetTenantByID(string tenantId)
@@ -183,11 +177,9 @@ public sealed class Tenants : ITenants, IDisposable
                 return;
             }
 
-            var tenant = cacheUpdate.Tenant;
-            if (tenant is null)
-            {
-                return;
-            }
+            // NormalizeCacheUpdate rejects upsert payloads without a tenant,
+            // so the tenant is always present here.
+            var tenant = cacheUpdate.Tenant!;
 
             if (tenant.IsDisabled)
             {

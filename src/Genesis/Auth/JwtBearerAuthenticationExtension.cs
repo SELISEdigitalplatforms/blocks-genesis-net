@@ -310,12 +310,9 @@ internal static class JwtBearerAuthenticationExtension
             return new TokenValidationParameters();
         }
 
+        // A non-null certificate implies ThirdPartyJwtTokenParameters was set,
+        // since the certificate path is read from it.
         var validationParams = tenant.ThirdPartyJwtTokenParameters;
-        if (validationParams == null)
-        {
-            Log.Warning("[Fallback] No validation parameters found.");
-            return new TokenValidationParameters();
-        }
 
         var parameters = CreateTokenValidationParameters(cert, new JwtTokenParameters
         {

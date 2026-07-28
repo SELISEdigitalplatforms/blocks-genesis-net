@@ -377,6 +377,38 @@ public class TenantsServiceTests
     }
 
     [Fact]
+    public void HandleTenantUpdate_ShouldSwallowAndLogError_WhenHandlerThrows()
+    {
+        var sut = CreateSut();
+        var errorLogged = false;
+
+        var logger = new Mock<ILogger<Tenants>>();
+        logger.Setup(l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+              .Throws(new InvalidOperationException("logger pipeline failure"));
+        logger.Setup(l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+              .Callback(() => errorLogged = true);
+        SetField(sut, "_logger", logger.Object);
+
+        var exception = Record.Exception(() => InvokePrivateHandleTenantUpdate(
+            sut,
+            "tenant::updates",
+            CreateUpdateMessage(Tenants.TenantCacheUpdateActionUpsert, tenant: CreateTenant("tenant-throw", dbName: "db"))));
+
+        Assert.Null(exception);
+        Assert.True(errorLogged);
+    }
+
+    [Fact]
     public void HandleTenantUpdate_ShouldUpsertTenant_WhenUpsertMessageReceived()
     {
         var sut = CreateSut();

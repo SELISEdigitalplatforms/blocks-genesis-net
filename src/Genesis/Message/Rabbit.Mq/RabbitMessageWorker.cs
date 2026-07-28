@@ -113,14 +113,8 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
         finally
         {
-            try
-            {
-                BlocksContext.ClearContext();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error clearing BlocksContext");
-            }
+            // ClearContext only resets an AsyncLocal and cannot throw.
+            BlocksContext.ClearContext();
         }
     }
 
