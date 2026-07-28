@@ -57,6 +57,50 @@ public class LmtServiceBusSenderAdditionalTests
     }
 
     [Fact]
+    public async Task SendTracesAsync_ShouldRetryWithBackoff_BeforeQueueing_WhenSendKeepsThrowing()
+    {
+        var mockSbSender = new Mock<ServiceBusSender>();
+        mockSbSender
+            .Setup(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ServiceBusException("send failed", ServiceBusFailureReason.GeneralError));
+
+        var sender = CreateSenderWithMockServiceBus(mockSbSender.Object, maxRetries: 1, maxFailedBatches: 10);
+
+        await sender.SendTracesAsync(new Dictionary<string, List<TraceData>>
+        {
+            ["t1"] = [new TraceData { TraceId = "tr-retry", SpanId = "sp-retry" }]
+        });
+
+        // Initial attempt plus one backoff retry, then queued for later.
+        mockSbSender.Verify(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        var queue = GetTraceQueue(sender);
+        Assert.Single(queue);
+        Assert.Equal(1, queue.First().RetryCount);
+    }
+
+    [Fact]
+    public async Task RetryFailedTracesAsync_ShouldResendDueBatch_WhenRetryTimeHasPassed()
+    {
+        var mockSbSender = new Mock<ServiceBusSender>();
+        mockSbSender
+            .Setup(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var sender = CreateSenderWithMockServiceBus(mockSbSender.Object, maxRetries: 3, maxFailedBatches: 10);
+        GetTraceQueue(sender).Enqueue(new FailedTraceBatch
+        {
+            TenantBatches = new Dictionary<string, List<TraceData>> { ["t1"] = [new TraceData { TraceId = "tr-due", SpanId = "sp-due" }] },
+            RetryCount = 1,
+            NextRetryTime = DateTime.UtcNow.AddMinutes(-1)
+        });
+
+        await InvokePrivateAsync(sender, "RetryFailedTracesAsync", DateTime.UtcNow);
+
+        mockSbSender.Verify(s => s.SendMessageAsync(It.IsAny<ServiceBusMessage>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Empty(GetTraceQueue(sender));
+    }
+
+    [Fact]
     public async Task SendLogsAsync_ShouldQueueFailedBatch_WhenSendThrows()
     {
         var mockSbSender = new Mock<ServiceBusSender>();
@@ -197,7 +241,10 @@ public class LmtServiceBusSenderAdditionalTests
     {
         var sender = new LmtServiceBusSender("svc", string.Empty);
         sender.Dispose();
-        sender.Dispose(); // second call should be no-op
+        var exception = Record.Exception(() => sender.Dispose()); // second call should be no-op
+
+        Assert.Null(exception);
+        Assert.True(GetField<bool>(sender, "_disposed"));
     }
 
     [Fact]

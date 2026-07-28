@@ -326,16 +326,9 @@ public class TenantValidationMiddleware
             return false;
         }
 
-        foreach (var prefix in _tenantValidationPrefixes)
-        {
-            if (normalizedPath.Equals(prefix, StringComparison.OrdinalIgnoreCase)
-                || normalizedPath.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return _tenantValidationPrefixes.Any(prefix =>
+            normalizedPath.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase));
     }
 
     private static void AddPrefix(HashSet<string> target, string? rawPrefix)

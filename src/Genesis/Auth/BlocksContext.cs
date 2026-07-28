@@ -33,7 +33,7 @@ public sealed record BlocksContext
 
 
     private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
-    private static readonly ThreadLocal<bool> _isTestMode = new(() => false);
+    private static ThreadLocal<bool> _isTestMode = new(() => false);
     private static readonly AsyncLocal<bool> _forceAsyncLocalContext = new();
 
 
@@ -113,7 +113,7 @@ public sealed record BlocksContext
         var httpContext = GetHttpContext();
         var domain = ResolveApplicationDomain(httpContext?.Request);
 
-        string? originalTenantId = claimsIdentity.FindFirst(ORIGINAL_TENANT_ID_CLAIM)?.Value;
+        string? originalTenantId;
         if (httpContext != null)
         {
             originalTenantId = TenantContextHelper.ResolveTenantIdAsync(httpContext.Request).GetAwaiter().GetResult();
@@ -130,7 +130,7 @@ public sealed record BlocksContext
             isAuthenticated: true,
             requestUri: claimsIdentity.FindFirst(REQUEST_URI_CLAIM)?.Value ?? string.Empty,
             organizationId: claimsIdentity.FindFirst(ORGANIZATION_ID_CLAIM)?.Value ?? string.Empty,
-            expireOn: DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, out var exp) ? exp : DateTime.MinValue,
+            expireOn: DateTime.TryParse(claimsIdentity.FindFirst(EXPIRE_ON_CLAIM)?.Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var exp) ? exp : DateTime.MinValue,
             email: claimsIdentity.FindFirst(EMAIL_CLAIM)?.Value ?? string.Empty,
             permissions: claimsIdentity.FindAll(PERMISSION_CLAIM).Select(c => c.Value).ToArray(),
             userName: claimsIdentity.FindFirst(USER_NAME_CLAIM)?.Value ?? string.Empty,
@@ -344,7 +344,10 @@ public sealed record BlocksContext
 
     public static void Cleanup()
     {
-        _isTestMode?.Dispose();
+        // Release the current thread-local storage but leave the type usable,
+        // so a host can clean up on shutdown without poisoning later access.
+        _isTestMode.Dispose();
+        _isTestMode = new ThreadLocal<bool>(() => false);
     }
 
 }

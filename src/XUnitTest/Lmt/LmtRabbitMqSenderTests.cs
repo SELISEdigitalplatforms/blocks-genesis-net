@@ -67,6 +67,26 @@ public class LmtRabbitMqSenderTests
     }
 
     [Fact]
+    public async Task SendLogsAndTraces_ShouldPublishThroughRealChannel_AgainstLocalBroker()
+    {
+        using var sender = new LmtRabbitMqSender(
+            "lmt-live-tests",
+            "amqp://guest:guest@127.0.0.1:5672",
+            maxRetries: 0,
+            maxFailedBatches: 10);
+
+        await sender.SendLogsAsync([new LogData { Message = "live-log", Level = "Info", ServiceName = "lmt-live-tests", Timestamp = DateTime.UtcNow }]);
+        await sender.SendTracesAsync(new Dictionary<string, List<TraceData>>
+        {
+            ["tenant-live"] = [new TraceData { TraceId = "trace-live", SpanId = "span-live" }]
+        });
+
+        // A successful publish never queues a failed batch.
+        Assert.Empty(GetLogQueue(sender));
+        Assert.Empty(GetTraceQueue(sender));
+    }
+
+    [Fact]
     public async Task SendLogsAsync_ShouldDropBatch_WhenQueueIsFull()
     {
         var sender = CreateUninitializedSender(maxRetries: 0, maxFailedBatches: 1);
@@ -265,6 +285,14 @@ public class LmtRabbitMqSenderTests
     public async Task RetryFailedBatchesAsync_ShouldReturnImmediately_WhenSemaphoreHeld()
     {
         var sender = CreateUninitializedSender(maxRetries: 3, maxFailedBatches: 10);
+        var queue = GetLogQueue(sender);
+        queue.Enqueue(new FailedLogBatch
+        {
+            Logs = [new LogData { Message = "due" }],
+            RetryCount = 0,
+            NextRetryTime = DateTime.UtcNow.AddMinutes(-1)
+        });
+
         var semaphore = GetField<SemaphoreSlim>(sender, "_retrySemaphore");
         await semaphore.WaitAsync();
 
@@ -272,6 +300,11 @@ public class LmtRabbitMqSenderTests
         {
             // Should not block, should return immediately
             await InvokePrivateAsync(sender, "RetryFailedBatchesAsync");
+
+            // The due batch was left untouched because the retry pass was skipped
+            Assert.Single(queue);
+            Assert.Equal(0, queue.First().RetryCount);
+            Assert.Equal(0, semaphore.CurrentCount);
         }
         finally
         {
@@ -305,6 +338,10 @@ public class LmtRabbitMqSenderTests
         SetField(sender, "_channel", channel.Object);
 
         await InvokePrivateAsync(sender, "EnsureChannelAsync");
+
+        // No reconnect happened, the existing open connection and channel were kept
+        Assert.Same(connection.Object, GetField<IConnection>(sender, "_connection"));
+        Assert.Same(channel.Object, GetField<IChannel>(sender, "_channel"));
     }
 
     [Fact]

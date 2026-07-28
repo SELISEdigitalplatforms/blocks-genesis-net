@@ -154,13 +154,6 @@ public sealed class RabbitMessageClient : IMessageClient
             return providedContext;
         }
 
-        try
-        {
-            return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
-        }
-        catch
-        {
-            return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
-        }
+        return JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(currentContext));
     }
 }

@@ -128,16 +128,12 @@ public class MongoDbContextProvider : IDbContextProvider
             return new MongoClient(settings);
         });
     }
-    private bool IsSameDbConnection ( IMongoDatabase database, string connectionString )
+    private bool IsSameDbConnection(IMongoDatabase database, string connectionString)
     {
-
-        MongoClientSettings existingSettings = database.Client.Settings;
-
-        MongoClientSettings newSettings = MongoClientSettings.FromConnectionString(connectionString);
-
-        // MongoClientSettings overrides Equals to do a deep comparison of all properties
-
-        return existingSettings.Equals(newSettings);
-
+        // Compare against the client this provider builds for the connection
+        // string. Comparing raw FromConnectionString settings never matched,
+        // because CreateMongoClient customizes retries, timeouts, and the
+        // cluster configurator, so the cache was evicted on every refresh.
+        return database.Client.Settings.Equals(CreateMongoClient(connectionString).Settings);
     }
 }

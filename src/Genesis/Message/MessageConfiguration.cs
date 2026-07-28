@@ -123,6 +123,7 @@ public class ConsumerSubscription
         QueueName = queueName;
         ExchangeName = exchangeName;
         PrefetchCount = prefetchCount;
+        ParallelProcessing = parallelProcessing;
         ExchangeType = exchangeType;
         RoutingKey = routingKey;
         ShouldBypassAuthorization = shouldBypassAuthorization;

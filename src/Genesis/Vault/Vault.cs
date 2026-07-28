@@ -8,7 +8,7 @@ public static class Vault
         {
             VaultType.Azure => new AzureKeyVault(),
             VaultType.OnPrem => new OnPremVault(),
-            _ => throw new Exception("ConfigType is missing. Please see the Secret.json file")
+            _ => throw new ArgumentOutOfRangeException(nameof(configType), configType, "ConfigType is missing. Please see the Secret.json file")
         };
     }
 }
