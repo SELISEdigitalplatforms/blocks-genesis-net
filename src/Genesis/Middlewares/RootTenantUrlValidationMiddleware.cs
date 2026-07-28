@@ -14,6 +14,7 @@ namespace Blocks.Genesis
         private readonly IDbContextProvider _dbContextProvider;
         private readonly ILogger<RootTenantUrlValidationMiddleware> _logger;
         private const string AuthenticationConfigurationsCollectionName = "AuthenticationConfigurations";
+        private const string TenantIdPlaceholder = "{tenantId}";
         private List<string> _allowedApis = [];
 
         public RootTenantUrlValidationMiddleware(
@@ -76,9 +77,62 @@ namespace Blocks.Genesis
             tenant.TenantId.Equals(projectKey, StringComparison.OrdinalIgnoreCase))
             {
                 InitializeAllowedUrls(tenant.TenantId);
-                if (!_allowedApis.Contains(path, StringComparer.OrdinalIgnoreCase)) return false;
+                if (!IsAllowedPath(path, tenant.TenantId)) return false;
             }
             return true;
+        }
+
+        private bool IsAllowedPath(string path, string tenantId)
+        {
+            if (_allowedApis.Contains(path, StringComparer.OrdinalIgnoreCase)) return true;
+
+            var segments = path
+                .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            foreach (var entry in _allowedApis)
+            {
+                if (!entry.Contains(TenantIdPlaceholder, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var pattern = entry
+                    .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                if (pattern.Length != segments.Length) continue;
+
+                var placeholderMatchesTenant = false;
+                var patternMatches = true;
+
+                for (var i = 0; i < pattern.Length; i++)
+                {
+                    if (string.Equals(pattern[i], TenantIdPlaceholder, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (string.Equals(segments[i], tenantId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            placeholderMatchesTenant = true;
+                            break;
+                        }
+                    }
+                    else if (!string.Equals(pattern[i], segments[i], StringComparison.OrdinalIgnoreCase))
+                    {
+                        patternMatches = false;
+                        break;
+                    }
+                }
+
+                if (!patternMatches) continue;
+
+                if (placeholderMatchesTenant)
+                {
+                    _logger.LogInformation(
+                        "Rejecting request to {Path} because placeholder matches current tenant id",
+                        path);
+                    return false;
+                }
+
+                return true;
+            }
+
+            return false;
         }
 
         public async Task InvokeAsync(HttpContext context)

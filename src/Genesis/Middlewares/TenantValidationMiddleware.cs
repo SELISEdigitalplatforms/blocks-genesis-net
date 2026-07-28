@@ -216,7 +216,7 @@ namespace Blocks.Genesis
 
         private static bool IsDomainAllowed(string? headerValue, Tenant tenant)
         {
-            if (string.IsNullOrWhiteSpace(headerValue)) return true;
+            if (string.IsNullOrWhiteSpace(headerValue)) return false;
 
             try
             {
