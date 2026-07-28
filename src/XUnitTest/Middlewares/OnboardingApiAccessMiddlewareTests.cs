@@ -334,7 +334,7 @@ public class OnboardingApiAccessMiddlewareTests
         try
         {
             await client.GetDatabase(databaseName)
-                .GetCollection<BsonDocument>("AuthenticationConfigurations")
+                .GetCollection<BsonDocument>("IdentityConfigurations")
                 .InsertOneAsync(new BsonDocument
                 {
                     { "AllowedApis", new BsonArray { "api/allowed" } }
@@ -419,7 +419,7 @@ public class OnboardingApiAccessMiddlewareTests
         try
         {
             await client.GetDatabase(databaseName)
-                .GetCollection<BsonDocument>("AuthenticationConfigurations")
+                .GetCollection<BsonDocument>("IdentityConfigurations")
                 .InsertOneAsync(new BsonDocument
                 {
                     { "AllowedApis", "not-an-array" }
