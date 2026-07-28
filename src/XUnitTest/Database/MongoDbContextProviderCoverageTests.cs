@@ -12,18 +12,17 @@ public class MongoDbContextProviderCoverageTests
     private const string AlternateConnectionString = "mongodb://127.0.0.1:27017/?maxPoolSize=99";
 
     [Fact]
-    public void GetDatabase_ShouldEvictAndRecreate_WhenCacheRefreshedWithSameConnectionString()
+    public void GetDatabase_ShouldReturnCachedInstance_WhenCacheRefreshedWithSameConnectionString()
     {
         var provider = CreateProvider(out _);
 
         var first = provider.GetDatabase(MongoConnectionString, "CacheDbA");
         var second = provider.GetDatabase(MongoConnectionString, "CacheDbA", isCacheRefreshed: true);
 
-        // CreateMongoClient customizes settings (retries, timeouts, cluster configurator),
-        // so IsSameDbConnection never matches settings built from the raw connection string
-        // and the refresh path always evicts and recreates the cached instance.
-        Assert.NotSame(first, second);
-        Assert.Equal("CacheDbA", second.DatabaseNamespace.DatabaseName);
+        // IsSameDbConnection compares against the provider's own cached client
+        // for the connection string, so an unchanged connection keeps the
+        // cached database instance instead of evicting it.
+        Assert.Same(first, second);
     }
 
     [Fact]

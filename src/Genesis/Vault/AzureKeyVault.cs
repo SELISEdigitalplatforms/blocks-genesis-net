@@ -43,15 +43,29 @@ public class AzureKeyVault : IVault
         cloudConfig.TryGetValue("TenantId", out _tenantId);
     }
 
+    // Seams for tests: default to the real Azure credential chain and client.
+    private List<Func<TokenCredential?>>? _credentialFactories;
+    private Func<Uri, TokenCredential, SecretClient> _secretClientFactory = (uri, credential) => new SecretClient(uri, credential);
+
+    // Swaps the credential chain and secret client factory so the connect
+    // path can be exercised without live Azure.
+    internal void OverrideConnectionSeams(
+        List<Func<TokenCredential?>> credentialFactories,
+        Func<Uri, TokenCredential, SecretClient> secretClientFactory)
+    {
+        _credentialFactories = credentialFactories;
+        _secretClientFactory = secretClientFactory;
+    }
+
     private async Task ConnectToAzureKeyVaultSecret()
     {
-        var credentialFactories = new List<Func<TokenCredential?>>
-        {
+        var credentialFactories = _credentialFactories ??
+        [
             () => new DefaultAzureCredential(),
             () => HasClientSecretConfig()
                 ? new ClientSecretCredential(_tenantId, _clientId, _clientSecret)
                 : null
-        };
+        ];
 
         foreach (var makeCredential in credentialFactories)
         {
@@ -63,7 +77,7 @@ public class AzureKeyVault : IVault
 
             if (await CanAcquireTokenAsync(credential).ConfigureAwait(false))
             {
-                _secretClient = new SecretClient(new Uri(_keyVaultUrl), credential);
+                _secretClient = _secretClientFactory(new Uri(_keyVaultUrl), credential);
                 return;
             }
         }

@@ -32,6 +32,12 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DisabledPollInterval = TimeSpan.FromHours(1);
 
+    // Instance copies of the loop timings, letting tests shorten the waits
+    // while production keeps the defaults declared above.
+    private TimeSpan _startupDelay = StartupDelay;
+    private TimeSpan _configRefreshInterval = ConfigRefreshInterval;
+    private TimeSpan _disabledPollInterval = DisabledPollInterval;
+
     private volatile BlocksServicesHealthConfiguration? _currentConfig;
 
     public GenesisHealthPingBackgroundService(
@@ -76,7 +82,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
         _logger.LogInformation("[{Service}] Health ping worker starting", _serviceName);
 
         // Small startup delay so the host finishes wiring before we hit the DB.
-        await Task.Delay(StartupDelay, stoppingToken);
+        await Task.Delay(_startupDelay, stoppingToken).ConfigureAwait(false);
 
         var nextConfigRefresh = DateTimeOffset.UtcNow;
         var failureCount = 0;
@@ -91,7 +97,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
                 if (DateTimeOffset.UtcNow >= nextConfigRefresh)
                 {
                     await RefreshConfigurationAsync(stoppingToken);
-                    nextConfigRefresh = DateTimeOffset.UtcNow.Add(ConfigRefreshInterval);
+                    nextConfigRefresh = DateTimeOffset.UtcNow.Add(_configRefreshInterval);
                 }
 
                 var config = _currentConfig;
@@ -102,22 +108,22 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
                 // -----------------------------------------------------------------
                 if (config is null)
                 {
-                    _logger.LogInformation("[{Service}] No configuration found, retrying in {Delay}", _serviceName, DisabledPollInterval);
-                    await Task.Delay(DisabledPollInterval, stoppingToken);
+                    GenesisHealthPingLog.NoConfigurationFound(_logger, _serviceName, _disabledPollInterval);
+                    await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
 
                 if (!config.HealthCheckEnabled)
                 {
-                    _logger.LogInformation("[{Service}] Health check disabled, retrying in {Delay}", _serviceName, DisabledPollInterval);
-                    await Task.Delay(DisabledPollInterval, stoppingToken);
+                    GenesisHealthPingLog.HealthCheckDisabled(_logger, _serviceName, _disabledPollInterval);
+                    await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
 
                 if (string.IsNullOrWhiteSpace(config.Endpoint))
                 {
                     _logger.LogWarning("[{Service}] Endpoint is empty - skipping ping", _serviceName);
-                    await Task.Delay(DisabledPollInterval, stoppingToken);
+                    await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -141,7 +147,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[{Service}] Unexpected error in health ping loop", _serviceName);
-                await Task.Delay(DisabledPollInterval, stoppingToken);
+                await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
             }
         }
 
@@ -337,4 +343,13 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
             return "[masked]";
         }
     }
+}
+
+internal static partial class GenesisHealthPingLog
+{
+    [LoggerMessage(EventId = 6001, Level = LogLevel.Information, Message = "[{Service}] No configuration found, retrying in {Delay}")]
+    public static partial void NoConfigurationFound(ILogger logger, string service, TimeSpan delay);
+
+    [LoggerMessage(EventId = 6002, Level = LogLevel.Information, Message = "[{Service}] Health check disabled, retrying in {Delay}")]
+    public static partial void HealthCheckDisabled(ILogger logger, string service, TimeSpan delay);
 }

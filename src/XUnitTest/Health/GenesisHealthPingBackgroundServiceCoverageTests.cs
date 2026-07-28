@@ -219,6 +219,145 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
         Assert.Null(GetField<BlocksServicesHealthConfiguration?>(service, "_currentConfig"));
     }
 
+    [Fact]
+    public async Task ExecuteAsync_ShouldKeepPolling_ThroughNoConfigDisabledAndEmptyEndpointBranches()
+    {
+        var databaseName = $"health-loop-{Guid.NewGuid():N}";
+        var client = new MongoClient(MongoConnectionString);
+        try
+        {
+            var service = CreateUninitialized();
+            SetField(service, "_logger", new Mock<ILogger<GenesisHealthPingBackgroundService>>().Object);
+            SetField(service, "_serviceName", "svc-poll");
+            SetField(service, "_configKey", "GenesisHealthConfig:svc-poll");
+            SetField(service, "_connectionString", MongoConnectionString);
+            SetField(service, "_databaseName", databaseName);
+            SetField(service, "_startupDelay", TimeSpan.FromMilliseconds(1));
+            SetField(service, "_configRefreshInterval", TimeSpan.FromMilliseconds(1));
+            SetField(service, "_disabledPollInterval", TimeSpan.FromMilliseconds(10));
+            SetField(service, "_httpClient", new HttpClient(new StubHandler(_ =>
+                Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)))));
+
+            var dbProvider = new Mock<IDbContextProvider>();
+            dbProvider.Setup(p => p.GetDatabase(MongoConnectionString, databaseName))
+                      .Returns(client.GetDatabase(databaseName));
+            SetField(service, "_dbContextProvider", dbProvider.Object);
+
+            var disabledConfig = JsonSerializer.Serialize(new BlocksServicesHealthConfiguration
+            {
+                ServiceName = "svc-poll", HealthCheckEnabled = false, Endpoint = "http://127.0.0.1:1/h", PingIntervalSeconds = 1
+            });
+            var emptyEndpointConfig = JsonSerializer.Serialize(new BlocksServicesHealthConfiguration
+            {
+                ServiceName = "svc-poll", HealthCheckEnabled = true, Endpoint = " ", PingIntervalSeconds = 1
+            });
+
+            var reachedLastStage = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var calls = 0;
+            var cache = new Mock<IDatabase>();
+            cache.Setup(c => c.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+                 .ReturnsAsync(() =>
+                 {
+                     calls++;
+                     if (calls == 1) return RedisValue.Null;          // miss, DB has no doc -> config stays null
+                     if (calls == 2) return (RedisValue)"null";       // cached literal null -> falls back to DB
+                     if (calls == 3) return (RedisValue)disabledConfig;
+                     // A 5th call proves the loop continued past the empty-endpoint wait.
+                     if (calls >= 5) reachedLastStage.TrySetResult();
+                     return (RedisValue)emptyEndpointConfig;
+                 });
+            SetField(service, "_cacheDb", cache.Object);
+
+            using var cts = new CancellationTokenSource();
+            var method = typeof(GenesisHealthPingBackgroundService).GetMethod("ExecuteAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(method);
+            var loop = (Task)method!.Invoke(service, [cts.Token])!;
+
+            var completed = await Task.WhenAny(reachedLastStage.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+            Assert.Same(reachedLastStage.Task, completed);
+            cts.Cancel();
+            await AwaitLoopShutdown(loop);
+
+            Assert.True(calls >= 4);
+        }
+        finally
+        {
+            await client.DropDatabaseAsync(databaseName);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldLogAndContinue_WhenLoopBodyThrowsUnexpectedly()
+    {
+        var service = CreateUninitialized();
+        var caughtError = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var errorCount = 0;
+
+        var logger = new Mock<ILogger<GenesisHealthPingBackgroundService>>();
+        // The no-configuration message goes through a LoggerMessage delegate,
+        // which checks IsEnabled before logging.
+        logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        logger.Setup(l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("No configuration found")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+              .Throws(new InvalidOperationException("logging pipeline failure"));
+        logger.Setup(l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("Unexpected error in health ping loop")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+              .Callback(() =>
+              {
+                  // Wait for the second error so the catch block's recovery
+                  // delay is proven to complete and the loop to run again.
+                  if (Interlocked.Increment(ref errorCount) >= 2)
+                  {
+                      caughtError.TrySetResult();
+                  }
+              });
+
+        SetField(service, "_logger", logger.Object);
+        SetField(service, "_serviceName", "svc-catch");
+        SetField(service, "_configKey", "GenesisHealthConfig:svc-catch");
+        SetField(service, "_startupDelay", TimeSpan.FromMilliseconds(1));
+        SetField(service, "_configRefreshInterval", TimeSpan.FromMilliseconds(1));
+        SetField(service, "_disabledPollInterval", TimeSpan.FromMilliseconds(10));
+        SetField(service, "_httpClient", new HttpClient(new StubHandler(_ =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)))));
+
+        var cache = new Mock<IDatabase>();
+        cache.Setup(c => c.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+             .ThrowsAsync(new InvalidOperationException("cache down"));
+        SetField(service, "_cacheDb", cache.Object);
+
+        using var cts = new CancellationTokenSource();
+        var method = typeof(GenesisHealthPingBackgroundService).GetMethod("ExecuteAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(method);
+        var loop = (Task)method!.Invoke(service, [cts.Token])!;
+
+        var completed = await Task.WhenAny(caughtError.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+        Assert.Same(caughtError.Task, completed);
+        cts.Cancel();
+        await AwaitLoopShutdown(loop);
+    }
+
+    // Cancellation can surface either as a clean exit at the while check or as
+    // an OperationCanceledException from whichever Task.Delay was in flight.
+    private static async Task AwaitLoopShutdown(Task loop)
+    {
+        try
+        {
+            await loop;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
     private static GenesisHealthPingBackgroundService CreateServiceForDatabase(string databaseName, Mock<IDatabase> cache)
     {
         var service = CreateUninitialized();
@@ -240,7 +379,15 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
 
     private static GenesisHealthPingBackgroundService CreateUninitialized()
     {
-        return (GenesisHealthPingBackgroundService)RuntimeHelpers.GetUninitializedObject(typeof(GenesisHealthPingBackgroundService));
+        var service = (GenesisHealthPingBackgroundService)RuntimeHelpers.GetUninitializedObject(typeof(GenesisHealthPingBackgroundService));
+        // GetUninitializedObject skips field initializers, which would leave the
+        // loop timings at TimeSpan.Zero and turn ExecuteAsync into a synchronous
+        // infinite loop (Task.Delay(Zero) completes inline and never yields).
+        // Restore production-shaped defaults; individual tests shorten them.
+        SetField(service, "_startupDelay", TimeSpan.FromSeconds(5));
+        SetField(service, "_configRefreshInterval", TimeSpan.FromHours(1));
+        SetField(service, "_disabledPollInterval", TimeSpan.FromHours(1));
+        return service;
     }
 
     private static void SetField(object instance, string fieldName, object value)

@@ -33,7 +33,7 @@ public sealed record BlocksContext
 
 
     private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
-    private static readonly ThreadLocal<bool> _isTestMode = new(() => false);
+    private static ThreadLocal<bool> _isTestMode = new(() => false);
     private static readonly AsyncLocal<bool> _forceAsyncLocalContext = new();
 
 
@@ -344,7 +344,10 @@ public sealed record BlocksContext
 
     public static void Cleanup()
     {
-        _isTestMode?.Dispose();
+        // Release the current thread-local storage but leave the type usable,
+        // so a host can clean up on shutdown without poisoning later access.
+        _isTestMode.Dispose();
+        _isTestMode = new ThreadLocal<bool>(() => false);
     }
 
 }
