@@ -47,7 +47,7 @@
 
 		<PackageReference Include="AspNetCore.HealthChecks.MongoDb" Version="9.0.0" />
 		<PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
-		<PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.203" PrivateAssets="all" />
+		<PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.302" PrivateAssets="all" />
 
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
 		<PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
