@@ -19,7 +19,7 @@
 	<PackageReference Include="Azure.Core" Version="1.60.0" />
 	<PackageReference Include="Azure.Messaging.ServiceBus" Version="7.20.2" />
 	  <PackageReference Include="RabbitMQ.Client" Version="7.2.1" />
-	<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.9" />
+	<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
 	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
 	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
 	<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
