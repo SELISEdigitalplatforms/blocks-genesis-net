@@ -139,8 +139,7 @@ namespace Blocks.Genesis
 
         public async Task InvokeAsync(HttpContext context)
         {
-            context.Request.Headers.TryGetValue(BlocksConstants.BlocksKey, out var headerTenantId);
-            var tenantId = headerTenantId.ToString();
+            var tenantId = TenantContextHelper.ResolveTenantId(context.Request);
             if (string.IsNullOrWhiteSpace(tenantId))
             {
                 await RejectRequest(

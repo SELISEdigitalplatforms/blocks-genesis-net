@@ -60,8 +60,8 @@ namespace Blocks.Genesis
                 return;
             }
 
-
-            if (!IsValidOriginOrReferer(context, tenant))
+            List<string> whiteListedApi = ["/.well-known/jwks.json"] ;
+            if (!IsValidOriginOrReferer(context, tenant) && !whiteListedApi.Contains(context.Request.Path))
             {
                 await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer");
                 return;
