@@ -61,7 +61,13 @@ public class AzureKeyVault : IVault
     {
         var credentialFactories = _credentialFactories ??
         [
-            () => new DefaultAzureCredential(),
+            () => new DefaultAzureCredential(new DefaultAzureCredentialOptions
+            {
+                // Skip Managed Identity locally — on a dev PC there's no IMDS endpoint,
+                // and letting it probe just burns several retries against an
+                // unreachable link-local address before failing.
+                ExcludeManagedIdentityCredential = true
+            }),
             () => HasClientSecretConfig()
                 ? new ClientSecretCredential(_tenantId, _clientId, _clientSecret)
                 : null
