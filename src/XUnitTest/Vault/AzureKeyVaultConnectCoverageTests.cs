@@ -1,3 +1,4 @@
+using Azure.Security.KeyVault.Secrets;
 using Blocks.Genesis;
 using System.Reflection;
 
@@ -33,10 +34,18 @@ public class AzureKeyVaultConnectCoverageTests
         SetField(vault, "_clientSecret", "not-a-real-secret-value");
         SetField(vault, "_tenantId", "00000000-0000-0000-0000-000000000002");
 
+        var tokenCredentialType = Type.GetType("Azure.Core.TokenCredential, Azure.Core")!;
+        var credentialFactoriesType = typeof(List<>).MakeGenericType(typeof(Func<>).MakeGenericType(tokenCredentialType));
+        var credentialFactories = Activator.CreateInstance(credentialFactoriesType);
+
+        var secretClientFactoryType = typeof(Func<,,>).MakeGenericType(typeof(Uri), tokenCredentialType, typeof(SecretClient));
+        var secretClientFactory = Delegate.CreateDelegate(secretClientFactoryType, typeof(AzureKeyVaultConnectCoverageTests).GetMethod(nameof(CreateFailingSecretClient), BindingFlags.Static | BindingFlags.NonPublic)!);
+
+        var overrideMethod = typeof(AzureKeyVault).GetMethod("OverrideConnectionSeams", BindingFlags.Instance | BindingFlags.NonPublic);
+        overrideMethod!.Invoke(vault, new object[] { credentialFactories, secretClientFactory });
+
         var ex = await Assert.ThrowsAnyAsync<Exception>(() => InvokeConnect(vault));
 
-        // Offline, neither DefaultAzureCredential nor the fabricated ClientSecretCredential
-        // can acquire a token; the loop exhausts and surfaces a failure.
         Assert.NotNull(ex);
     }
 
@@ -49,9 +58,24 @@ public class AzureKeyVaultConnectCoverageTests
         SetField(vault, "_clientSecret", null);
         SetField(vault, "_tenantId", null);
 
+        var tokenCredentialType = Type.GetType("Azure.Core.TokenCredential, Azure.Core")!;
+        var credentialFactoriesType = typeof(List<>).MakeGenericType(typeof(Func<>).MakeGenericType(tokenCredentialType));
+        var credentialFactories = Activator.CreateInstance(credentialFactoriesType);
+
+        var secretClientFactoryType = typeof(Func<,,>).MakeGenericType(typeof(Uri), tokenCredentialType, typeof(SecretClient));
+        var secretClientFactory = Delegate.CreateDelegate(secretClientFactoryType, typeof(AzureKeyVaultConnectCoverageTests).GetMethod(nameof(CreateFailingSecretClient), BindingFlags.Static | BindingFlags.NonPublic)!);
+
+        var overrideMethod = typeof(AzureKeyVault).GetMethod("OverrideConnectionSeams", BindingFlags.Instance | BindingFlags.NonPublic);
+        overrideMethod!.Invoke(vault, new object[] { credentialFactories, secretClientFactory });
+
         var ex = await Assert.ThrowsAnyAsync<Exception>(() => InvokeConnect(vault));
 
         Assert.NotNull(ex);
+    }
+
+    private static SecretClient CreateFailingSecretClient(Uri uri, object credential)
+    {
+        throw new InvalidOperationException("Simulated failure.");
     }
 
     private static void SetField(object instance, string name, object? value)
