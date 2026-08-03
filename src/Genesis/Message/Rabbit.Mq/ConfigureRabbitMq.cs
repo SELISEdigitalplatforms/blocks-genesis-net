@@ -27,7 +27,7 @@ public static class ConfigureRabbitMq
             var factory = new ConnectionFactory
             {
                 Uri = new Uri(messageConfiguration.Connection),
-                VirtualHost = "/",
+                //VirtualHost = "/",
             };
 
             await using var connection = await factory.CreateConnectionAsync();
@@ -63,7 +63,7 @@ public static class ConfigureRabbitMq
         }
         catch (Exception ex)
         {
-            log.LogError(ex, "Failed to provision RabbitMQ topology.");
+            log.LogError(ex.ToString(), "Failed to provision RabbitMQ topology.");
             throw;
         }
     }
