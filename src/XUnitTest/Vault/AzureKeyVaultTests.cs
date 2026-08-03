@@ -62,11 +62,24 @@ public class AzureKeyVaultTests
         var sut = new AzureKeyVault();
         SetPrivateField(sut, "_keyVaultUrl", "https://unit-test-vault.vault.azure.net/");
 
-        // With no client-secret configuration and no ambient Azure identity, no credential can
-        // acquire a token, so ConnectToAzureKeyVaultSecret rejects the connection.
+        var tokenCredentialType = Type.GetType("Azure.Core.TokenCredential, Azure.Core")!;
+        var credentialFactoriesType = typeof(List<>).MakeGenericType(typeof(Func<>).MakeGenericType(tokenCredentialType));
+        var credentialFactories = Activator.CreateInstance(credentialFactoriesType);
+
+        var secretClientFactoryType = typeof(Func<,,>).MakeGenericType(typeof(Uri), tokenCredentialType, typeof(SecretClient));
+        var secretClientFactory = Delegate.CreateDelegate(secretClientFactoryType, GetType().GetMethod(nameof(CreateFailingSecretClient), BindingFlags.Static | BindingFlags.NonPublic)!);
+
+        var overrideMethod = typeof(AzureKeyVault).GetMethod("OverrideConnectionSeams", BindingFlags.Instance | BindingFlags.NonPublic);
+        overrideMethod!.Invoke(sut, new object[] { credentialFactories, secretClientFactory });
+
         var method = GetPrivateMethod("ConnectToAzureKeyVaultSecret");
         await Assert.ThrowsAsync<InvalidOperationException>(
             async () => await (Task)method.Invoke(sut, null)!);
+    }
+
+    private static SecretClient CreateFailingSecretClient(Uri uri, object credential)
+    {
+        throw new InvalidOperationException("No credential available.");
     }
 
     [Fact]
