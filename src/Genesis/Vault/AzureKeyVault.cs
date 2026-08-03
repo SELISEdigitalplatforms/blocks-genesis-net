@@ -98,8 +98,9 @@ public class AzureKeyVault : IVault
             await credential.GetTokenAsync(context, CancellationToken.None).ConfigureAwait(false);
             return true;
         }
-        catch (AuthenticationFailedException)
+        catch (Exception ex)
         {
+            Log.Error("Failed to acquire token from credential {CredentialType}.", credential.GetType().Name, ex.ToString());
             return false;
         }
     }
@@ -128,7 +129,7 @@ public class AzureKeyVault : IVault
         }
         catch (Exception e)
         {
-            Log.Warning(e, "Error retrieving secret '{Key}' from Key Vault.", key);
+            Log.Error(e, "Error retrieving secret '{Key}' from Key Vault.", key);
             return string.Empty;
         }
     }
