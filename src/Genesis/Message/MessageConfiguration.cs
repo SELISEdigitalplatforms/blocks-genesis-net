@@ -110,6 +110,14 @@ public class ConsumerSubscription
     public bool Durable { get; }
     public bool ParallelProcessing { get; }
 
+    /// <summary>
+    /// When true, this subscription's queue/exchange/binding are declared during topology
+    /// provisioning, but this process never registers itself as an active consumer of the
+    /// queue. Use this for producer-only services that publish to a shared exchange via
+    /// SendToMassConsumerAsync but do not themselves process messages from it.
+    /// </summary>
+    public bool IsDeclareOnly { get; }
+
     public ConsumerSubscription(
         string queueName,
         string exchangeName,
@@ -118,7 +126,8 @@ public class ConsumerSubscription
         string exchangeType = "fanout",
         string routingKey = "",
         bool shouldBypassAuthorization = false,
-        bool durable = true)
+        bool durable = true,
+        bool isDeclareOnly = false)
     {
         QueueName = queueName;
         ExchangeName = exchangeName;
@@ -128,6 +137,8 @@ public class ConsumerSubscription
         RoutingKey = routingKey;
         ShouldBypassAuthorization = shouldBypassAuthorization;
         Durable = durable;
+        ParallelProcessing = parallelProcessing;
+        IsDeclareOnly = isDeclareOnly;
     }
 
     /// <summary>
@@ -159,4 +170,18 @@ public class ConsumerSubscription
         bool shouldBypassAuthorization = false,
         bool durable = true) =>
         new(queueName, exchangeName, prefetchCount, parallelProcessing, exchangeType, routingKey, shouldBypassAuthorization, durable);
+
+    /// <summary>
+    /// Ensures an exchange (and its backing queue/binding) exists, without registering this
+    /// process as an active consumer of it. Use this from producer-only services that publish
+    /// via SendToMassConsumerAsync to a shared exchange they don't themselves consume.
+    /// </summary>
+    public static ConsumerSubscription DeclareExchangeOnly(
+        string exchangeName,
+        string queueName,
+        string exchangeType = "fanout",
+        string routingKey = "",
+        bool durable = true) =>
+        new(queueName, exchangeName, prefetchCount: 0, parallelProcessing: false,
+            exchangeType, routingKey, shouldBypassAuthorization: false, durable, isDeclareOnly: true);
 }
