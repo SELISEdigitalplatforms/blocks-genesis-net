@@ -61,7 +61,13 @@ public class AzureKeyVault : IVault
     {
         var credentialFactories = _credentialFactories ??
         [
-            () => new DefaultAzureCredential(),
+            () => new DefaultAzureCredential(new DefaultAzureCredentialOptions
+            {
+                // Skip Managed Identity locally — on a dev PC there's no IMDS endpoint,
+                // and letting it probe just burns several retries against an
+                // unreachable link-local address before failing.
+                ExcludeManagedIdentityCredential = true
+            }),
             () => HasClientSecretConfig()
                 ? new ClientSecretCredential(_tenantId, _clientId, _clientSecret)
                 : null
@@ -92,8 +98,9 @@ public class AzureKeyVault : IVault
             await credential.GetTokenAsync(context, CancellationToken.None).ConfigureAwait(false);
             return true;
         }
-        catch (AuthenticationFailedException)
+        catch (Exception ex)
         {
+            Log.Error("Failed to acquire token from credential {CredentialType}.", credential.GetType().Name, ex.ToString());
             return false;
         }
     }
@@ -122,7 +129,7 @@ public class AzureKeyVault : IVault
         }
         catch (Exception e)
         {
-            Log.Warning(e, "Error retrieving secret '{Key}' from Key Vault.", key);
+            Log.Error(e, "Error retrieving secret '{Key}' from Key Vault.", key);
             return string.Empty;
         }
     }

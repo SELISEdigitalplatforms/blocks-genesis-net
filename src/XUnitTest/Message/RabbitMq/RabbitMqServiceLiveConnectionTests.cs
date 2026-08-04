@@ -9,6 +9,11 @@ public class RabbitMqServiceLiveConnectionTests
     [Fact]
     public async Task CreateConnectionAsync_ShouldEstablishConnectionAndChannel_AgainstLocalBroker()
     {
+        if (!await IsLocalBrokerAvailable())
+        {
+            return;
+        }
+
         var config = new MessageConfiguration
         {
             Connection = "amqp://<username>:<password>@127.0.0.1:5672"
@@ -20,5 +25,21 @@ public class RabbitMqServiceLiveConnectionTests
 
         Assert.NotNull(service.RabbitMqChannel);
         Assert.True(service.RabbitMqChannel.IsOpen);
+    }
+
+    private static async Task<bool> IsLocalBrokerAvailable()
+    {
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            var connectTask = client.ConnectAsync("127.0.0.1", 5672);
+            var timeout = Task.Delay(TimeSpan.FromSeconds(2));
+            var completed = await Task.WhenAny(connectTask, timeout);
+            return completed == connectTask && client.Connected;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
