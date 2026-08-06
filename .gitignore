@@ -209,3 +209,16 @@ zap-*.xml
 
 # local security scan tooling (contains credentials, never commit)
 scripts/scan.sh
+
+# --- open-source baseline: secrets, build output, local agent files ---
+.env
+.env.*
+!.env.example
+dist/
+build/
+out/
+coverage/
+QWEN.md
+.clinerules
+.windsurfrules
+results/
