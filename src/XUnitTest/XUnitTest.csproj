@@ -5,6 +5,12 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- Copy framework and package assemblies next to the test binaries so coverlet's Cecil
+         resolver can load every reference of Blocks.Genesis. Without this, instrumentation of
+         Blocks.Genesis fails and the coverage report silently covers only Blocks.LMT.Client. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <PreserveCompilationContext>true</PreserveCompilationContext>
   </PropertyGroup>
 
   <ItemGroup>
