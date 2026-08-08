@@ -171,6 +171,8 @@ _pkginfo.txt
 
 # Local test output
 test-results.xml
+results/
+coverage/
 
 */node_modules
 # --- AI assistant artifacts: never track ---

@@ -23,6 +23,7 @@ public class TenantsCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task GetTenantByID_ShouldLoadFromDatabase_ThenServeFromCache()
     {
         var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
@@ -59,6 +60,7 @@ public class TenantsCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void GetTenantByID_ShouldReturnNull_WhenTenantDoesNotExist()
     {
         var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
@@ -97,6 +99,7 @@ public class TenantsCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void GetTenantDatabaseConnectionString_ShouldReturnNulls_WhenTenantMissing()
     {
         var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
@@ -209,6 +212,7 @@ public class TenantsCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task GetTenantByApplicationDomain_ShouldFindTenantInDatabase_ThenServeFromCache()
     {
         var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
@@ -246,6 +250,7 @@ public class TenantsCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task EnsureTraceCollectionExistsAsync_ShouldCreateTraceCollection_ForRecentTenant()
     {
         var tenantId = $"trace-tenant-{Guid.NewGuid():N}";

@@ -327,6 +327,7 @@ public class OnboardingApiAccessMiddlewareTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task InvokeAsync_ShouldLoadAllowedApisFromRootDatabase_WhenDocumentHasAllowedApis()
     {
         var databaseName = $"onboarding-mw-tests-{Guid.NewGuid():N}";
@@ -373,6 +374,7 @@ public class OnboardingApiAccessMiddlewareTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task InvokeAsync_ShouldFallBackToEmptyAllowedApis_WhenDocumentIsMissing()
     {
         var databaseName = $"onboarding-mw-tests-{Guid.NewGuid():N}";
@@ -412,6 +414,7 @@ public class OnboardingApiAccessMiddlewareTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task InvokeAsync_ShouldFallBackToEmptyAllowedApis_WhenAllowedApisIsNotAnArray()
     {
         var databaseName = $"onboarding-mw-tests-{Guid.NewGuid():N}";

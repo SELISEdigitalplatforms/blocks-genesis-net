@@ -43,6 +43,7 @@ public class MongoDBDynamicSinkCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task EmitBatchAsync_ShouldPersistToMongo_WithFilteredProperties()
     {
         var previousServiceBus = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
@@ -74,6 +75,7 @@ public class MongoDBDynamicSinkCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task SaveToMongoDBAsync_ShouldConvertAllPropertyKinds_AndFallBackWhenConversionThrows()
     {
         var previousServiceBus = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
