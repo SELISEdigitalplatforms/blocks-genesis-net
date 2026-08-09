@@ -211,3 +211,13 @@ zap-*.xml
 
 # local security scan tooling (contains credentials, never commit)
 scripts/scan.sh
+
+# --- local AI / scan workspace (do not commit) ---
+.env
+.env.*
+!.env.example
+
+# --- AI agent instruction files (do not commit) ---
+QWEN.md
+.clinerules
+.windsurfrules
