@@ -257,7 +257,7 @@ namespace Blocks.Genesis
             ArgumentNullException.ThrowIfNull(app);
 
             app.UseMiddleware<TenantValidationMiddleware>();
-            app.UseMiddleware<RootTenantUrlValidationMiddleware>();
+            // app.UseMiddleware<RootTenantUrlValidationMiddleware>();
             app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
             beforeAuthentication?.Invoke(app);
