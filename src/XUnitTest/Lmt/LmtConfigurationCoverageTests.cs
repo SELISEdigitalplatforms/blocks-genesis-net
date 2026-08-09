@@ -26,6 +26,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateCollectionForTrace_ShouldCreateTimeSeriesCollectionAndIndex_AndBeIdempotent()
     {
         var collectionName = $"trace-cov-{Guid.NewGuid():N}";
@@ -48,6 +49,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateCollectionForTrace_ShouldRecreateCollection_WhenExistingIsNotTimeSeries()
     {
         var collectionName = $"trace-recreate-{Guid.NewGuid():N}";
@@ -68,6 +70,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateCollectionForMetrics_ShouldCreateTimeSeriesCollection()
     {
         var collectionName = $"metrics-cov-{Guid.NewGuid():N}";
@@ -86,6 +89,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateCollectionForLogs_ShouldCreateTimeSeriesCollectionWithPartialIndex()
     {
         var collectionName = $"logs-cov-{Guid.NewGuid():N}";
@@ -144,6 +148,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateIndex_ShouldSkipCreation_WhenExistingKeySpecWasNormalizedByServer()
     {
         var collectionName = $"idx-equivalent-{Guid.NewGuid():N}";
@@ -179,6 +184,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateIndex_ShouldSkipCreation_WhenIndexWithSameKeysExistsUnderDifferentName()
     {
         var collectionName = $"idx-samekeys-{Guid.NewGuid():N}";
@@ -208,6 +214,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateIndex_ShouldWarnAndContinue_WhenEquivalentKeyPatternExistsWithDifferentName()
     {
         var collectionName = $"idx-equivalent-{Guid.NewGuid():N}";
@@ -239,6 +246,7 @@ public class LmtConfigurationCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void CreateIndex_ShouldSkipCreation_WhenIndexWithSameNameExists()
     {
         var collectionName = $"idx-samename-{Guid.NewGuid():N}";

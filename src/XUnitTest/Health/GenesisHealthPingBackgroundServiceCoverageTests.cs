@@ -15,6 +15,7 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
     private const string MongoConnectionString = "mongodb://127.0.0.1:27017";
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task LoadConfigurationFromDatabaseAsync_ShouldApplyConfigAndWriteThroughToCache()
     {
         var databaseName = $"health-ping-tests-{Guid.NewGuid():N}";
@@ -49,6 +50,7 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task LoadConfigurationFromDatabaseAsync_ShouldKeepConfig_WhenCacheWriteFails()
     {
         var databaseName = $"health-ping-tests-{Guid.NewGuid():N}";
@@ -88,6 +90,7 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task LoadConfigurationFromDatabaseAsync_ShouldLeaveConfigNull_WhenDocumentMissing()
     {
         var databaseName = $"health-ping-tests-{Guid.NewGuid():N}";
@@ -220,6 +223,7 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task ExecuteAsync_ShouldKeepPolling_ThroughNoConfigDisabledAndEmptyEndpointBranches()
     {
         var databaseName = $"health-loop-{Guid.NewGuid():N}";
