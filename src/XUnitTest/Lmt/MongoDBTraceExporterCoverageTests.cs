@@ -13,6 +13,7 @@ public class MongoDBTraceExporterCoverageTests
     private const string UnreachableConnectionString = "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=200&connectTimeoutMS=200";
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task FlushBatchAsync_ShouldPersistQueuedTraces_ToMongo_WhenNoServiceBusIsConfigured()
     {
         var previousServiceBus = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
@@ -80,6 +81,7 @@ public class MongoDBTraceExporterCoverageTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public void Dispose_ShouldFlushPendingTraces_AndBeIdempotent()
     {
         var previousServiceBus = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
