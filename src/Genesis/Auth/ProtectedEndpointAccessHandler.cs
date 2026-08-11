@@ -139,10 +139,16 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
         // Single query: check if a document exists for this org where either:
         // - Resource is in permissions (direct permission)
         // - Resource matches and Roles contains any of the user's roles (role-based permission)
+
+        var permissionFilter = Builders<BsonDocument>.Filter.And(
+                                       Builders<BsonDocument>.Filter.In("Resource", permissions),
+                                       Builders<BsonDocument>.Filter.Eq("Resource", resource)
+                                       );
+
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("OrganizationId", organizationId),
             Builders<BsonDocument>.Filter.Or(
-                Builders<BsonDocument>.Filter.In("Resource", permissions),
+                permissionFilter,
                 Builders<BsonDocument>.Filter.And(
                     Builders<BsonDocument>.Filter.Eq("Resource", resource),
                     Builders<BsonDocument>.Filter.In("Roles", roles)
