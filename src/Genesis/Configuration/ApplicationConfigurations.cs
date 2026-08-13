@@ -119,6 +119,7 @@ public static class ApplicationConfigurations
         services.AddSingleton<ICacheClient, RedisClient>();
         services.AddSingleton<ITenants, Tenants>();
         services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
+        services.AddKeyValueStore();
 
         var objectSerializer = new ObjectSerializer(_ => true);
         BsonSerializer.RegisterSerializer(objectSerializer);
