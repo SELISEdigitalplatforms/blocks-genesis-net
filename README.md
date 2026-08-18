@@ -185,7 +185,6 @@ With Azure Key Vault the same names are used without the `BlocksSecret__` prefix
 | `BLOCKS_VAULT_TYPE` | none | Overrides the vault type passed to `ResolveVaultType` |
 | `HTTP1_PORT` | `5000` | Kestrel HTTP/1.1 listener (REST) |
 | `HTTP2_PORT` | `5001` | Kestrel HTTP/2 listener (gRPC) |
-| `BLOCKS_RATE_LIMIT_PER_MINUTE` | `120` | Fixed-window request limit per tenant, or per client IP when no `tenant-id` header is present |
 | `ServiceBusConnectionString` | none | When set, logs and traces are forwarded to the LMT pipeline over the message bus instead of being written directly to MongoDB |
 | `MaxRetries` | `3` | LMT send retry attempts (also settable as `Lmt:MaxRetries` in `appsettings.json`) |
 | `MaxFailedBatches` | `100` | LMT failed-batch queue size (also settable as `Lmt:MaxFailedBatches`) |
@@ -198,7 +197,7 @@ Every API service exposes health endpoints: `/ping` (all checks), `/health/live`
 
 Middleware order set up by `ConfigureMiddleware`:
 
-`HSTS -> CORS -> Health endpoints -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> RateLimiter -> Authentication -> Authorization -> Antiforgery -> Controllers`
+`HSTS -> CORS -> Health endpoints -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> Antiforgery -> Controllers`
 
 ## Repository layout
 
