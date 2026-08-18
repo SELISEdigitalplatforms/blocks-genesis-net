@@ -1,4 +1,4 @@
-using Blocks.Genesis.Health;
+﻿using Blocks.Genesis.Health;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
@@ -15,7 +15,6 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
 using System.Diagnostics;
-using System.Threading.RateLimiting;
 
 namespace Blocks.Genesis;
 
@@ -219,7 +218,6 @@ public static class ApplicationConfigurations
         });
 
         services.AddHttpClient();
-        ConfigureRateLimiting(services);
 
         services.AddGrpc(options =>
         {
@@ -344,7 +342,6 @@ public static class ApplicationConfigurations
         var tenantPrefixes = tenantValidationPrefixes?.ToArray() ?? Array.Empty<string>();
         app.UseMiddleware<TenantValidationMiddleware>((object)tenantPrefixes);
         app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-        app.UseRateLimiter();
 
         beforeAuthentication?.Invoke(app);
 
@@ -484,39 +481,6 @@ public static class ApplicationConfigurations
 
         var normalizedOrigin = uri.GetLeftPart(UriPartial.Authority);
         return tenants.GetTenantByApplicationDomain(normalizedOrigin) != null;
-    }
-
-    private static void ConfigureRateLimiting(IServiceCollection services)
-    {
-        var permitLimit = int.TryParse(
-            Environment.GetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE"),
-            out var configuredPermitLimit)
-            ? Math.Max(1, configuredPermitLimit)
-            : 120;
-
-        services.AddRateLimiter(options =>
-        {
-            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            {
-                var tenantId = httpContext.Request.Headers["tenant-id"].FirstOrDefault();
-                var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                var partitionKey = string.IsNullOrWhiteSpace(tenantId)
-                    ? $"ip:{remoteIp}"
-                    : $"tenant:{tenantId}";
-
-                return RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey,
-                    _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = permitLimit,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 0,
-                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                        AutoReplenishment = true
-                    });
-            });
-        });
     }
 
     private static string NormalizePathBase(string? rawPathBase)

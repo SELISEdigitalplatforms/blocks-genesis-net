@@ -27,4 +27,16 @@ public class Applications
     public string Domain { get; set; } = string.Empty;
     public string CookieDomain { get; set; } = string.Empty;
     public bool IsDomainVerified { get; set; }
+    public DomainType DomainType { get; set; }
+}
+
+// Persisted as an int, so these values are part of the stored contract: append
+// new members, never renumber existing ones.
+public enum DomainType
+{
+    // Documents written before this field existed; distinguishes "not set" from a real value.
+    Unspecified = 0,
+    PlatformDefault = 1,
+    PlatformSubdomain = 2,
+    Custom = 3
 }
