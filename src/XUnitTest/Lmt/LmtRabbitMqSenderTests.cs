@@ -76,7 +76,7 @@ public class LmtRabbitMqSenderTests
 
         using var sender = new LmtRabbitMqSender(
             "lmt-live-tests",
-            "amqp://<username>:<password>@127.0.0.1:5672",
+            "amqp://guest:guest@127.0.0.1:5672",
             maxRetries: 0,
             maxFailedBatches: 10);
 
