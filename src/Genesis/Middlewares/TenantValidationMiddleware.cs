@@ -62,8 +62,9 @@ namespace Blocks.Genesis
                 return;
             }
 
-            List<string> whiteListedApi = ["/.well-known/jwks.json"] ;
-            if (!IsValidOriginOrReferer(context, tenant) && !whiteListedApi.Contains(context.Request.Path))
+          
+           
+            if (!IsValidOriginOrReferer(context, tenant))
             {
                 await RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer");
                 return;
@@ -212,13 +213,14 @@ namespace Blocks.Genesis
         {
             var originHeader = context.Request.Headers.Origin.FirstOrDefault();
             var refererHeader = context.Request.Headers.Referer.FirstOrDefault();
+         
 
             return IsDomainAllowed(originHeader, tenant) || IsDomainAllowed(refererHeader, tenant);
         }
 
         private static bool IsDomainAllowed(string? headerValue, Tenant tenant)
         {
-            if (string.IsNullOrWhiteSpace(headerValue)) return false;
+            if (string.IsNullOrWhiteSpace(headerValue)) return true;
 
             try
             {
