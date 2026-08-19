@@ -148,6 +148,10 @@ public static class ApplicationConfigurations
 
         services.AddSingleton<IHttpService, HttpService>();
 
+        // Delegated access must be registered before the message client: the client depends on
+        // IDelegationGrantFactory to stamp the DelegationGrant header at send time.
+        services.AddBlocksDelegation();
+
         ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
         services.AddHttpContextAccessor();

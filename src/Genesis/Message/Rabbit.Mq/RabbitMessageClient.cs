@@ -12,6 +12,7 @@ public sealed class RabbitMessageClient : IMessageClient
     private readonly IRabbitMqService _rabbitMqService;
     private readonly MessageConfiguration _messageConfiguration;
     private readonly ActivitySource _activitySource;
+    private readonly IDelegationGrantFactory _delegationGrantFactory;
 
     private IChannel? _channel;
     private Task? _initializationTask;
@@ -21,12 +22,14 @@ public sealed class RabbitMessageClient : IMessageClient
         ILogger<RabbitMessageClient> logger,
         IRabbitMqService rabbitMqService,
         MessageConfiguration messageConfiguration,
-        ActivitySource activitySource)
+        ActivitySource activitySource,
+        IDelegationGrantFactory delegationGrantFactory)
     {
         _logger = logger;
         _rabbitMqService = rabbitMqService;
         _messageConfiguration = messageConfiguration;
         _activitySource = activitySource;
+        _delegationGrantFactory = delegationGrantFactory;
     }
 
     private async Task EnsureInitializedAsync()
@@ -104,17 +107,30 @@ public sealed class RabbitMessageClient : IMessageClient
             var messageJson = JsonSerializer.Serialize(messageBody);
             var body = Encoding.UTF8.GetBytes(messageJson);
 
+            var headers = new Dictionary<string, object>
+            {
+                ["TenantId"] = securityContext?.TenantId ?? string.Empty,
+                ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty,
+                ["SpanId"] = activity?.SpanId.ToString() ?? string.Empty,
+                ["SecurityContext"] = BuildTransportContextJson(securityContext, consumerMessage.Context),
+                ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
+            };
+
+            // Written while a validated user token is still in scope. SecurityContext above is context
+            // and tracing only; this grant is what carries authority. No user, no grant, no header.
+            var delegationGrant = await _delegationGrantFactory
+                .CreateForSendAsync(consumerMessage.DelegationTtl)
+                .ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(delegationGrant))
+            {
+                headers[DelegationConstants.DelegationGrantHeader] = delegationGrant;
+            }
+
             var properties = new BasicProperties
             {
                 DeliveryMode = DeliveryModes.Persistent,
-                Headers = new Dictionary<string, object>
-                {
-                    ["TenantId"] = securityContext?.TenantId ?? string.Empty,
-                    ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty,
-                    ["SpanId"] = activity?.SpanId.ToString() ?? string.Empty,
-                    ["SecurityContext"] = BuildTransportContextJson(securityContext, consumerMessage.Context),
-                    ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
-                }
+                Headers = headers
             };
 
             if (_messageConfiguration?.RabbitMqConfiguration?.MessageTtlSeconds > 0)

@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.RabbitMq;
 
@@ -373,7 +374,7 @@ public class RabbitMessageWorkerCoverageTests
 
         var ea = CreateEventArgs("orders.queue", "not-json", deliveryTag: 181);
 
-        await InvokePrivateAsync(worker, "DispatchAndAckAsync", [Encoding.UTF8.GetBytes("not-json"), null, ea]);
+        await InvokePrivateAsync(worker, "DispatchAndAckAsync", [Encoding.UTF8.GetBytes("not-json"), null, ea, null]);
 
         channel.Verify(x => x.BasicAckAsync(181, false, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -616,7 +617,9 @@ public class RabbitMessageWorkerCoverageTests
             configuration,
             rabbitService,
             consumer,
-            new ActivitySource("test-worker-coverage"));
+            new ActivitySource("test-worker-coverage"),
+            DelegationTestDoubles.NoOpStore(),
+            DelegationTestDoubles.NoOpProvider());
     }
 
     private static MessageConfiguration CreateConfiguration(string queueName)
