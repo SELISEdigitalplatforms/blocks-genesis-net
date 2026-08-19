@@ -139,6 +139,103 @@ public sealed class DemoPublisher
 }
 ```
 
+## Delegated access: calling another service as the originating user
+
+A worker has identity but no credential — `BlocksContext` arrives over the bus with `OAuthToken`
+blanked. Delegated access closes that gap without passing a token through the message.
+
+At send time, while a validated user token is still in scope, the message client writes a short
+**delegation grant** to Redis and puts its opaque id in the `DelegationGrant` header. The worker
+redeems that id at IAM (RFC 8693 token exchange) for a normal, ~5-minute Blocks access token
+carrying the original user's tenant, organization, roles and permissions. A long job can redeem as
+often as it needs; nothing rotates, so retries are safe.
+
+**Sending is automatic.** Any `SendToConsumerAsync` / `SendToMassConsumerAsync` made inside an
+authenticated request creates the grant for you. With no authenticated user, no grant is created and
+the header is omitted — it fails closed.
+
+```csharp
+// Optional: cap the grant's lifetime. Defaults to 2 days.
+await _messageClient.SendToConsumerAsync(new ConsumerMessage<EmailRequested>
+{
+    ConsumerName = "email_queue",
+    Payload = payload,
+    DelegationTtl = TimeSpan.FromHours(6),
+});
+```
+
+**Using the token is explicit, per call.** Ask for the headers and pass them to `IHttpService`, so
+the call is still traced:
+
+```csharp
+public sealed class SendEmailConsumer : IConsumer<EmailRequested>
+{
+    private readonly IHttpService _httpService;
+    private readonly IDelegatedTokenProvider _delegatedToken;
+
+    public SendEmailConsumer(IHttpService httpService, IDelegatedTokenProvider delegatedToken)
+    {
+        _httpService = httpService;
+        _delegatedToken = delegatedToken;
+    }
+
+    public async Task Consume(EmailRequested message)
+    {
+        // Adds Authorization: Bearer <token> and x-blocks-key. Merges with headers you pass in;
+        // your own Authorization always wins.
+        var headers = await _delegatedToken.GetAuthorizationHeadersAsync();
+
+        var (result, error) = await _httpService.Post<SendResult>(
+            message, "http://blocks-logic:8080/api/email/send", headers: headers);
+    }
+}
+```
+
+Nothing is attached implicitly, by design: a worker calling a third party must not hand it a Blocks
+credential. Call without these headers and no credential is sent.
+
+The token is cached per grant and single-flighted, so fifty concurrent calls cost one exchange, and a
+four-hour job costs one exchange per token lifetime rather than one per call.
+
+**Outside a worker** — in an API request — there is no grant, and
+`GetAuthorizationHeadersAsync()` returns your headers unchanged. Delegation solves the worker
+problem specifically.
+
+### Required configuration
+
+Genesis resolves IAM's token endpoint by OIDC discovery and **never hardcodes the path**, because
+`ApiRouting:Prefix` can rewrite it. Set at least one of these, or **the host fails to start**:
+
+| Setting | Meaning |
+|---|---|
+| `BLOCKS_IAM_BASE_URL` | Preferred. Used for `GET {base}/{tenantId}/.well-known/openid-configuration`. |
+| `BLOCKS_IAM_TOKEN_ENDPOINT` | Fallback: the **complete** endpoint URL, e.g. `http://blocks-iam:8080/api/oidc/token`. Not a base, not a template. |
+
+Both resolve in this order: **environment variable → `FrontendRuntime` section → configuration root.**
+`FrontendRuntime` is checked before the root because that is where Blocks services keep runtime
+settings, so this is the normal place to put them in `appsettings.json`:
+
+```json
+{
+  "FrontendRuntime": {
+    "BLOCKS_IAM_BASE_URL": "http://blocks-iam:8080"
+  }
+}
+```
+
+A bare root-level `"BLOCKS_IAM_BASE_URL"` also works. **Point them at IAM's internal address, never
+the public host** — that is what keeps the exchange off public ingress.
+
+### Operational notes
+
+- The grant id is a bearer credential. It is never logged, tagged on an `Activity`, or put in
+  Baggage — keep it that way, and audit dead-letter tooling that captures message headers.
+- Restrict Redis writes to `delegation:*` to the Genesis delegation component; write access there is
+  impersonation authority.
+- The exchange signature has a ±60s clock window, so **NTP must be correct** on worker and IAM nodes.
+- A grant is deleted only after a successful settle (business op → ACK → DEL). A failed run keeps its
+  grant so the redelivery still works; the absolute TTL is the backstop.
+
 ## Public API surface
 
 All types below live in the `Blocks.Genesis` namespace.
@@ -152,6 +249,7 @@ All types below live in the `Blocks.Genesis` namespace.
 | Data | `IDbContextProvider` (MongoDB collections per tenant), `ICacheClient` (Redis strings, hashes, pub/sub) |
 | Tenancy | `ITenants`, `Tenant`, `TenantValidationMiddleware` |
 | HTTP and gRPC | `IHttpService` (typed HTTP calls with header propagation), `IGrpcClientFactory`, `GrpcClientInterceptor`, `GrpcServerInterceptor` |
+| Delegated access | `IDelegatedTokenProvider` (`GetAuthorizationHeadersAsync`, `GetTokenAsync`), `DelegatedTokenContext`, `IDelegationGrantStore`, `IDelegationGrantFactory`, `IDelegationTokenEndpointResolver`, `DelegationSignature`, `DelegationConstants`, `DelegationGrantRecord` |
 | Utilities | `ICryptoService` (SHA-256 hash, HMAC-SHA256, constant-time comparison), `IVault`, `VaultType` |
 | Middleware | `GlobalExceptionHandlerMiddleware`, `RequestMetricsMiddleware`, `TenantValidationMiddleware` |
 | API docs | `BlocksApiDocExtensions.AddBlocksSwagger`, `BlocksSwaggerOptions` |
@@ -188,6 +286,8 @@ With Azure Key Vault the same names are used without the `BlocksSecret__` prefix
 | `ServiceBusConnectionString` | none | When set, logs and traces are forwarded to the LMT pipeline over the message bus instead of being written directly to MongoDB |
 | `MaxRetries` | `3` | LMT send retry attempts (also settable as `Lmt:MaxRetries` in `appsettings.json`) |
 | `MaxFailedBatches` | `100` | LMT failed-batch queue size (also settable as `Lmt:MaxFailedBatches`) |
+| `BLOCKS_IAM_BASE_URL` | none | IAM's **internal** base URL, used to discover the token endpoint for delegated access. Required unless `BLOCKS_IAM_TOKEN_ENDPOINT` is set — **the host will not start without one of the two** |
+| `BLOCKS_IAM_TOKEN_ENDPOINT` | none | Fallback for the above: the complete token endpoint URL, e.g. `http://blocks-iam:8080/api/oidc/token` |
 
 `src/Genesis/setup_env.sh` exports placeholder values for all core secrets for a local session (`source setup_env.sh`), and `.env.example` at the repository root shows a working local configuration for the docker-compose services.
 

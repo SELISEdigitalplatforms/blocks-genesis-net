@@ -6,6 +6,7 @@ using Moq;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.Azure;
 
@@ -497,7 +498,9 @@ public class AzureMessageWorkerCoverageTests
             logger.Object,
             configuration,
             consumer,
-            new ActivitySource(activitySourceName ?? "test-azure-worker-coverage"));
+            new ActivitySource(activitySourceName ?? "test-azure-worker-coverage"),
+            DelegationTestDoubles.NoOpStore(),
+            DelegationTestDoubles.NoOpProvider());
     }
 
     private static ServiceBusReceivedMessage CreateReceivedMessage(string messageId, string body, IDictionary<string, object>? properties = null)

@@ -11,14 +11,17 @@ public sealed class AzureMessageClient : IMessageClient
     private readonly ServiceBusClient _client;
     private readonly ConcurrentDictionary<string, ServiceBusSender> _senders;
     private readonly ActivitySource _activitySource;
+    private readonly IDelegationGrantFactory _delegationGrantFactory;
 
     public AzureMessageClient(
         MessageConfiguration messageConfiguration,
-        ActivitySource activitySource)
+        ActivitySource activitySource,
+        IDelegationGrantFactory delegationGrantFactory)
     {
         _client = new ServiceBusClient(messageConfiguration.Connection);
         _senders = new ConcurrentDictionary<string, ServiceBusSender>();
         _activitySource = activitySource;
+        _delegationGrantFactory = delegationGrantFactory;
 
         InitializeSenders(messageConfiguration);
     }
@@ -79,6 +82,17 @@ public sealed class AzureMessageClient : IMessageClient
                 ["Baggage"] = JsonSerializer.Serialize(GetBaggageDictionary())
             }
         };
+
+        // Written while a validated user token is still in scope. SecurityContext above is context
+        // and tracing only; this grant is what carries authority. No user, no grant, no header.
+        var delegationGrant = await _delegationGrantFactory
+            .CreateForSendAsync(consumerMessage.DelegationTtl)
+            .ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(delegationGrant))
+        {
+            message.ApplicationProperties[DelegationConstants.DelegationGrantHeader] = delegationGrant;
+        }
         if (consumerMessage.ScheduledEnqueueTimeUtc is not null)
         {
             await sender.ScheduleMessageAsync(message, consumerMessage.ScheduledEnqueueTimeUtc.Value);
