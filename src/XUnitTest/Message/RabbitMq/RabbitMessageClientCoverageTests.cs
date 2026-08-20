@@ -4,6 +4,7 @@ using Moq;
 using RabbitMQ.Client;
 using System.Diagnostics;
 using System.Reflection;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.RabbitMq;
 
@@ -254,7 +255,8 @@ public class RabbitMessageClientCoverageTests
             logger,
             rabbitService,
             configuration,
-            new ActivitySource("test-rabbit-client-coverage"));
+            new ActivitySource("test-rabbit-client-coverage"),
+            DelegationTestDoubles.NoGrantFactory());
     }
 
     private static MessageConfiguration CreateConfiguration()
