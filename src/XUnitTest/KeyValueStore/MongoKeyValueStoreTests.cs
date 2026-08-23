@@ -143,7 +143,7 @@ public sealed class MongoKeyValueStoreTests
 
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task SetAsync_ShouldCreateUniqueIndexOnKey()
+    public async Task SetAsync_ShouldCreateNonUniqueIndexOnKey()
     {
         await WithStoreAsync(async (store, tenantDatabase, _) =>
         {
@@ -152,10 +152,230 @@ public sealed class MongoKeyValueStoreTests
             var indexes = await tenantDatabase.GetCollection<BsonDocument>(CollectionName)
                 .Indexes.List().ToListAsync();
 
-            Assert.Contains(indexes, index =>
-                index["name"].AsString == "keyValueStores_Key_Unique" &&
-                index["unique"].AsBoolean);
+            var keyIndex = Assert.Single(indexes, index => index["name"].AsString == "keyValueStores_Key");
+            Assert.False(keyIndex.Contains("unique"));
+            Assert.DoesNotContain(indexes, index => index["name"].AsString == "keyValueStores_Key_Unique");
         });
+    }
+
+    // Databases provisioned by 4.0.6-4.0.9 already carry the unique index, and MongoDB
+    // cannot alter one in place. The store has to drop it on first use, otherwise every
+    // AddAsync on a pre-existing tenant fails with a duplicate-key error.
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task SetAsync_ShouldDropLegacyUniqueIndex_WhenDatabaseWasProvisionedByAnEarlierVersion()
+    {
+        await WithStoreAsync(async (store, tenantDatabase, _) =>
+        {
+            var collection = tenantDatabase.GetCollection<BsonDocument>(CollectionName);
+            await collection.Indexes.CreateOneAsync(new CreateIndexModel<BsonDocument>(
+                Builders<BsonDocument>.IndexKeys.Ascending("Key"),
+                new CreateIndexOptions { Name = "keyValueStores_Key_Unique", Unique = true }));
+
+            await store.SetAsync("legacy.index", "value");
+
+            var indexes = await collection.Indexes.List().ToListAsync();
+            Assert.DoesNotContain(indexes, index => index["name"].AsString == "keyValueStores_Key_Unique");
+            Assert.Contains(indexes, index => index["name"].AsString == "keyValueStores_Key");
+
+            // The point of the migration: duplicates are now accepted.
+            await store.AddAsync("legacy.index", "second");
+            await store.AddAsync("legacy.index", "third");
+            Assert.Equal(3, (await store.GetAllAsync<string>("legacy.index")).Count);
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task AddAsync_ShouldStoreMultipleValuesUnderTheSameKey()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            var firstId = await store.AddAsync("orders.pending", new SampleValue("first", 1));
+            var secondId = await store.AddAsync("orders.pending", new SampleValue("second", 2));
+
+            Assert.NotEqual(firstId, secondId);
+
+            var items = await store.GetAllAsync<SampleValue>("orders.pending");
+
+            Assert.Equal(2, items.Count);
+            Assert.Contains(items, item => item.ItemId == firstId && item.Value == new SampleValue("first", 1));
+            Assert.Contains(items, item => item.ItemId == secondId && item.Value == new SampleValue("second", 2));
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task AddAsync_ShouldNotOverwriteAnEntryWrittenBySetAsync()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            await store.SetAsync("mixed.key", new SampleValue("from-set", 1));
+            await store.AddAsync("mixed.key", new SampleValue("from-add", 2));
+
+            var items = await store.GetAllAsync<SampleValue>("mixed.key");
+            Assert.Equal(2, items.Count);
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task GetAllAsync_ShouldNarrowByTags()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            await store.AddAsync("audit.entry", new SampleValue("alpha", 1), ["service-a", "critical"]);
+            await store.AddAsync("audit.entry", new SampleValue("beta", 2), ["service-b"]);
+
+            var serviceA = await store.GetAllAsync<SampleValue>("audit.entry", ["service-a"]);
+            var critical = await store.GetAllAsync<SampleValue>("audit.entry", ["service-a", "critical"]);
+            var none = await store.GetAllAsync<SampleValue>("audit.entry", ["service-c"]);
+
+            Assert.Equal(new SampleValue("alpha", 1), Assert.Single(serviceA).Value);
+            Assert.Equal(new SampleValue("alpha", 1), Assert.Single(critical).Value);
+            Assert.Empty(none);
+            Assert.Equal(2, (await store.GetAllAsync<SampleValue>("audit.entry")).Count);
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task GetAllByPrefixAsync_ShouldReturnItemsAcrossKeys_AndNarrowByTags()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            await store.AddAsync("cfg.mail.smtp", new SampleValue("smtp", 1), ["mail"]);
+            await store.AddAsync("cfg.mail.imap", new SampleValue("imap", 2), ["mail"]);
+            await store.AddAsync("cfg.sms.twilio", new SampleValue("twilio", 3), ["sms"]);
+
+            var all = await store.GetAllByPrefixAsync<SampleValue>("cfg.");
+            var mailOnly = await store.GetAllByPrefixAsync<SampleValue>("cfg.", ["mail"]);
+
+            Assert.Equal(3, all.Count);
+            Assert.All(all, item => Assert.NotEmpty(item.ItemId));
+            Assert.Equal(2, mailOnly.Count);
+            Assert.All(mailOnly, item => Assert.StartsWith("cfg.mail.", item.Key, StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task UpdateByIdAsync_ShouldChangeOnlyTheTargetedDocument()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            var firstId = await store.AddAsync("jobs.queued", new SampleValue("first", 1));
+            await store.AddAsync("jobs.queued", new SampleValue("second", 2));
+
+            Assert.True(await store.UpdateByIdAsync(firstId, new SampleValue("first-updated", 10)));
+
+            var items = await store.GetAllAsync<SampleValue>("jobs.queued");
+            Assert.Equal(2, items.Count);
+            Assert.Contains(items, item => item.Value == new SampleValue("first-updated", 10));
+            Assert.Contains(items, item => item.Value == new SampleValue("second", 2));
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task UpdateByIdAsync_ShouldReturnTrue_WhenValueIsUnchanged()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            var itemId = await store.AddAsync("jobs.idempotent", new SampleValue("same", 1));
+
+            // Matched but not modified still means the document is in the requested state.
+            Assert.True(await store.UpdateByIdAsync(itemId, new SampleValue("same", 1)));
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task UpdateByIdAsync_ShouldReturnFalse_WhenItemIdIsUnknown()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            Assert.False(await store.UpdateByIdAsync(ObjectId.GenerateNewId().ToString(), new SampleValue("x", 1)));
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task GetByIdAsync_ShouldReturnItemWithAuditFields_OrNullWhenMissing()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            try
+            {
+                BlocksContext.SetContext(CreateContext(userId: "user-1", organizationId: "org-9"));
+                var itemId = await store.AddAsync("profile.pref", new SampleValue("dark", 1), ["ui"]);
+
+                var item = await store.GetByIdAsync<SampleValue>(itemId);
+
+                Assert.NotNull(item);
+                Assert.Equal(itemId, item.ItemId);
+                Assert.Equal("profile.pref", item.Key);
+                Assert.Equal(new SampleValue("dark", 1), item.Value);
+                Assert.Equal(["ui"], item.Tags);
+                Assert.Equal("user-1", item.CreatedBy);
+                Assert.Equal("org-9", item.OrganizationId);
+
+                Assert.Null(await store.GetByIdAsync<SampleValue>(ObjectId.GenerateNewId().ToString()));
+            }
+            finally
+            {
+                BlocksContext.SetContext(null);
+            }
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task DeleteByIdAsync_ShouldRemoveOnlyTheTargetedDocument()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            var firstId = await store.AddAsync("cache.entry", new SampleValue("first", 1));
+            await store.AddAsync("cache.entry", new SampleValue("second", 2));
+
+            Assert.True(await store.DeleteByIdAsync(firstId));
+            Assert.False(await store.DeleteByIdAsync(firstId));
+
+            var remaining = await store.GetAllAsync<SampleValue>("cache.entry");
+            Assert.Equal(new SampleValue("second", 2), Assert.Single(remaining).Value);
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task DeleteAllAsync_ShouldRemoveEveryDocumentUnderTheKey()
+    {
+        await WithStoreAsync(async (store, _, _) =>
+        {
+            await store.AddAsync("batch.item", new SampleValue("a", 1));
+            await store.AddAsync("batch.item", new SampleValue("b", 2));
+            await store.AddAsync("batch.other", new SampleValue("c", 3));
+
+            Assert.Equal(2, await store.DeleteAllAsync("batch.item"));
+            Assert.Empty(await store.GetAllAsync<SampleValue>("batch.item"));
+            Assert.Single(await store.GetAllAsync<SampleValue>("batch.other"));
+            Assert.Equal(0, await store.DeleteAllAsync("batch.item"));
+        });
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task MultiValueApi_ShouldRejectBlankKeysAndIds(string blank)
+    {
+        var store = new MongoKeyValueStore(new Mock<IDbContextProvider>().Object, new Mock<IBlocksSecret>().Object);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => store.AddAsync(blank, "value"));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.GetAllAsync<string>(blank));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.GetByIdAsync<string>(blank));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.UpdateByIdAsync(blank, "value"));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.DeleteByIdAsync(blank));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.DeleteAllAsync(blank));
     }
 
     [Fact]

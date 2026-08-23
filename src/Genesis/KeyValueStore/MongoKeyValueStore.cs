@@ -9,7 +9,17 @@ namespace Blocks.Genesis;
 public sealed class MongoKeyValueStore : IKeyValueStore
 {
     internal const string CollectionName = "keyValueStores";
-    internal const string KeyIndexName = "keyValueStores_Key_Unique";
+
+    /// <summary>Non-unique index on <c>Key</c>. Serves key lookups and anchored prefix scans.</summary>
+    internal const string KeyIndexName = "keyValueStores_Key";
+
+    /// <summary>
+    /// The unique index this store shipped with up to 4.0.9. A key may now hold several
+    /// documents, so it is dropped on first use of every database. MongoDB cannot alter
+    /// an index in place, and the replacement covers the same field, so the old one has
+    /// to go before <see cref="KeyIndexName"/> can be created.
+    /// </summary>
+    internal const string LegacyUniqueKeyIndexName = "keyValueStores_Key_Unique";
 
     private static readonly ConcurrentDictionary<string, byte> _indexedDatabases = new();
     private readonly IDbContextProvider _dbContextProvider;
@@ -31,23 +41,18 @@ public sealed class MongoKeyValueStore : IKeyValueStore
 
         return entry is null || entry.Value.IsBsonNull
             ? default
-            : MongoDB.Bson.Serialization.BsonSerializer.Deserialize<T>(entry.Value.ToJson());
+            : Deserialize<T>(entry.Value);
     }
 
     public async Task<IReadOnlyList<T>> GetByPrefixAsync<T>(string prefix, bool impersonated = true, CancellationToken cancellationToken = default)
     {
-        var normalizedPrefix = NormalizeKey(prefix);
-        var filter = Builders<KeyValueEntry>.Filter.Regex(
-            x => x.Key,
-            new BsonRegularExpression($"^{Regex.Escape(normalizedPrefix)}"));
-
         var entries = await Collection(impersonated)
-            .Find(filter)
+            .Find(PrefixFilter(prefix, tags: null))
             .ToListAsync(cancellationToken);
 
         return entries
             .Where(entry => !entry.Value.IsBsonNull)
-            .Select(entry => MongoDB.Bson.Serialization.BsonSerializer.Deserialize<T>(entry.Value.ToJson()))
+            .Select(entry => Deserialize<T>(entry.Value))
             .ToList();
     }
 
@@ -82,6 +87,9 @@ public sealed class MongoKeyValueStore : IKeyValueStore
                 new UpdateOptions { IsUpsert = true },
                 cancellationToken);
         }
+        // Kept for the window in which a database still carries the legacy unique index
+        // (an instance on an older build can recreate it), and for the upsert's own
+        // insert/insert race.
         catch (MongoWriteException exception)
             when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
         {
@@ -113,6 +121,98 @@ public sealed class MongoKeyValueStore : IKeyValueStore
             .AnyAsync(cancellationToken);
     }
 
+    public async Task<string> AddAsync<T>(string key, T value, IEnumerable<string>? tags = null, bool impersonated = true, CancellationToken cancellationToken = default)
+    {
+        var normalizedKey = NormalizeKey(key);
+        ArgumentNullException.ThrowIfNull(value);
+        await EnsureIndexesAsync(impersonated, cancellationToken);
+
+        var now = DateTime.UtcNow;
+        var userId = ResolveCurrentUserId();
+
+        var entry = new KeyValueEntry
+        {
+            ItemId = ObjectId.GenerateNewId().ToString(),
+            Key = normalizedKey,
+            Value = SerializeValue(value),
+            Tags = NormalizeTags(tags),
+            CreatedDate = now,
+            LastUpdatedDate = now,
+            CreatedBy = userId,
+            LastUpdatedBy = userId,
+            OrganizationId = ResolveCurrentOrganizationId()
+        };
+
+        await Collection(impersonated).InsertOneAsync(entry, options: null, cancellationToken);
+        return entry.ItemId;
+    }
+
+    public async Task<IReadOnlyList<KeyValueItem<T>>> GetAllAsync<T>(string key, IEnumerable<string>? tags = null, bool impersonated = true, CancellationToken cancellationToken = default)
+    {
+        var normalizedKey = NormalizeKey(key);
+        var filter = WithTags(Builders<KeyValueEntry>.Filter.Eq(x => x.Key, normalizedKey), tags);
+
+        var entries = await Collection(impersonated).Find(filter).ToListAsync(cancellationToken);
+        return ToItems<T>(entries);
+    }
+
+    public async Task<IReadOnlyList<KeyValueItem<T>>> GetAllByPrefixAsync<T>(string prefix, IEnumerable<string>? tags = null, bool impersonated = true, CancellationToken cancellationToken = default)
+    {
+        var entries = await Collection(impersonated)
+            .Find(PrefixFilter(prefix, tags))
+            .ToListAsync(cancellationToken);
+
+        return ToItems<T>(entries);
+    }
+
+    public async Task<KeyValueItem<T>?> GetByIdAsync<T>(string itemId, bool impersonated = true, CancellationToken cancellationToken = default)
+    {
+        var normalizedId = NormalizeItemId(itemId);
+
+        var entry = await Collection(impersonated)
+            .Find(x => x.ItemId == normalizedId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return entry is null || entry.Value.IsBsonNull ? null : ToItem<T>(entry);
+    }
+
+    public async Task<bool> UpdateByIdAsync<T>(string itemId, T value, bool impersonated = true, CancellationToken cancellationToken = default)
+    {
+        var normalizedId = NormalizeItemId(itemId);
+        ArgumentNullException.ThrowIfNull(value);
+
+        var update = Builders<KeyValueEntry>.Update
+            .Set(x => x.Value, SerializeValue(value))
+            .Set(x => x.LastUpdatedDate, DateTime.UtcNow)
+            .Set(x => x.LastUpdatedBy, ResolveCurrentUserId());
+
+        var result = await Collection(impersonated).UpdateOneAsync(
+            x => x.ItemId == normalizedId,
+            update,
+            options: null,
+            cancellationToken);
+
+        // MatchedCount, not ModifiedCount: rewriting a document with the value it
+        // already holds is a successful update that modifies nothing.
+        return result.MatchedCount > 0;
+    }
+
+    public async Task<bool> DeleteByIdAsync(string itemId, bool impersonated = true, CancellationToken cancellationToken = default)
+    {
+        var normalizedId = NormalizeItemId(itemId);
+
+        var result = await Collection(impersonated).DeleteOneAsync(x => x.ItemId == normalizedId, cancellationToken);
+        return result.DeletedCount > 0;
+    }
+
+    public async Task<long> DeleteAllAsync(string key, bool impersonated = true, CancellationToken cancellationToken = default)
+    {
+        var normalizedKey = NormalizeKey(key);
+
+        var result = await Collection(impersonated).DeleteManyAsync(x => x.Key == normalizedKey, cancellationToken);
+        return result.DeletedCount;
+    }
+
     private async Task EnsureIndexesAsync(bool impersonated, CancellationToken cancellationToken)
     {
         var database = GetDatabase(impersonated);
@@ -124,12 +224,25 @@ public sealed class MongoKeyValueStore : IKeyValueStore
         }
 
         var collection = database.GetCollection<KeyValueEntry>(CollectionName);
+
+        // Drop before create: the replacement indexes the same field, and MongoDB rejects
+        // a second index over an identical key pattern under a new name
+        // (IndexKeySpecsConflict). A database that never carried the legacy index - or was
+        // migrated by an earlier run - reports IndexNotFound, which is the steady state.
+        try
+        {
+            await collection.Indexes.DropOneAsync(LegacyUniqueKeyIndexName, cancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.CodeName == "IndexNotFound")
+        {
+            // Nothing to migrate.
+        }
+
         var index = new CreateIndexModel<KeyValueEntry>(
             Builders<KeyValueEntry>.IndexKeys.Ascending(x => x.Key),
             new CreateIndexOptions<KeyValueEntry>
             {
-                Name = KeyIndexName,
-                Unique = true
+                Name = KeyIndexName
             });
 
         await collection.Indexes.CreateOneAsync(index, cancellationToken: cancellationToken);
@@ -149,6 +262,50 @@ public sealed class MongoKeyValueStore : IKeyValueStore
 
         return _dbContextProvider.GetDatabase(_blocksSecret.DatabaseConnectionString, _blocksSecret.RootDatabaseName);
     }
+
+    private static FilterDefinition<KeyValueEntry> PrefixFilter(string prefix, IEnumerable<string>? tags)
+    {
+        var normalizedPrefix = NormalizeKey(prefix);
+
+        // Anchored at ^ so the Key index can serve the scan instead of falling back to a
+        // collection scan.
+        var filter = Builders<KeyValueEntry>.Filter.Regex(
+            x => x.Key,
+            new BsonRegularExpression($"^{Regex.Escape(normalizedPrefix)}"));
+
+        return WithTags(filter, tags);
+    }
+
+    private static FilterDefinition<KeyValueEntry> WithTags(FilterDefinition<KeyValueEntry> filter, IEnumerable<string>? tags)
+    {
+        var normalizedTags = NormalizeTags(tags);
+        if (normalizedTags.Count == 0)
+        {
+            return filter;
+        }
+
+        return Builders<KeyValueEntry>.Filter.And(
+            filter,
+            Builders<KeyValueEntry>.Filter.All(x => x.Tags, normalizedTags));
+    }
+
+    private static List<KeyValueItem<T>> ToItems<T>(IEnumerable<KeyValueEntry> entries) =>
+        entries.Where(entry => !entry.Value.IsBsonNull).Select(ToItem<T>).ToList();
+
+    private static KeyValueItem<T> ToItem<T>(KeyValueEntry entry) =>
+        new(
+            entry.ItemId,
+            entry.Key,
+            Deserialize<T>(entry.Value),
+            entry.Tags ?? [],
+            entry.CreatedDate,
+            entry.LastUpdatedDate,
+            entry.CreatedBy,
+            entry.LastUpdatedBy,
+            entry.OrganizationId);
+
+    private static T Deserialize<T>(BsonValue value) =>
+        MongoDB.Bson.Serialization.BsonSerializer.Deserialize<T>(value.ToJson());
 
     private static BsonValue SerializeValue<T>(T value)
     {
@@ -173,6 +330,24 @@ public sealed class MongoKeyValueStore : IKeyValueStore
 
         return key.Trim();
     }
+
+    private static string NormalizeItemId(string itemId)
+    {
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            throw new ArgumentException("Item id is required.", nameof(itemId));
+        }
+
+        return itemId.Trim();
+    }
+
+    private static List<string> NormalizeTags(IEnumerable<string>? tags) =>
+        tags is null
+            ? []
+            : tags.Where(tag => !string.IsNullOrWhiteSpace(tag))
+                  .Select(tag => tag.Trim())
+                  .Distinct(StringComparer.Ordinal)
+                  .ToList();
 
     private static string? ResolveCurrentUserId()
     {
