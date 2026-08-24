@@ -374,11 +374,24 @@ internal static class JwtBearerAuthenticationExtension
             return CreateCertificate(((byte[])cachedCertificate)!, validationParams?.PublicCertificatePassword);
 
         if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
+        {
+            // Distinguishing these two is what tells an operator whether the tenant document
+            // is wrong or the tenant is simply unknown to this process.
+            Log.Warning(
+                "[Cert] No public certificate path for tenant {TenantId}. CacheMiss=true, JwtTokenParametersPresent={HasParameters}.",
+                tenantId,
+                validationParams != null);
             return null;
+        }
 
         var certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath, httpClientFactory);
         if (certificateData == null)
+        {
+            Log.Warning(
+                "[Cert] Public certificate could not be loaded for tenant {TenantId} from configured path.",
+                tenantId);
             return null;
+        }
 
         await CacheCertificateAsync(cacheDb, cacheKey, certificateData, validationParams);
         return CreateCertificate(certificateData, validationParams.PublicCertificatePassword);
@@ -394,7 +407,15 @@ internal static class JwtBearerAuthenticationExtension
                 return await httpClient.GetByteArrayAsync(path);
             }
 
-            return File.Exists(path) ? await File.ReadAllBytesAsync(path) : null;
+            if (File.Exists(path))
+            {
+                return await File.ReadAllBytesAsync(path);
+            }
+
+            // Reached when the stored path is neither an absolute URI nor a local file —
+            // a relative or malformed URL lands here and used to return null silently.
+            Log.Warning("[Cert] Certificate path is not an absolute URI and no such file exists.");
+            return null;
         }
         catch (Exception e)
         {

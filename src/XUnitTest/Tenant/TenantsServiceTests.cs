@@ -460,6 +460,119 @@ public class TenantsServiceTests
         Assert.True(cache.ContainsKey("keep"));
     }
 
+    [Fact]
+    public void GetTenantTokenValidationParameter_ShouldServeFromCache_WhenCertificatePathIsPresent()
+    {
+        var sut = CreateSut();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        cache["tenant-ok"] = CreateTenant("tenant-ok");
+
+        var database = new Mock<IMongoDatabase>();
+        SetField(sut, "_database", database.Object);
+
+        var parameters = sut.GetTenantTokenValidationParameter("tenant-ok");
+
+        Assert.NotNull(parameters);
+        Assert.Equal("path", parameters!.PublicCertificatePath);
+        // A usable cached tenant must never cost a database read.
+        database.Verify(
+            d => d.GetCollection<Blocks.Genesis.Tenant>(It.IsAny<string>(), It.IsAny<MongoCollectionSettings>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void GetTenantTokenValidationParameter_ShouldRevalidateFromDb_WhenCachedCertificatePathIsBlank()
+    {
+        var sut = CreateSut();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        cache["tenant-stale"] = CreateTenantWithoutCertificatePath("tenant-stale");
+
+        SetField(sut, "_database", CreateDatabaseReturning(CreateTenant("tenant-stale")).Object);
+
+        var parameters = sut.GetTenantTokenValidationParameter("tenant-stale");
+
+        Assert.NotNull(parameters);
+        Assert.Equal("path", parameters!.PublicCertificatePath);
+        // The refreshed tenant must replace the stale one so later reads are served hot.
+        Assert.Equal("path", cache["tenant-stale"].JwtTokenParameters!.PublicCertificatePath);
+    }
+
+    [Fact]
+    public void GetTenantTokenValidationParameter_ShouldThrottleRevalidation_WhenPathStaysBlank()
+    {
+        var sut = CreateSut();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        cache["tenant-blank"] = CreateTenantWithoutCertificatePath("tenant-blank");
+
+        // The database agrees the path is blank, so revalidation cannot help.
+        var database = CreateDatabaseReturning(CreateTenantWithoutCertificatePath("tenant-blank"));
+        SetField(sut, "_database", database.Object);
+
+        for (var i = 0; i < 5; i++)
+        {
+            Assert.NotNull(sut.GetTenantTokenValidationParameter("tenant-blank"));
+        }
+
+        // A genuinely unconfigured tenant must not read the database once per request.
+        database.Verify(
+            d => d.GetCollection<Blocks.Genesis.Tenant>(It.IsAny<string>(), It.IsAny<MongoCollectionSettings>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void GetTenantTokenValidationParameter_ShouldFallBackToCachedValue_WhenRevalidationFindsNothing()
+    {
+        var sut = CreateSut();
+        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        cache["tenant-gone"] = CreateTenantWithoutCertificatePath("tenant-gone");
+
+        var database = new Mock<IMongoDatabase>();
+        database
+            .Setup(d => d.GetCollection<Blocks.Genesis.Tenant>(It.IsAny<string>(), It.IsAny<MongoCollectionSettings>()))
+            .Throws(new InvalidOperationException("db-down"));
+        SetField(sut, "_database", database.Object);
+
+        var parameters = sut.GetTenantTokenValidationParameter("tenant-gone");
+
+        // Degrades to the previous behaviour instead of throwing into the auth pipeline.
+        Assert.NotNull(parameters);
+        Assert.Equal(string.Empty, parameters!.PublicCertificatePath);
+    }
+
+    [Fact]
+    public void GetTenantTokenValidationParameter_ShouldReturnNull_WhenTenantIsUnknown()
+    {
+        var sut = CreateSut();
+        SetField(sut, "_database", CreateDatabaseReturning(null).Object);
+
+        Assert.Null(sut.GetTenantTokenValidationParameter("tenant-unknown"));
+    }
+
+    private static Mock<IMongoDatabase> CreateDatabaseReturning(Blocks.Genesis.Tenant? tenant)
+    {
+        var collection = new Mock<IMongoCollection<Blocks.Genesis.Tenant>>();
+        collection
+            .Setup(c => c.FindSync(
+                It.IsAny<FilterDefinition<Blocks.Genesis.Tenant>>(),
+                It.IsAny<FindOptions<Blocks.Genesis.Tenant, Blocks.Genesis.Tenant>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(CreateCursorWithFirst(tenant).Object);
+
+        var database = new Mock<IMongoDatabase>();
+        database
+            .Setup(d => d.GetCollection<Blocks.Genesis.Tenant>(It.IsAny<string>(), It.IsAny<MongoCollectionSettings>()))
+            .Returns(collection.Object);
+
+        return database;
+    }
+
+    private static Blocks.Genesis.Tenant CreateTenantWithoutCertificatePath(string tenantId)
+    {
+        var tenant = CreateTenant(tenantId);
+        tenant.JwtTokenParameters!.PublicCertificatePath = string.Empty;
+        return tenant;
+    }
+
     private static Tenants CreateSut()
     {
         var instance = (Tenants)RuntimeHelpers.GetUninitializedObject(typeof(Tenants));
@@ -473,6 +586,9 @@ public class TenantsServiceTests
         SetField(instance, "_disposed", false);
         SetField(instance, "_tenantCache", new ConcurrentDictionary<string, Blocks.Genesis.Tenant>());
         SetField(instance, "_tenantLoadInProgress", new ConcurrentDictionary<string, Lazy<Blocks.Genesis.Tenant?>>());
+        // GetUninitializedObject skips field initializers, so every readonly field the
+        // production code touches has to be seeded here explicitly.
+        SetField(instance, "_lastTokenParameterRevalidationUtc", new ConcurrentDictionary<string, DateTime>());
 
         return instance;
     }

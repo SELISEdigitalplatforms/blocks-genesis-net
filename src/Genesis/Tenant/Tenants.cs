@@ -22,6 +22,15 @@ public sealed class Tenants : ITenants, IDisposable
 
     private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
     private readonly ConcurrentDictionary<string, Lazy<Tenant?>> _tenantLoadInProgress = [];
+    private readonly ConcurrentDictionary<string, DateTime> _lastTokenParameterRevalidationUtc = [];
+
+    // A cached tenant is only ever refreshed by a "tenant::updates" message, and Redis
+    // pub/sub delivers at most once — a pod that is restarting, disconnected, or simply
+    // started after the publish keeps the stale copy for its whole lifetime. When the
+    // stale copy predates certificate provisioning it carries no PublicCertificatePath,
+    // and token validation then fails for that tenant until the pod is restarted.
+    // Re-reading the database on that specific miss bounds the damage to this interval.
+    private static readonly TimeSpan TokenParameterRevalidationInterval = TimeSpan.FromMinutes(1);
 
     public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
     {
@@ -88,7 +97,60 @@ public sealed class Tenants : ITenants, IDisposable
         if (string.IsNullOrWhiteSpace(tenantId)) return null;
 
         var tenant = GetTenantByID(tenantId);
-        return tenant?.JwtTokenParameters;
+        var parameters = tenant?.JwtTokenParameters;
+
+        // The tenant is genuinely unknown, or the cached copy is usable — nothing to do.
+        // GetTenantByID has already consulted the database when the tenant was absent.
+        if (tenant is null || !string.IsNullOrWhiteSpace(parameters?.PublicCertificatePath))
+        {
+            return parameters;
+        }
+
+        // A tenant with no certificate path cannot validate tokens, so the caller is about
+        // to fail anyway. Spend one database read to rule out a stale cache entry before
+        // that happens, rate limited so a tenant that is genuinely unconfigured does not
+        // read the database on every request.
+        return TryRevalidateTenant(tenantId)?.JwtTokenParameters ?? parameters;
+    }
+
+    /// <summary>
+    /// Re-reads a single tenant from the database and refreshes the in-memory cache,
+    /// at most once per <see cref="TokenParameterRevalidationInterval"/> per tenant.
+    /// Returns the refreshed tenant, or null when throttled or when the read fails.
+    /// </summary>
+    private Tenant? TryRevalidateTenant(string tenantId)
+    {
+        var now = DateTime.UtcNow;
+        var lastAttempt = _lastTokenParameterRevalidationUtc.GetOrAdd(tenantId, DateTime.MinValue);
+
+        if (now - lastAttempt < TokenParameterRevalidationInterval)
+        {
+            return null;
+        }
+
+        // Losing this race means another thread is already revalidating; fall back to the
+        // cached value rather than piling concurrent reads onto the same tenant.
+        if (!_lastTokenParameterRevalidationUtc.TryUpdate(tenantId, now, lastAttempt))
+        {
+            return null;
+        }
+
+        var refreshed = GetTenantFromDb(tenantId);
+        if (refreshed is null)
+        {
+            return null;
+        }
+
+        _tenantCache[refreshed.TenantId] = refreshed;
+
+        var pathNowPresent = !string.IsNullOrWhiteSpace(refreshed.JwtTokenParameters?.PublicCertificatePath);
+
+        _logger.LogInformation(
+            "Tenant re-read from database because no public certificate path was cached. TenantId: {TenantId}, PathNowPresent: {PathNowPresent}",
+            tenantId,
+            pathNowPresent);
+
+        return refreshed;
     }
 
     public Task UpdateTenantVersionAsync(TenantCacheUpdateMessage cacheUpdate)
