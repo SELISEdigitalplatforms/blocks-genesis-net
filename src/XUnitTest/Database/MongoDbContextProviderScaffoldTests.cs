@@ -4,6 +4,7 @@ using Moq;
 
 namespace XUnitTest.Database;
 
+[Collection("BlocksAuthStaticState")]
 public class MongoDbContextProviderScaffoldTests
 {
     [Fact]

@@ -11,6 +11,7 @@ using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.Azure;
 
+[Collection("BlocksAuthStaticState")]
 public class AzureMessageWorkerScaffoldTests
 {
     [Fact]

@@ -10,6 +10,7 @@ namespace XUnitTest.Delegation;
 /// Cache, single-flight and renewal behaviour of the exchange, plus the signature conformance
 /// vector shared with blocks-genesis-py.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class DelegatedTokenProviderTests : IDisposable
 {
     private const string TenantId = "tenant-1";

@@ -11,6 +11,7 @@ namespace XUnitTest.Delegation;
 /// <c>IHttpService</c>, so the call is still traced — but nothing is ever attached to a request the
 /// caller did not ask about. A worker calling a third party must not hand it a Blocks credential.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class DelegatedAuthorizationHeadersTests : IDisposable
 {
     private const string TenantId = "tenant-1";

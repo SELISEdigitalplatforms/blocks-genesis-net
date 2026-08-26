@@ -8,6 +8,7 @@ using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.RabbitMq;
 
+[Collection("BlocksAuthStaticState")]
 public class RabbitMessageClientCoverageTests
 {
     [Fact]

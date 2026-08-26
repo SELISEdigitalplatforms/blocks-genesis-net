@@ -2,6 +2,7 @@ using Blocks.Genesis;
 
 namespace XUnitTest.Auth;
 
+[Collection("BlocksAuthStaticState")]
 public class BlocksContextCleanupTests
 {
     [Fact]

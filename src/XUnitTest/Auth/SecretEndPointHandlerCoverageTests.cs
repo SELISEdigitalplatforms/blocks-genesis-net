@@ -11,6 +11,7 @@ namespace XUnitTest.Auth;
 /// Branch coverage for the internal <c>SecretAuthorizationHandler</c>: non-HTTP resources,
 /// missing tenant context and unknown tenants.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class SecretEndPointHandlerCoverageTests
 {
     private const string HandlerTypeName = "Blocks.Genesis.SecretAuthorizationHandler, Blocks.Genesis";

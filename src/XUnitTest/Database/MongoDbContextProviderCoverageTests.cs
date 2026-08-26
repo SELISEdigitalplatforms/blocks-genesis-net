@@ -6,6 +6,7 @@ using System.Diagnostics;
 
 namespace XUnitTest.Database;
 
+[Collection("BlocksAuthStaticState")]
 public class MongoDbContextProviderCoverageTests
 {
     private const string MongoConnectionString = "mongodb://127.0.0.1:27017";

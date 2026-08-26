@@ -4,6 +4,7 @@ using Moq;
 
 namespace XUnitTest.Auth;
 
+[Collection("BlocksAuthStaticState")]
 public class TokenHelperCoverageTests : IDisposable
 {
     public TokenHelperCoverageTests()

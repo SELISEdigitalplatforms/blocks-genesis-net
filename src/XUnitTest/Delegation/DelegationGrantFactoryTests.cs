@@ -8,6 +8,7 @@ namespace XUnitTest.Delegation;
 /// Send-side rules: no authenticated user means no grant, and a worker-originated send carries the
 /// version material forward from the grant it already holds.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class DelegationGrantFactoryTests : IDisposable
 {
     private readonly bool _originalTestMode = BlocksContext.IsTestMode;
