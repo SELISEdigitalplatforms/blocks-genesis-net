@@ -5,6 +5,7 @@ using System.Text.Json;
 
 namespace XUnitTest.Auth;
 
+[Collection("BlocksAuthStaticState")]
 public class BlocksContextTests : IDisposable
 {
     public BlocksContextTests()

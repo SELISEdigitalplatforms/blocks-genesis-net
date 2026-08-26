@@ -10,6 +10,7 @@ namespace XUnitTest.Tenant;
 /// <c>EnsureTenantContext</c> seeds a <see cref="BlocksContext"/> for a resolved tenant unless the
 /// tenant is null or the current context already targets the same tenant.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class TenantContextHelperTests : IDisposable
 {
     public TenantContextHelperTests()

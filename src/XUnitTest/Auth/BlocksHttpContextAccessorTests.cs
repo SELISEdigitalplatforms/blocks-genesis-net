@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace XUnitTest.Auth;
 
+[Collection("BlocksAuthStaticState")]
 public class BlocksHttpContextAccessorTests
 {
     [Fact]
