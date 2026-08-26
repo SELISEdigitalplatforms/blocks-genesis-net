@@ -7,6 +7,7 @@ using System.Security.Claims;
 
 namespace XUnitTest.Auth;
 
+[Collection("BlocksAuthStaticState")]
 public class AuthAttributesAndSecretHandlerTests
 {
     [Fact]

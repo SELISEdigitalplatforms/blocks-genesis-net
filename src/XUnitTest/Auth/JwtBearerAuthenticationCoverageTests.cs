@@ -211,7 +211,7 @@ public class JwtBearerAuthenticationCoverageTests
     [Fact]
     public async Task GetCertificateAsync_ShouldLoadFromFileAndCache_WhenCacheMisses()
     {
-        var method = GetPrivateStaticMethod("GetCertificateAsync");
+        var method = GetStaticMethod("GetCertificateAsync");
 
         var tempPath = Path.Combine(Path.GetTempPath(), $"cache-miss-{Guid.NewGuid():N}.pfx");
         using var cert = CreateSelfSignedCertificate("CN=cache-miss");
@@ -267,7 +267,7 @@ public class JwtBearerAuthenticationCoverageTests
     [Fact]
     public async Task GetCertificateAsync_ShouldReturnNull_WhenCertificateFileIsMissing()
     {
-        var method = GetPrivateStaticMethod("GetCertificateAsync");
+        var method = GetStaticMethod("GetCertificateAsync");
 
         var validation = new JwtTokenParameters
         {
@@ -717,6 +717,17 @@ public class JwtBearerAuthenticationCoverageTests
         var type = Type.GetType(ExtensionTypeName);
         Assert.NotNull(type);
         var method = type!.GetMethod(name, BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+        return method!;
+    }
+
+    // GetCertificateAsync is reached through reflection because the extension type is internal,
+    // not because the method is private -- so match it whatever its visibility happens to be.
+    private static MethodInfo GetStaticMethod(string name)
+    {
+        var type = Type.GetType(ExtensionTypeName);
+        Assert.NotNull(type);
+        var method = type!.GetMethod(name, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
         return method!;
     }
