@@ -245,6 +245,12 @@ public static class ApplicationConfigurations
     {
         ArgumentNullException.ThrowIfNull(app);
 
+        // Zero-config for consumers: by the time middleware is wired, any seeded Rollbar token is
+        // already in app.Configuration, and the service name was captured by ConfigureApi. A
+        // service with no token seeded stays silent -- see BlocksRollbar.
+        BlocksRollbar.Initialize(app.Configuration, _serviceName, app.Environment.EnvironmentName);
+        BlocksRollbar.AttachDiagnostics(app.Logger);
+
         var enableHsts = _blocksSecret.EnableHsts || app.Configuration.GetValue<bool>("EnableHsts");
         if (enableHsts)
         {

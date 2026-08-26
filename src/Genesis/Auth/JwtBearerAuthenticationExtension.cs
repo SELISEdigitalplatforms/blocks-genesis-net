@@ -363,7 +363,7 @@ internal static class JwtBearerAuthenticationExtension
             : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePassword);
     }
 
-    private static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
+    public static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
     {
         string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
 
