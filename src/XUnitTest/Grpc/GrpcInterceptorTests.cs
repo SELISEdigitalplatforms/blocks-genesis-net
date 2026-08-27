@@ -8,6 +8,7 @@ using System.Text.Json;
 
 namespace XUnitTest.Grpc;
 
+[Collection("BlocksAuthStaticState")]
 public class GrpcInterceptorTests
 {
     [Fact]

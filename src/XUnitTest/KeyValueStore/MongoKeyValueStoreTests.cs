@@ -10,6 +10,7 @@ namespace XUnitTest.KeyValueStore;
 // driver's Find/UpdateOne fluent APIs are impractical to mock with Moq. Only
 // IDbContextProvider and IBlocksSecret are mocked, to redirect the "tenant" and
 // "root" database lookups at throwaway per-test database names.
+[Collection("BlocksAuthStaticState")]
 public sealed class MongoKeyValueStoreTests
 {
     private const string MongoConnectionString = "mongodb://127.0.0.1:27017";

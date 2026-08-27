@@ -211,11 +211,9 @@ public class JwtBearerAuthenticationCoverageTests
     [Fact]
     public async Task GetCertificateAsync_ShouldLoadFromFileAndCache_WhenCacheMisses()
     {
-        var method = GetStaticMethod("GetCertificateAsync");
-
         var tempPath = Path.Combine(Path.GetTempPath(), $"cache-miss-{Guid.NewGuid():N}.pfx");
         using var cert = CreateSelfSignedCertificate("CN=cache-miss");
-        await File.WriteAllBytesAsync(tempPath, cert.Export(X509ContentType.Pfx));
+        await File.WriteAllBytesAsync(tempPath, cert.Export(X509ContentType.Cert));
 
         try
         {
@@ -244,8 +242,11 @@ public class JwtBearerAuthenticationCoverageTests
                     It.IsAny<CommandFlags>()))
                 .ReturnsAsync(true);
 
-            var task = (Task<X509Certificate2?>)method.Invoke(null, ["tenant-file", tenants.Object, cacheDb.Object, new Mock<IHttpClientFactory>().Object])!;
-            var result = await task;
+            var result = await JwtBearerAuthenticationExtension.GetCertificateAsync(
+                "tenant-file",
+                tenants.Object,
+                cacheDb.Object,
+                new Mock<IHttpClientFactory>().Object);
 
             Assert.NotNull(result);
             cacheDb.Verify(db => db.StringSetAsync(
@@ -267,8 +268,6 @@ public class JwtBearerAuthenticationCoverageTests
     [Fact]
     public async Task GetCertificateAsync_ShouldReturnNull_WhenCertificateFileIsMissing()
     {
-        var method = GetStaticMethod("GetCertificateAsync");
-
         var validation = new JwtTokenParameters
         {
             Issuer = "issuer",
@@ -286,8 +285,11 @@ public class JwtBearerAuthenticationCoverageTests
         var cacheDb = new Mock<IDatabase>();
         cacheDb.Setup(db => db.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
 
-        var task = (Task<X509Certificate2?>)method.Invoke(null, ["tenant-nofile", tenants.Object, cacheDb.Object, new Mock<IHttpClientFactory>().Object])!;
-        var result = await task;
+        var result = await JwtBearerAuthenticationExtension.GetCertificateAsync(
+            "tenant-nofile",
+            tenants.Object,
+            cacheDb.Object,
+            new Mock<IHttpClientFactory>().Object);
 
         Assert.Null(result);
     }
@@ -717,17 +719,6 @@ public class JwtBearerAuthenticationCoverageTests
         var type = Type.GetType(ExtensionTypeName);
         Assert.NotNull(type);
         var method = type!.GetMethod(name, BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(method);
-        return method!;
-    }
-
-    // GetCertificateAsync is reached through reflection because the extension type is internal,
-    // not because the method is private -- so match it whatever its visibility happens to be.
-    private static MethodInfo GetStaticMethod(string name)
-    {
-        var type = Type.GetType(ExtensionTypeName);
-        Assert.NotNull(type);
-        var method = type!.GetMethod(name, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
         return method!;
     }

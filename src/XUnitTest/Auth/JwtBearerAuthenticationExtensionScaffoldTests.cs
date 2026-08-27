@@ -28,10 +28,9 @@ namespace XUnitTest.Auth;
 public class JwtBearerAuthenticationExtensionScaffoldTests
 {
     [Fact]
-    public void InternalType_ShouldExist()
+    public void AuthenticationExtension_ShouldBePublic()
     {
-        var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
-        Assert.NotNull(type);
+        Assert.True(typeof(JwtBearerAuthenticationExtension).IsPublic);
     }
 
     [Fact]

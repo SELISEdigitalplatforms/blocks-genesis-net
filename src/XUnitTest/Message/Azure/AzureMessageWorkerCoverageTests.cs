@@ -10,6 +10,7 @@ using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.Azure;
 
+[Collection("BlocksAuthStaticState")]
 public class AzureMessageWorkerCoverageTests
 {
     private const string ValidConnection = "Endpoint=sb://unit-test.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=01234567890123456789012345678901234567890123456789=";

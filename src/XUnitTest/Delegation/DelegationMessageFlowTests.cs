@@ -17,6 +17,7 @@ namespace XUnitTest.Delegation;
 /// End-to-end wiring on both transports: the send stamps the header, the worker reads it into
 /// <see cref="DelegatedTokenContext"/>, and the grant is released only after a successful settle.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class DelegationMessageFlowTests : IDisposable
 {
     private const string AzureConnection =
