@@ -18,7 +18,7 @@ using System.Text.Json;
 
 namespace Blocks.Genesis;
 
-internal static class JwtBearerAuthenticationExtension
+public static class JwtBearerAuthenticationExtension
 {
     private const string RequestAccessTokenItemKey = "blocks.auth.accessToken";
     private const string RequestTenantIdItemKey = "blocks.auth.tenantId";
@@ -495,7 +495,7 @@ internal static class JwtBearerAuthenticationExtension
     {
         var dbContext = context.HttpContext.RequestServices.GetRequiredService<IDbContextProvider>();
         var claimsMapper = await (await dbContext.GetCollection<BsonDocument>("ThirdPartyJWTClaims").FindAsync(Builders<BsonDocument>.Filter.Empty)).FirstOrDefaultAsync();
-        
+
         if (claimsMapper == null)
         {
             Log.Warning("[ThirdParty] Claims mapper not found in database.");
@@ -522,7 +522,7 @@ internal static class JwtBearerAuthenticationExtension
             tenantId: tenant.ItemId,
             roles: roleClaim,
 
-            userId: ExtractClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub"? subClaim + "_external" :
+            userId: ExtractClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub" ? subClaim + "_external" :
                     ExtractClaimValue(identity, claimsMapper["UserId"].ToString() ?? "") + "_external",
 
             isAuthenticated: identity.IsAuthenticated,
@@ -531,11 +531,11 @@ internal static class JwtBearerAuthenticationExtension
             expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var exp)
                       ? exp : DateTime.MinValue,
 
-            email: !string.IsNullOrWhiteSpace(emailClaim)? emailClaim: 
+            email: !string.IsNullOrWhiteSpace(emailClaim) ? emailClaim :
                    ExtractClaimValue(identity, claimsMapper["Email"]?.ToString() ?? ""),
 
             permissions: [],
-            userName: claimsMapper["UserName"]?.ToString()?.ToLower() == "email"? emailClaim:
+            userName: claimsMapper["UserName"]?.ToString()?.ToLower() == "email" ? emailClaim :
                       ExtractClaimValue(identity, claimsMapper["UserName"]?.ToString() ?? ""),
 
             phoneNumber: string.Empty,
@@ -560,7 +560,7 @@ internal static class JwtBearerAuthenticationExtension
         return claimObject.Split('.')[0];
     }
 
-   private static string ExtractClaimValue(ClaimsIdentity identity, string claimObject)
+    private static string ExtractClaimValue(ClaimsIdentity identity, string claimObject)
     {
         var nestedClaims = claimObject.Split(".");
 
