@@ -470,7 +470,7 @@ public static class JwtBearerAuthenticationExtension
     {
         Baggage.SetBaggage("UserId", context.UserId);
         Baggage.SetBaggage("IsAuthenticate", "true");
-
+        Baggage.SetBaggage("TenantId", context.TenantId);
         var activity = Activity.Current;
         var sanitized = BlocksContext.CreateSanitizedForTransport(context);
 
