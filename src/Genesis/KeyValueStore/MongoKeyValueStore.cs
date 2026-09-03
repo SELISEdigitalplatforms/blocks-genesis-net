@@ -8,18 +8,41 @@ namespace Blocks.Genesis;
 
 public sealed class MongoKeyValueStore : IKeyValueStore
 {
-    internal const string CollectionName = "keyValueStores";
+    internal const string CollectionName = "KeyValueStores";
 
     /// <summary>Non-unique index on <c>Key</c>. Serves key lookups and anchored prefix scans.</summary>
-    internal const string KeyIndexName = "keyValueStores_Key";
+    internal const string KeyIndexName = "KeyValueStores_Key";
 
     /// <summary>
-    /// The unique index this store shipped with up to 4.0.9. A key may now hold several
-    /// documents, so it is dropped on first use of every database. MongoDB cannot alter
-    /// an index in place, and the replacement covers the same field, so the old one has
-    /// to go before <see cref="KeyIndexName"/> can be created.
+    /// The camelCase name this store used up to 4.0.10, kept only so the index names it
+    /// left behind can be recognised. Mongo collection names are case sensitive, so the
+    /// documents do not move on their own - a database is migrated out of band, by
+    /// renaming the collection.
     /// </summary>
-    internal const string LegacyUniqueKeyIndexName = "keyValueStores_Key_Unique";
+    internal const string LegacyCollectionName = "keyValueStores";
+
+    /// <summary>
+    /// Index names carried over from <see cref="LegacyCollectionName"/>. Both cover
+    /// <c>{ Key: 1 }</c>, and MongoDB refuses a second index over an identical key
+    /// pattern under a new name, so each has to go before <see cref="KeyIndexName"/>
+    /// can be created:
+    /// <list type="bullet">
+    /// <item><description>
+    /// <c>keyValueStores_Key_Unique</c> - the unique index this store shipped with up to
+    /// 4.0.9, before a key was allowed to hold several documents.
+    /// </description></item>
+    /// <item><description>
+    /// <c>keyValueStores_Key</c> - its non-unique replacement in 4.0.10. Renaming a
+    /// collection preserves its indexes under their existing names, so a migrated
+    /// database arrives still carrying this one.
+    /// </description></item>
+    /// </list>
+    /// </summary>
+    internal static readonly string[] LegacyKeyIndexNames =
+    [
+        $"{LegacyCollectionName}_Key_Unique",
+        $"{LegacyCollectionName}_Key"
+    ];
 
     private static readonly ConcurrentDictionary<string, byte> _indexedDatabases = new();
     private readonly IDbContextProvider _dbContextProvider;
@@ -225,17 +248,23 @@ public sealed class MongoKeyValueStore : IKeyValueStore
 
         var collection = database.GetCollection<KeyValueEntry>(CollectionName);
 
-        // Drop before create: the replacement indexes the same field, and MongoDB rejects
+        // Drop before create: every legacy index covers the same field, and MongoDB rejects
         // a second index over an identical key pattern under a new name
-        // (IndexKeySpecsConflict). A database that never carried the legacy index - or was
-        // migrated by an earlier run - reports IndexNotFound, which is the steady state.
-        try
+        // (IndexKeySpecsConflict). A database that never carried one - or was migrated by
+        // an earlier run - reports IndexNotFound, which is the steady state.
+        foreach (var legacyIndexName in LegacyKeyIndexNames)
         {
-            await collection.Indexes.DropOneAsync(LegacyUniqueKeyIndexName, cancellationToken);
-        }
-        catch (MongoCommandException exception) when (exception.CodeName == "IndexNotFound")
-        {
-            // Nothing to migrate.
+            try
+            {
+                await collection.Indexes.DropOneAsync(legacyIndexName, cancellationToken);
+            }
+            catch (MongoCommandException exception)
+                when (exception.CodeName is "IndexNotFound" or "NamespaceNotFound")
+            {
+                // Nothing to migrate: the index was never created, or - now that the
+                // collection is PascalCase - the whole collection is yet to exist. Both
+                // are the steady state, not a fault.
+            }
         }
 
         var index = new CreateIndexModel<KeyValueEntry>(

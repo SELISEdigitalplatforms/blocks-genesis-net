@@ -14,7 +14,7 @@ namespace XUnitTest.KeyValueStore;
 public sealed class MongoKeyValueStoreTests
 {
     private const string MongoConnectionString = "mongodb://127.0.0.1:27017";
-    private const string CollectionName = "keyValueStores";
+    private const string CollectionName = "KeyValueStores";
 
     [Fact]
     [Trait("Category", "Integration")]
@@ -153,7 +153,7 @@ public sealed class MongoKeyValueStoreTests
             var indexes = await tenantDatabase.GetCollection<BsonDocument>(CollectionName)
                 .Indexes.List().ToListAsync();
 
-            var keyIndex = Assert.Single(indexes, index => index["name"].AsString == "keyValueStores_Key");
+            var keyIndex = Assert.Single(indexes, index => index["name"].AsString == "KeyValueStores_Key");
             Assert.False(keyIndex.Contains("unique"));
             Assert.DoesNotContain(indexes, index => index["name"].AsString == "keyValueStores_Key_Unique");
         });
@@ -177,12 +177,36 @@ public sealed class MongoKeyValueStoreTests
 
             var indexes = await collection.Indexes.List().ToListAsync();
             Assert.DoesNotContain(indexes, index => index["name"].AsString == "keyValueStores_Key_Unique");
-            Assert.Contains(indexes, index => index["name"].AsString == "keyValueStores_Key");
+            Assert.Contains(indexes, index => index["name"].AsString == "KeyValueStores_Key");
 
             // The point of the migration: duplicates are now accepted.
             await store.AddAsync("legacy.index", "second");
             await store.AddAsync("legacy.index", "third");
             Assert.Equal(3, (await store.GetAllAsync<string>("legacy.index")).Count);
+        });
+    }
+
+    // A database migrated out of band - the camelCase collection renamed to
+    // KeyValueStores - keeps its indexes under their old names, because renameCollection
+    // does not rewrite them. MongoDB refuses a second index over { Key: 1 } under a new
+    // name, so the store has to drop the carried-over one before creating its own.
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task SetAsync_ShouldReplaceKeyIndexCarriedOverFromTheCamelCaseCollection()
+    {
+        await WithStoreAsync(async (store, tenantDatabase, _) =>
+        {
+            var collection = tenantDatabase.GetCollection<BsonDocument>(CollectionName);
+            await collection.Indexes.CreateOneAsync(new CreateIndexModel<BsonDocument>(
+                Builders<BsonDocument>.IndexKeys.Ascending("Key"),
+                new CreateIndexOptions { Name = "keyValueStores_Key" }));
+
+            await store.SetAsync("renamed.index", "value");
+
+            var indexes = await collection.Indexes.List().ToListAsync();
+            Assert.DoesNotContain(indexes, index => index["name"].AsString == "keyValueStores_Key");
+            Assert.Contains(indexes, index => index["name"].AsString == "KeyValueStores_Key");
+            Assert.Equal("value", await store.GetAsync<string>("renamed.index"));
         });
     }
 
