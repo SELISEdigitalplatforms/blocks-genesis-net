@@ -1,7 +1,7 @@
 namespace Blocks.Genesis;
 
 /// <summary>
-/// Key-value storage backed by the <c>keyValueStores</c> collection.
+/// Key-value storage backed by the <c>KeyValueStores</c> collection.
 /// </summary>
 /// <remarks>
 /// The collection carries a non-unique index on <c>Key</c>, so a key may map to one
