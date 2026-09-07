@@ -30,6 +30,7 @@ public sealed record BlocksContext
     public const string IMPERSONATED_CLAIM = "impersonated";
     public const string IMPERSONATION_SESSION_ID_CLAIM = "impersonation_session_id";
     public const string ORIGINAL_TENANT_ID_CLAIM = "original_tenant_id";
+    public const string CLIENT_ID_CLAIM = "client_id";
 
 
     private static readonly AsyncLocal<BlocksContext?> _asyncLocalContext = new();
@@ -55,6 +56,7 @@ public sealed record BlocksContext
     public string ApplicationDomain { get; private init; } = string.Empty;
     public bool Impersonated { get; private init; } = false;
     public string ImpersonationSessionId { get; private init; } = string.Empty;
+    public string ClientId { get; private init; } = string.Empty;
 
     // Thread-safe test mode property
     public static bool IsTestMode
@@ -81,7 +83,8 @@ public sealed record BlocksContext
         string originalTenantId,
         string applicationDomain = "",
         bool impersonated = false,
-        string impersonationSessionId = "")
+        string impersonationSessionId = "",
+        string clientId = "")
     {
         TenantId = tenantId ?? string.Empty;
         Roles = roles ?? Array.Empty<string>();
@@ -100,6 +103,7 @@ public sealed record BlocksContext
         ApplicationDomain = applicationDomain ?? string.Empty;
         Impersonated = impersonated;
         ImpersonationSessionId = impersonationSessionId ?? string.Empty;
+        ClientId = clientId ?? string.Empty;
     }
 
 
@@ -140,7 +144,8 @@ public sealed record BlocksContext
             originalTenantId: originalTenantId ?? string.Empty,
             applicationDomain: domain,
             impersonated: claimsIdentity.FindFirst(IMPERSONATED_CLAIM)?.Value == "true",
-            impersonationSessionId: claimsIdentity.FindFirst(IMPERSONATION_SESSION_ID_CLAIM)?.Value ?? string.Empty
+            impersonationSessionId: claimsIdentity.FindFirst(IMPERSONATION_SESSION_ID_CLAIM)?.Value ?? string.Empty,
+            clientId: claimsIdentity.FindFirst(CLIENT_ID_CLAIM)?.Value ?? string.Empty
         );
     }
 
@@ -172,6 +177,7 @@ public sealed record BlocksContext
             OriginalTenantId = context.OriginalTenantId ?? context.TenantId ?? string.Empty,
             ApplicationDomain = context.ApplicationDomain ?? string.Empty,
             context.Impersonated,
+            ClientId = context.ClientId ?? string.Empty,
         };
     }
 
@@ -195,10 +201,11 @@ public sealed record BlocksContext
         string? originalTenantId,
         string? applicationDomain = null,
         bool impersonated = false,
-        string impersonationSessionId = "")
+        string impersonationSessionId = "",
+        string? clientId = null)
     {
         return new BlocksContext(tenantId ?? string.Empty, roles ?? Enumerable.Empty<string>(), userId ?? string.Empty, isAuthenticated, requestUri ?? string.Empty,
-            organizationId ?? string.Empty, expireOn, email ?? string.Empty, permissions ?? Enumerable.Empty<string>(), userName ?? string.Empty, phoneNumber ?? string.Empty, displayName ?? string.Empty, oauthToken ?? string.Empty, originalTenantId ?? string.Empty, applicationDomain ?? string.Empty, impersonated, impersonationSessionId);
+            organizationId ?? string.Empty, expireOn, email ?? string.Empty, permissions ?? Enumerable.Empty<string>(), userName ?? string.Empty, phoneNumber ?? string.Empty, displayName ?? string.Empty, oauthToken ?? string.Empty, originalTenantId ?? string.Empty, applicationDomain ?? string.Empty, impersonated, impersonationSessionId, clientId ?? string.Empty);
     }
 
     /// <summary>
