@@ -117,11 +117,11 @@ public class BlocksContextCoverageTests
     {
         // Records also carry a compiler-generated copy constructor; pick the JSON one.
         var ctor = typeof(BlocksContext).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
-            .Single(c => c.GetParameters().Length == 17);
+            .Single(c => c.GetParameters().Length == 18);
 
         var context = (BlocksContext)ctor.Invoke(
         [
-            null, null, null, true, null, null, DateTime.MinValue, null, null, null, null, null, null, null, null, false, null
+            null, null, null, true, null, null, DateTime.MinValue, null, null, null, null, null, null, null, null, false, null, null
         ]);
 
         Assert.Equal(string.Empty, context.TenantId);
@@ -138,6 +138,7 @@ public class BlocksContextCoverageTests
         Assert.Equal(string.Empty, context.OriginalTenantId);
         Assert.Equal(string.Empty, context.ApplicationDomain);
         Assert.Equal(string.Empty, context.ImpersonationSessionId);
+        Assert.Equal(string.Empty, context.ClientId);
     }
 
     [Fact]
