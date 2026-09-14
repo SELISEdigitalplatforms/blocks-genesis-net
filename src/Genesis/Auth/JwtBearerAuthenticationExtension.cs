@@ -210,27 +210,74 @@ public static class JwtBearerAuthenticationExtension
         Exception? ex = null)
     {
         if (ex != null)
-            SecurityLog("fallback_triggered", $"Triggered due to {ex.GetType().Name}: {ex.Message}", ex);
+            // The quoted exception is the PRIMARY validation failing against this tenant's own
+            // Blocks certificate. For a third-party token that is expected -- it is the trigger
+            // for this fallback, not the reason any eventual 401 happened. Said outright because
+            // its "Issuer did not match SeliseBlocks" text reliably sends people chasing issuer
+            // configuration that was never wrong.
+            SecurityLog(
+                "fallback_triggered",
+                "Primary validation rejected the token, so third-party validation is being attempted. " +
+                "The quoted exception is expected for a third-party token and is NOT the cause of any 401 " +
+                "that follows -- look for the fallback_* or third_party_* event after this one.",
+                ex);
 
+        var accepted = await RunFallbackAsync(context, tenants, token, tenantId, httpClientFactory);
+
+        if (!accepted)
+        {
+            // Terminal line. Without it the last thing in the log is ASP.NET's
+            // "Bearer was not authenticated. Failure message: IDX10205 ...", which repeats the
+            // primary-validation error and reads as though the issuer were misconfigured.
+            SecurityLog(
+                "fallback_rejected",
+                "Third-party token was not accepted; this request will be answered 401. " +
+                "The preceding fallback_* / third_party_* event is the actual reason.",
+                isWarning: true);
+        }
+
+        return accepted;
+    }
+
+    private static async Task<bool> RunFallbackAsync(
+        TokenValidatedContext context,
+        ITenants tenants,
+        string token,
+        string? tenantId,
+        IHttpClientFactory httpClientFactory)
+    {
         try
         {
             if (string.IsNullOrWhiteSpace(token))
             {
-                SecurityLog("fallback_no_token", "No token found in request for fallback.");
+                SecurityLog(
+                    "fallback_no_token",
+                    "No token was present on the request, so there is nothing to validate.",
+                    isWarning: true);
                 return false;
             }
 
             tenantId ??= await TenantContextHelper.ResolveTenantIdAsync(context.Request, token);
             if (string.IsNullOrWhiteSpace(tenantId))
             {
-                SecurityLog("fallback_missing_tenant_context", "Tenant context is missing for fallback validation.");
+                SecurityLog(
+                    "fallback_missing_tenant_context",
+                    "No tenant could be resolved for this request. Send the tenant as the x-blocks-key header " +
+                    "or tenant_id header/query value, or issue the token with a tenant_id claim.",
+                    isWarning: true);
                 return false;
             }
 
             var tenant = tenants.GetTenantByID(tenantId);
             if (tenant?.ThirdPartyJwtTokenParameters == null)
             {
-                SecurityLog("fallback_missing_tenant_config", "Tenant or third-party token parameters are missing.");
+                SecurityLog(
+                    "fallback_missing_tenant_config",
+                    "This tenant has no ThirdPartyJwtTokenParameters, so third-party tokens cannot be accepted for it. " +
+                    "If it was just configured, the cached tenant may be stale -- a direct database edit does not " +
+                    "invalidate the tenant cache.",
+                    detail: new { tenantId, tenantFound = tenant != null },
+                    isWarning: true);
                 return false;
             }
 
@@ -238,22 +285,35 @@ public static class JwtBearerAuthenticationExtension
         }
         catch (Exception finalEx)
         {
-            SecurityLog("fallback_unhandled_exception", "Unhandled fallback exception.", finalEx);
+            SecurityLog("fallback_unhandled_exception", "Unhandled exception during third-party validation.", finalEx, isWarning: true);
             return false;
         }
     }
 
-    private static void SecurityLog(string eventName, string message, Exception? ex = null)
+    /// <summary>
+    /// Single channel for every authentication diagnostic, so one grep for <c>[Security]</c>
+    /// returns the whole story of a request. Outcomes used to be split across <c>[Fallback]</c>
+    /// and <c>[ThirdParty]</c> prefixes, which meant grepping the obvious one showed the failure
+    /// starting and never why it ended.
+    /// </summary>
+    private static void SecurityLog(string eventName, string message, Exception? ex = null, object? detail = null, bool isWarning = false)
     {
         var payload = new
         {
             category = "auth",
             eventName,
             message,
-            exceptionType = ex?.GetType().Name
+            exceptionType = ex?.GetType().Name,
+            exceptionMessage = ex?.Message,
+            detail
         };
 
-        Log.Information("[Security] {Payload}", JsonSerializer.Serialize(payload));
+        var json = JsonSerializer.Serialize(payload);
+
+        if (isWarning)
+            Log.Warning(ex, "[Security] {Payload}", json);
+        else
+            Log.Information("[Security] {Payload}", json);
     }
 
     private static void SetRequestAccessToken(HttpContext context, string token)
@@ -306,7 +366,11 @@ public static class JwtBearerAuthenticationExtension
         var cert = await GetThirdPartyCertificateAsync(tenant, httpClientFactory);
         if (cert == null)
         {
-            Log.Warning("[Fallback] No fallback certificate found.");
+            SecurityLog(
+                "fallback_certificate_missing",
+                "Neither JwksUrl nor a readable PublicCertificatePath is configured for this tenant's third-party " +
+                "provider, so there is no key to verify the token signature with.",
+                isWarning: true);
             return new TokenValidationParameters();
         }
 
@@ -345,12 +409,21 @@ public static class JwtBearerAuthenticationExtension
             context.HttpContext.User = validatedPrincipal;
             context.Success();
 
-            Log.Information("[Fallback] Token validated via fallback certificate.");
+            SecurityLog(
+                "fallback_token_validated",
+                "Third-party token signature, issuer and lifetime validated.",
+                detail: new { issuer = tenant.ThirdPartyJwtTokenParameters.Issuer, provider = tenant.ThirdPartyJwtTokenParameters.ProviderName });
             return true;
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "[Fallback] Validation failed.");
+            SecurityLog(
+                "fallback_validation_failed",
+                "Third-party validation did not complete. A JsonException or KeyNotFoundException here is a claim " +
+                "MAPPING fault, not a token fault -- the token itself may be perfectly valid.",
+                ex,
+                detail: new { issuer = tenant.ThirdPartyJwtTokenParameters?.Issuer, jwksUrl = tenant.ThirdPartyJwtTokenParameters?.JwksUrl },
+                isWarning: true);
             return false;
         }
     }
@@ -498,9 +571,33 @@ public static class JwtBearerAuthenticationExtension
 
         if (claimsMapper == null)
         {
-            Log.Warning("[ThirdParty] Claims mapper not found in database.");
+            SecurityLog(
+                "third_party_claims_mapper_missing",
+                "No ThirdPartyJWTClaims document exists in this tenant's database, so no Blocks context can be built. " +
+                "The token was accepted, so this does not surface as a 401 -- the request proceeds with an empty " +
+                "context and fails at the first database call instead.",
+                isWarning: true);
             return;
         }
+
+        // The single most useful line when a mapping misbehaves: what was configured, next to what
+        // the token actually carries. Read through GetValue so a partially-filled mapper document
+        // is reported rather than throwing from inside the logging itself.
+        SecurityLog(
+            "third_party_claim_mapping",
+            "Applying the configured claim mapping to the token.",
+            detail: new
+            {
+                mapping = new
+                {
+                    UserId = claimsMapper.GetValue("UserId", "").ToString(),
+                    Email = claimsMapper.GetValue("Email", "").ToString(),
+                    UserName = claimsMapper.GetValue("UserName", "").ToString(),
+                    Name = claimsMapper.GetValue("Name", "").ToString(),
+                    Roles = claimsMapper.GetValue("Roles", "").ToString()
+                },
+                tokenClaims = identity.Claims.Select(c => c.Type).Distinct().ToArray()
+            });
 
         var roleClaim = identity.FindAll(identity.RoleClaimType).Select(r => r.Value).ToArray();
 
@@ -509,8 +606,40 @@ public static class JwtBearerAuthenticationExtension
             roleClaim = ExtractRolesFromClaim(identity, claimsMapper);
         }
 
+        var userIdMapping = claimsMapper["UserId"]?.ToString() ?? string.Empty;
         var subClaim = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
         var emailClaim = identity.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
+
+        // "sub" names the standard subject claim, which the handler has already mapped to
+        // NameIdentifier. Compared whole: a claim named "x.sub" is a different claim, and
+        // matching on the last dot-segment used to conflate the two.
+        var resolvedSubject = userIdMapping == "sub"
+            ? subClaim
+            : ResolveMappedClaim(identity, "UserId", userIdMapping);
+
+        var resolvedEmail = !string.IsNullOrWhiteSpace(emailClaim)
+            ? emailClaim
+            : ResolveMappedClaim(identity, "Email", claimsMapper["Email"]?.ToString() ?? string.Empty);
+
+        var resolvedUserName = claimsMapper["UserName"]?.ToString()?.ToLower() == "email"
+            ? emailClaim
+            : ResolveMappedClaim(identity, "UserName", claimsMapper["UserName"]?.ToString() ?? string.Empty);
+
+        var resolvedDisplayName = ResolveMappedClaim(identity, "Name", claimsMapper["Name"]?.ToString() ?? string.Empty);
+
+        if (string.IsNullOrWhiteSpace(resolvedSubject))
+        {
+            // Not a rejection -- the context is still built, and the principal becomes the bare
+            // suffix "_external", which every user with a broken mapping collapses onto. Logged
+            // loudly because nothing downstream will complain about it.
+            SecurityLog(
+                "third_party_subject_missing",
+                "The UserId mapping resolved to nothing. The principal will be the bare suffix \"_external\", " +
+                "which is shared by every token whose subject cannot be resolved. Fix the UserId mapping.",
+                detail: new { mapping = userIdMapping },
+                isWarning: true);
+        }
+
         var origin = context.Request.Headers.Origin.FirstOrDefault();
         var referer = context.Request.Headers.Referer.FirstOrDefault();
 
@@ -522,8 +651,7 @@ public static class JwtBearerAuthenticationExtension
             tenantId: tenant.ItemId,
             roles: roleClaim,
 
-            userId: ExtractClaimProperty(claimsMapper["UserId"].ToString() ?? "") == "sub" ? subClaim + "_external" :
-                    ExtractClaimValue(identity, claimsMapper["UserId"].ToString() ?? "") + "_external",
+            userId: resolvedSubject + "_external",
 
             isAuthenticated: identity.IsAuthenticated,
             requestUri: context.Request.Host.ToString(),
@@ -531,20 +659,35 @@ public static class JwtBearerAuthenticationExtension
             expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var exp)
                       ? exp : DateTime.MinValue,
 
-            email: !string.IsNullOrWhiteSpace(emailClaim) ? emailClaim :
-                   ExtractClaimValue(identity, claimsMapper["Email"]?.ToString() ?? ""),
+            email: resolvedEmail,
 
             permissions: [],
-            userName: claimsMapper["UserName"]?.ToString()?.ToLower() == "email" ? emailClaim :
-                      ExtractClaimValue(identity, claimsMapper["UserName"]?.ToString() ?? ""),
+            userName: resolvedUserName,
 
             phoneNumber: string.Empty,
-            displayName: ExtractClaimValue(identity, claimsMapper["Name"]?.ToString() ?? ""),
+            displayName: resolvedDisplayName,
             oauthToken: string.Empty,
             originalTenantId: tenant.ItemId,
             applicationDomain: applicationDomain);
 
         BlocksContext.SetContext(mappedContext);
+
+        // Closes the story: what the mapping actually produced. Email and name are reported as
+        // resolved/not rather than by value -- enough to verify a mapping, without putting user
+        // identifiers in the log.
+        SecurityLog(
+            "third_party_context_created",
+            "Token mapped to a Blocks context; the request is authenticated.",
+            detail: new
+            {
+                tenantId = tenant.ItemId,
+                userId = mappedContext.UserId,
+                roles = roleClaim,
+                emailResolved = !string.IsNullOrWhiteSpace(resolvedEmail),
+                userNameResolved = !string.IsNullOrWhiteSpace(resolvedUserName),
+                displayNameResolved = !string.IsNullOrWhiteSpace(resolvedDisplayName)
+            });
+
         context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] =
             JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(mappedContext));
 
@@ -560,28 +703,128 @@ public static class JwtBearerAuthenticationExtension
         return claimObject.Split('.')[0];
     }
 
-    private static string ExtractClaimValue(ClaimsIdentity identity, string claimObject)
+    /// <summary>
+    /// Wraps <see cref="ExtractClaimValue"/> so a mapping that resolves to nothing is reported
+    /// against the field it was configured for. <see cref="ExtractClaimValue"/> only knows the
+    /// mapping string; "the UserId mapping matched nothing" is what someone reading the log needs.
+    /// </summary>
+    private static string ResolveMappedClaim(ClaimsIdentity identity, string field, string mapping)
     {
-        var nestedClaims = claimObject.Split(".");
-
-        if (nestedClaims.Length > 1)
+        if (string.IsNullOrWhiteSpace(mapping))
         {
-            var claim = identity?.Claims.FirstOrDefault(c => c.Type == nestedClaims[0]?.ToString());
-            var claimAccessJson = claim?.Value;
-            using var doc = JsonDocument.Parse(claimAccessJson ?? "");
-            return doc.RootElement.GetProperty(nestedClaims[1]).ToString();
+            SecurityLog(
+                "third_party_claim_unmapped",
+                $"No claim is mapped for {field}, so it will be empty.",
+                detail: new { field });
+            return string.Empty;
         }
 
-        return identity.FindFirst(nestedClaims[0])?.Value ?? string.Empty;
+        var value = ExtractClaimValue(identity, mapping);
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            SecurityLog(
+                "third_party_claim_unresolved",
+                $"The {field} mapping matched no claim in the token, so it will be empty. " +
+                "Compare it against tokenClaims in the third_party_claim_mapping event above.",
+                detail: new { field, mapping },
+                isWarning: true);
+        }
+
+        return value;
     }
 
+    /// <summary>
+    /// Resolves a configured claim mapping to a single value.
+    /// <para>
+    /// The mapping is treated as a **literal claim name** first. Claim names are opaque strings and
+    /// routinely contain dots -- every namespaced OIDC claim is a URI, e.g.
+    /// <c>https://myapp.example.com/user_id</c> from Auth0, Okta or Azure -- so splitting one is
+    /// only ever correct when no claim by that exact name exists. The legacy
+    /// <c>claim.property</c> form (a claim whose value is a JSON object, as in Keycloak's
+    /// <c>realm_access.roles</c>) stays as the fallback so mappings configured before this keep
+    /// working untouched.
+    /// </para>
+    /// <para>
+    /// Never throws. This runs inside the third-party token fallback, where an exception aborts
+    /// <see cref="ValidateTokenWithFallbackAsync"/> and turns a cryptographically valid token into
+    /// a 401 reported as an issuer mismatch. An unresolvable mapping is an empty field.
+    /// </para>
+    /// </summary>
+    private static string ExtractClaimValue(ClaimsIdentity identity, string claimObject)
+    {
+        if (identity == null || string.IsNullOrWhiteSpace(claimObject))
+            return string.Empty;
+
+        var literalClaim = identity.FindFirst(claimObject);
+        if (literalClaim != null)
+            return literalClaim.Value ?? string.Empty;
+
+        var nestedClaims = claimObject.Split('.');
+        if (nestedClaims.Length < 2)
+            return string.Empty;
+
+        // Caller (ResolveMappedClaim) reports the miss against its field name, so nothing is
+        // logged here -- it would only duplicate that with less context.
+        var claimAccessJson = identity.FindFirst(nestedClaims[0])?.Value;
+        if (string.IsNullOrWhiteSpace(claimAccessJson))
+            return string.Empty;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(claimAccessJson);
+            return doc.RootElement.TryGetProperty(nestedClaims[1], out var value)
+                 ? value.ToString()
+                 : string.Empty;
+        }
+        catch (JsonException ex)
+        {
+            SecurityLog(
+                "third_party_claim_invalid_json",
+                "A mapping used the nested claim.property form, but the claim's value is not JSON.",
+                ex,
+                detail: new { mapping = claimObject, claim = nestedClaims[0] },
+                isWarning: true);
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the configured roles mapping to a role list.
+    /// <para>
+    /// The mapping is tried as a **literal claim name** first.
+    /// <see cref="JwtSecurityTokenHandler"/> already flattens a JSON array claim into one
+    /// <see cref="Claim"/> per element, so a namespaced Auth0 or Okta roles claim is read straight
+    /// off the identity with no JSON parsing at all -- which is why this collects every matching
+    /// claim rather than the first. The legacy <c>claim.property</c> form (a claim holding a JSON
+    /// object, as in Keycloak's <c>realm_access.roles</c>) remains the fallback.
+    /// </para>
+    /// <para>
+    /// A single scalar claim yields a single role. Splitting a delimited value -- "admin manager"
+    /// as one role or two -- cannot be decided by inspection and needs a configured delimiter,
+    /// which this mapping does not carry yet.
+    /// </para>
+    /// </summary>
     public static string[] ExtractRolesFromClaim(ClaimsIdentity identity, BsonDocument claimsMapper)
     {
         if (identity == null || claimsMapper == null)
             return [];
 
-        var claimName = GetClaimObjectName(claimsMapper["Roles"]?.ToString() ?? "");
-        var claimValue = identity.Claims.FirstOrDefault(c => c.Type == claimName)?.Value;
+        var rolesMapping = claimsMapper["Roles"]?.ToString() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(rolesMapping))
+            return [];
+
+        var literalRoles = identity.FindAll(rolesMapping)
+                                   .Select(c => c.Value)
+                                   .Where(v => !string.IsNullOrWhiteSpace(v))
+                                   .ToArray();
+
+        if (literalRoles.Length > 0)
+            return literalRoles;
+
+        var claimName = GetClaimObjectName(rolesMapping);
+        var claimValue = identity.FindFirst(claimName)?.Value;
 
         if (string.IsNullOrWhiteSpace(claimValue))
             return [];
@@ -590,7 +833,7 @@ public static class JwtBearerAuthenticationExtension
         {
             using var doc = JsonDocument.Parse(claimValue);
 
-            var propertyName = ExtractClaimProperty(claimsMapper["Roles"]?.ToString() ?? "").ToString();
+            var propertyName = ExtractClaimProperty(rolesMapping);
 
             if (!doc.RootElement.TryGetProperty(propertyName, out var rolesElement))
                 return [];

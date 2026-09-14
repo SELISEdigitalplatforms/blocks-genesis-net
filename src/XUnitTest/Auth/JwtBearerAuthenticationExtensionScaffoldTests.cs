@@ -1044,6 +1044,107 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         }
     }
 
+    private const string NamespacedUserId = "https://myapp.example.com/user_id";
+    private const string NamespacedRoles = "https://myapp.example.com/roles";
+
+    private static string InvokeExtractClaimValue(ClaimsIdentity identity, string mapping)
+    {
+        var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
+        var method = type!.GetMethod("ExtractClaimValue", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        return (string)method!.Invoke(null, [identity, mapping])!;
+    }
+
+    private static string[] InvokeExtractRolesFromClaim(ClaimsIdentity identity, BsonDocument mapper)
+    {
+        var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
+        var method = type!.GetMethod("ExtractRolesFromClaim", BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+        return (string[])method!.Invoke(null, [identity, mapper])!;
+    }
+
+    [Fact]
+    public void ExtractClaimValue_ShouldResolveNamespacedClaimName_Literally()
+    {
+        // Auth0/Okta/Azure namespace custom claims as URIs, so the name itself contains dots.
+        // It must be looked up whole rather than split into ["https://myapp", "example", ...].
+        var identity = new ClaimsIdentity([new Claim(NamespacedUserId, "auth0|abc123")], "Bearer");
+
+        Assert.Equal("auth0|abc123", InvokeExtractClaimValue(identity, NamespacedUserId));
+    }
+
+    [Fact]
+    public void ExtractClaimValue_ShouldReturnEmpty_WhenMappingMatchesNothing()
+    {
+        // Regression: this threw JsonReaderException ("input does not contain any JSON tokens"),
+        // which aborted the third-party fallback and turned a valid token into a 401 blamed on
+        // the issuer. An unresolvable mapping is an empty field, never an exception.
+        var identity = new ClaimsIdentity([new Claim("sub", "auth0|abc123")], "Bearer");
+
+        Assert.Equal(string.Empty, InvokeExtractClaimValue(identity, NamespacedUserId));
+        Assert.Equal(string.Empty, InvokeExtractClaimValue(identity, "realm_access.roles"));
+        Assert.Equal(string.Empty, InvokeExtractClaimValue(identity, string.Empty));
+        Assert.Equal(string.Empty, InvokeExtractClaimValue(null!, NamespacedUserId));
+    }
+
+    [Fact]
+    public void ExtractClaimValue_ShouldStillResolveLegacyNestedForm()
+    {
+        // Keycloak's realm_access.roles has no claim by that literal name, so it falls through
+        // to the nested-JSON reader exactly as before.
+        var identity = new ClaimsIdentity(
+        [
+            new Claim("realm_access", "{\"roles\":[\"admin\"],\"tier\":\"gold\"}")
+        ], "Bearer");
+
+        Assert.Equal("gold", InvokeExtractClaimValue(identity, "realm_access.tier"));
+    }
+
+    [Fact]
+    public void ExtractClaimValue_ShouldPreferLiteralClaim_OverNestedFallback()
+    {
+        var identity = new ClaimsIdentity(
+        [
+            new Claim("realm_access", "{\"tier\":\"gold\"}"),
+            new Claim("realm_access.tier", "silver")
+        ], "Bearer");
+
+        Assert.Equal("silver", InvokeExtractClaimValue(identity, "realm_access.tier"));
+    }
+
+    [Fact]
+    public void ExtractRolesFromClaim_ShouldCollectRepeatedNamespacedClaims()
+    {
+        // JwtSecurityTokenHandler flattens a JSON array claim into one Claim per element, so an
+        // Auth0 roles array arrives as repeated claims and needs no JSON parsing.
+        var identity = new ClaimsIdentity(
+        [
+            new Claim(NamespacedRoles, "TestAuth0Role"),
+            new Claim(NamespacedRoles, "Manager")
+        ], "Bearer");
+
+        var mapper = new BsonDocument { ["Roles"] = NamespacedRoles };
+
+        Assert.Equal(["TestAuth0Role", "Manager"], InvokeExtractRolesFromClaim(identity, mapper));
+    }
+
+    [Fact]
+    public void ExtractRolesFromClaim_ShouldReturnSingleRole_WhenClaimIsScalar()
+    {
+        var identity = new ClaimsIdentity([new Claim(NamespacedRoles, "TestAuth0Role")], "Bearer");
+        var mapper = new BsonDocument { ["Roles"] = NamespacedRoles };
+
+        Assert.Equal(["TestAuth0Role"], InvokeExtractRolesFromClaim(identity, mapper));
+    }
+
+    [Fact]
+    public void ExtractRolesFromClaim_ShouldReturnEmpty_WhenMappingIsBlank()
+    {
+        var identity = new ClaimsIdentity([new Claim(NamespacedRoles, "TestAuth0Role")], "Bearer");
+
+        Assert.Empty(InvokeExtractRolesFromClaim(identity, new BsonDocument { ["Roles"] = "" }));
+    }
+
     private sealed class ThrowingHttpMessageHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
