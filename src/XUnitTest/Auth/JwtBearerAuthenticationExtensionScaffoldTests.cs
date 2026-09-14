@@ -893,7 +893,7 @@ public class JwtBearerAuthenticationExtensionScaffoldTests
         var type = Type.GetType("Blocks.Genesis.JwtBearerAuthenticationExtension, Blocks.Genesis");
         Assert.NotNull(type);
 
-        var method = type!.GetMethod("StoreBlocksContextInActivity", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = type!.GetMethod("StoreBlocksContextInActivity", BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
 
         using var activity = new Activity("auth-test");

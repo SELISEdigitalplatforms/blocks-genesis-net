@@ -539,7 +539,7 @@ public static class JwtBearerAuthenticationExtension
         };
     }
 
-    private static void StoreBlocksContextInActivity(BlocksContext context)
+    public static void StoreBlocksContextInActivity(BlocksContext context)
     {
         Baggage.SetBaggage("UserId", context.UserId);
         Baggage.SetBaggage("IsAuthenticate", "true");
