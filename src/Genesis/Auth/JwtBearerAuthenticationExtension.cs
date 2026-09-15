@@ -14,6 +14,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 
 namespace Blocks.Genesis;
@@ -93,8 +94,57 @@ public static class JwtBearerAuthenticationExtension
             return;
         }
 
+        // A tenant that has opted in routes on the token's own issuer: one minted by a configured
+        // provider is validated as third-party, and anything else -- a Blocks token above all --
+        // falls straight through to primary validation without a wasted attempt.
+        if (tenant?.IsThirdPartyJwtEnabled == true)
+        {
+            var acceptedAsThirdParty = await TryFallbackAsync(
+                new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+                tenants,
+                tokenResult.Token,
+                tenantId,
+                httpClientFactory).ConfigureAwait(true);
+
+            if (acceptedAsThirdParty)
+            {
+                return;
+            }
+
+            // Not ours, or ours and broken. Either way primary validation gets its turn, so a
+            // provider token caught mid key-rotation is not locked out by one failure.
+        }
+
         context.Token = tokenResult.Token;
         await ConfigureTokenValidationAsync(context, tenants, cacheDb, httpClientFactory, tenantId).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Reads <c>iss</c> and <c>aud</c> without validating anything.
+    /// </summary>
+    /// <remarks>
+    /// Safe because these only select a key set: validation then re-checks both against the chosen
+    /// provider, so a forged issuer routes to a configuration whose keys cannot verify the
+    /// signature. An unreadable token yields nothing and therefore selects no provider.
+    /// </remarks>
+    private static (string Issuer, IReadOnlyCollection<string> Audiences) ReadTokenRouting(string token)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+
+            if (!handler.CanReadToken(token))
+            {
+                return (string.Empty, []);
+            }
+
+            var jwt = handler.ReadJwtToken(token);
+            return (jwt.Issuer ?? string.Empty, jwt.Audiences?.ToArray() ?? []);
+        }
+        catch (Exception)
+        {
+            return (string.Empty, []);
+        }
     }
 
     private static async Task HandleTokenValidatedAsync(TokenValidatedContext context)
@@ -222,9 +272,15 @@ public static class JwtBearerAuthenticationExtension
                 "that follows -- look for the fallback_* or third_party_* event after this one.",
                 ex);
 
-        var accepted = await RunFallbackAsync(context, tenants, token, tenantId, httpClientFactory);
+        var (accepted, outcome) = await RunFallbackAsync(context, tenants, token, tenantId, httpClientFactory);
 
-        if (!accepted)
+        // "No provider claims this issuer" is the everyday case on an enabled tenant -- every
+        // Blocks token looks exactly like that -- so it stays quiet. Logging it as a rejection
+        // would flood the channel and desensitise everyone to the events that matter.
+        var isRoutineMiss = outcome is ThirdPartyProviderSelection.IssuerUnmatched
+                                    or ThirdPartyProviderSelection.NoProviders;
+
+        if (!accepted && !isRoutineMiss)
         {
             // Terminal line. Without it the last thing in the log is ASP.NET's
             // "Bearer was not authenticated. Failure message: IDX10205 ...", which repeats the
@@ -239,7 +295,7 @@ public static class JwtBearerAuthenticationExtension
         return accepted;
     }
 
-    private static async Task<bool> RunFallbackAsync(
+    private static async Task<(bool Accepted, ThirdPartyProviderSelection Outcome)> RunFallbackAsync(
         TokenValidatedContext context,
         ITenants tenants,
         string token,
@@ -254,7 +310,7 @@ public static class JwtBearerAuthenticationExtension
                     "fallback_no_token",
                     "No token was present on the request, so there is nothing to validate.",
                     isWarning: true);
-                return false;
+                return (false, ThirdPartyProviderSelection.NoProviders);
             }
 
             tenantId ??= await TenantContextHelper.ResolveTenantIdAsync(context.Request, token);
@@ -265,28 +321,144 @@ public static class JwtBearerAuthenticationExtension
                     "No tenant could be resolved for this request. Send the tenant as the x-blocks-key header " +
                     "or tenant_id header/query value, or issue the token with a tenant_id claim.",
                     isWarning: true);
-                return false;
+                return (false, ThirdPartyProviderSelection.NoProviders);
             }
 
             var tenant = tenants.GetTenantByID(tenantId);
-            if (tenant?.ThirdPartyJwtTokenParameters == null)
+            if (tenant is null)
             {
                 SecurityLog(
                     "fallback_missing_tenant_config",
-                    "This tenant has no ThirdPartyJwtTokenParameters, so third-party tokens cannot be accepted for it. " +
-                    "If it was just configured, the cached tenant may be stale -- a direct database edit does not " +
-                    "invalidate the tenant cache.",
-                    detail: new { tenantId, tenantFound = tenant != null },
+                    "The tenant could not be loaded, so its providers cannot be read.",
+                    detail: new { tenantId },
                     isWarning: true);
-                return false;
+                return (false, ThirdPartyProviderSelection.NoProviders);
             }
 
-            return await ValidateTokenWithFallbackAsync(token, tenant, context, httpClientFactory);
+            if (!tenant.IsThirdPartyJwtEnabled)
+            {
+                // Reached through the cookie path, which does not consult the flag first.
+                SecurityLog(
+                    "third_party_not_enabled",
+                    "IsThirdPartyJwtEnabled is off for this tenant, so tokens from external providers are not " +
+                    "accepted. Any 'issuer did not match' error above is the expected consequence, not the cause.",
+                    detail: new { tenantId },
+                    isWarning: true);
+                return (false, ThirdPartyProviderSelection.NoProviders);
+            }
+
+            var store = context.HttpContext.RequestServices.GetService<IThirdPartyJwtProviderStore>();
+            if (store is null)
+            {
+                SecurityLog(
+                    "third_party_provider_store_missing",
+                    "IThirdPartyJwtProviderStore is not registered in this host, so no provider can be resolved.",
+                    isWarning: true);
+                return (false, ThirdPartyProviderSelection.NoProviders);
+            }
+
+            var providers = await store.GetActiveAsync(tenantId);
+            var routing = ReadTokenRouting(token);
+            var headerKey = context.Request.Headers[BlocksConstants.ThirdPartyIdpHeader].FirstOrDefault();
+
+            var selection = ThirdPartyProviderSelector.Select(providers, routing.Issuer, routing.Audiences, headerKey);
+
+            if (!selection.IsSelected)
+            {
+                ReportSelectionFailure(selection, routing, providers, headerKey);
+                return (false, selection.Outcome);
+            }
+
+            var provider = selection.Provider!;
+
+            SecurityLog(
+                "third_party_provider_selected",
+                "Provider selected for this token.",
+                detail: new
+                {
+                    provider.Key,
+                    provider.ProviderName,
+                    provider.Issuer,
+                    algorithms = provider.Algorithms,
+                    candidates = selection.CandidateCount
+                });
+
+            var validated = await ValidateTokenWithFallbackAsync(token, tenant, provider, context, httpClientFactory);
+            return (validated, ThirdPartyProviderSelection.Selected);
         }
         catch (Exception finalEx)
         {
             SecurityLog("fallback_unhandled_exception", "Unhandled exception during third-party validation.", finalEx, isWarning: true);
-            return false;
+            return (false, ThirdPartyProviderSelection.Selected);
+        }
+    }
+
+    /// <summary>
+    /// Explains a selection miss in the terms an operator can act on: what the token carried,
+    /// beside what is configured.
+    /// </summary>
+    private static void ReportSelectionFailure(
+        ThirdPartyProviderResult selection,
+        (string Issuer, IReadOnlyCollection<string> Audiences) routing,
+        IReadOnlyList<ThirdPartyJwtProvider> providers,
+        string? headerKey)
+    {
+        var configured = providers
+            .Select(p => new { p.Key, p.Issuer, p.Audiences })
+            .ToArray();
+
+        var detail = new
+        {
+            tokenIssuer = routing.Issuer,
+            tokenAudiences = routing.Audiences,
+            headerKey,
+            candidates = selection.CandidateCount,
+            configured
+        };
+
+        switch (selection.Outcome)
+        {
+            case ThirdPartyProviderSelection.NoProviders:
+                SecurityLog(
+                    "third_party_no_providers_configured",
+                    "The tenant has third-party tokens enabled but no active provider rows.",
+                    detail: detail,
+                    isWarning: true);
+                break;
+
+            case ThirdPartyProviderSelection.IssuerUnmatched:
+                // Routine: this is what every Blocks token looks like. Information, not a fault.
+                SecurityLog(
+                    "third_party_provider_unmatched",
+                    "No configured provider claims this token's issuer, so it is not a third-party token. " +
+                    "Primary validation will handle it.",
+                    detail: detail);
+                break;
+
+            case ThirdPartyProviderSelection.AudienceUnmatched:
+                SecurityLog(
+                    "third_party_provider_unmatched",
+                    "A provider matches this issuer but none accepts the token's audience.",
+                    detail: detail,
+                    isWarning: true);
+                break;
+
+            case ThirdPartyProviderSelection.AmbiguousNoHeader:
+                SecurityLog(
+                    "third_party_provider_ambiguous",
+                    "Several providers share this issuer and audience, so the x-blocks-idp header is required " +
+                    "to choose between them. Providers sharing an issuer should differ by audience.",
+                    detail: detail,
+                    isWarning: true);
+                break;
+
+            case ThirdPartyProviderSelection.AmbiguousHeaderUnmatched:
+                SecurityLog(
+                    "third_party_provider_ambiguous",
+                    "The x-blocks-idp header named a provider that is not among the candidates for this token.",
+                    detail: detail,
+                    isWarning: true);
+                break;
         }
     }
 
@@ -342,67 +514,159 @@ public static class JwtBearerAuthenticationExtension
         return string.IsNullOrWhiteSpace(tenantId) ? null : tenantId;
     }
 
-    private static async Task<TokenValidationParameters> GetFromJwksUrl(Tenant tenant, IHttpClientFactory httpClientFactory)
+    /// <summary>
+    /// Validation parameters for a provider, with the key source chosen by the configured
+    /// algorithms rather than by anything the token says.
+    /// </summary>
+    /// <remarks>
+    /// <c>ValidAlgorithms</c> is pinned from configuration. Without it the validator accepts
+    /// whatever the key type happens to support, which is wider than any provider actually needs
+    /// and is the surface algorithm-confusion attacks aim at.
+    /// </remarks>
+    private static async Task<TokenValidationParameters?> BuildProviderValidationParametersAsync(
+        Tenant tenant,
+        ThirdPartyJwtProvider provider,
+        TokenValidatedContext context,
+        IHttpClientFactory httpClientFactory)
     {
-        var httpClient = httpClientFactory.CreateClient();
-        var jwks = await httpClient.GetFromJsonAsync<JsonWebKeySet>(tenant.ThirdPartyJwtTokenParameters.JwksUrl);
+        var algorithms = provider.Algorithms;
+
+        if (!algorithms.IsSingleKeySource())
+        {
+            SecurityLog(
+                "third_party_algorithm_invalid",
+                "A provider must configure at least one algorithm and they must all draw their key from the same " +
+                "place. A row mixing families, or left Unspecified, cannot be validated safely.",
+                detail: new { provider.Key, algorithms },
+                isWarning: true);
+            return null;
+        }
 
         var parameters = new TokenValidationParameters
         {
-            ValidateIssuer = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.Issuer),
-            ValidIssuer = tenant.ThirdPartyJwtTokenParameters.Issuer,
-            ValidateAudience = tenant.ThirdPartyJwtTokenParameters.Audiences?.Count > 0,
+            ValidateIssuer = !string.IsNullOrWhiteSpace(provider.Issuer),
+            ValidIssuer = provider.Issuer,
+            ValidateAudience = provider.Audiences?.Count > 0,
+            ValidAudiences = provider.Audiences,
             ValidateLifetime = true,
-            ValidAudiences = tenant.ThirdPartyJwtTokenParameters.Audiences,
-            IssuerSigningKeys = jwks!.Keys
+            ValidAlgorithms = algorithms.ToWireNames()
         };
 
-        return parameters;
-    }
+        var isSymmetric = algorithms[0].IsSymmetric();
 
-
-    private static async Task<TokenValidationParameters> GetFromPublicCertificate(Tenant tenant, IHttpClientFactory httpClientFactory)
-    {
-        var cert = await GetThirdPartyCertificateAsync(tenant, httpClientFactory);
-        if (cert == null)
+        if (isSymmetric)
         {
-            SecurityLog(
-                "fallback_certificate_missing",
-                "Neither JwksUrl nor a readable PublicCertificatePath is configured for this tenant's third-party " +
-                "provider, so there is no key to verify the token signature with.",
-                isWarning: true);
-            return new TokenValidationParameters();
+            var key = ResolveSymmetricKey(tenant, provider, context);
+            if (key is null)
+            {
+                return null;
+            }
+
+            parameters.IssuerSigningKey = key;
+            return parameters;
         }
 
-        // A non-null certificate implies ThirdPartyJwtTokenParameters was set,
-        // since the certificate path is read from it.
-        var validationParams = tenant.ThirdPartyJwtTokenParameters;
-
-        var parameters = CreateTokenValidationParameters(cert, new JwtTokenParameters
+        if (string.IsNullOrWhiteSpace(provider.JwksUrl))
         {
-            Issuer = validationParams.Issuer,
-            Audiences = validationParams.Audiences,
-            PrivateCertificatePassword = "",
-            IssueDate = DateTime.UtcNow,
-        });
+            SecurityLog(
+                "third_party_key_source_missing",
+                "This provider uses an asymmetric algorithm but has no JwksUrl, so there is no key to verify with.",
+                detail: new { provider.Key, algorithms },
+                isWarning: true);
+            return null;
+        }
 
+        var jwks = await httpClientFactory.CreateClient().GetFromJsonAsync<JsonWebKeySet>(provider.JwksUrl);
+        parameters.IssuerSigningKeys = jwks!.Keys;
         return parameters;
     }
 
-    private static async Task<bool> ValidateTokenWithFallbackAsync(string token, Tenant tenant, TokenValidatedContext context, IHttpClientFactory httpClientFactory)
+    /// <summary>
+    /// Decrypts the provider's shared secret into an HMAC key.
+    /// </summary>
+    /// <remarks>
+    /// The key material is the tenant's salt, so the value is readable only alongside the tenant
+    /// record. A failure here is a configuration or tampering fault rather than a bad token, and
+    /// is reported as its own outcome so the two are never confused in a log.
+    /// </remarks>
+    private static SymmetricSecurityKey? ResolveSymmetricKey(
+        Tenant tenant,
+        ThirdPartyJwtProvider provider,
+        TokenValidatedContext context)
+    {
+        if (string.IsNullOrWhiteSpace(provider.SigningSecretCipher))
+        {
+            SecurityLog(
+                "third_party_key_source_missing",
+                "This provider uses an HMAC algorithm but carries no signing secret.",
+                detail: new { provider.Key },
+                isWarning: true);
+            return null;
+        }
+
+        var crypto = context.HttpContext.RequestServices.GetService<ICryptoService>();
+        if (crypto is null)
+        {
+            SecurityLog(
+                "third_party_secret_undecryptable",
+                "ICryptoService is not registered in this host, so the signing secret cannot be decrypted.",
+                isWarning: true);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(tenant.TenantSalt))
+        {
+            SecurityLog(
+                "third_party_secret_undecryptable",
+                "The tenant has no TenantSalt, which is the key material the signing secret was encrypted under.",
+                detail: new { provider.Key },
+                isWarning: true);
+            return null;
+        }
+
+        var secret = crypto.Decrypt(provider.SigningSecretCipher, tenant.TenantSalt);
+
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            // TenantSalt is load-bearing here: regenerating it makes every stored secret for the
+            // tenant undecryptable, and the symptom is a 401 carrying a perfectly valid token.
+            SecurityLog(
+                "third_party_secret_undecryptable",
+                "The stored signing secret did not decrypt. Either it was tampered with, or the tenant salt it " +
+                "was encrypted under has changed -- re-save the provider to re-encrypt it.",
+                detail: new { provider.Key },
+                isWarning: true);
+            return null;
+        }
+
+        return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+    }
+
+    private static async Task<bool> ValidateTokenWithFallbackAsync(
+        string token,
+        Tenant tenant,
+        ThirdPartyJwtProvider provider,
+        TokenValidatedContext context,
+        IHttpClientFactory httpClientFactory)
     {
         try
         {
-            var validationParams = !string.IsNullOrWhiteSpace(tenant.ThirdPartyJwtTokenParameters.JwksUrl) ?
-                                            await GetFromJwksUrl(tenant, httpClientFactory) :
-                                            await GetFromPublicCertificate(tenant, httpClientFactory);
+            var validationParams = await BuildProviderValidationParametersAsync(tenant, provider, context, httpClientFactory);
+
+            if (validationParams is null)
+            {
+                // Already reported with the specific reason; adding a second line would only
+                // restate it less precisely.
+                return false;
+            }
+
             var handler = new JwtSecurityTokenHandler();
             var validatedPrincipal = handler.ValidateToken(token, validationParams, out _);
 
             if (validatedPrincipal.Identity is ClaimsIdentity claimsIdentity)
             {
                 HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), string.Empty);
-                await StoreThirdPartyBlocksContextActivity(claimsIdentity, context, tenant);
+                StoreThirdPartyBlocksContextActivity(claimsIdentity, context, tenant, provider);
             }
 
             context.Principal = validatedPrincipal;
@@ -411,29 +675,21 @@ public static class JwtBearerAuthenticationExtension
 
             SecurityLog(
                 "fallback_token_validated",
-                "Third-party token signature, issuer and lifetime validated.",
-                detail: new { issuer = tenant.ThirdPartyJwtTokenParameters.Issuer, provider = tenant.ThirdPartyJwtTokenParameters.ProviderName });
+                "Third-party token signature, issuer, audience and lifetime validated.",
+                detail: new { provider.Key, provider.ProviderName, provider.Issuer });
             return true;
         }
         catch (Exception ex)
         {
             SecurityLog(
                 "fallback_validation_failed",
-                "Third-party validation did not complete. A JsonException or KeyNotFoundException here is a claim " +
-                "MAPPING fault, not a token fault -- the token itself may be perfectly valid.",
+                "Third-party validation did not complete. A JsonException here is a claim MAPPING fault, not a " +
+                "token fault -- the token itself may be perfectly valid.",
                 ex,
-                detail: new { issuer = tenant.ThirdPartyJwtTokenParameters?.Issuer, jwksUrl = tenant.ThirdPartyJwtTokenParameters?.JwksUrl },
+                detail: new { provider.Key, provider.Issuer, provider.JwksUrl },
                 isWarning: true);
             return false;
         }
-    }
-
-    private static async Task<X509Certificate2?> GetThirdPartyCertificateAsync(Tenant tenant, IHttpClientFactory httpClientFactory)
-    {
-        var certificateData = await LoadCertificateDataAsync(tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePath ?? string.Empty, httpClientFactory);
-        return certificateData == null
-            ? null
-            : CreateCertificate(certificateData, tenant.ThirdPartyJwtTokenParameters?.PublicCertificatePassword);
     }
 
     public static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
@@ -564,37 +820,44 @@ public static class JwtBearerAuthenticationExtension
         }
     }
 
-    private static async Task StoreThirdPartyBlocksContextActivity(ClaimsIdentity identity, TokenValidatedContext context, Tenant tenant)
+    /// <summary>
+    /// Maps a validated third-party token onto a Blocks context using the provider's own mapping.
+    /// </summary>
+    private static void StoreThirdPartyBlocksContextActivity(
+        ClaimsIdentity identity,
+        TokenValidatedContext context,
+        Tenant tenant,
+        ThirdPartyJwtProvider provider)
     {
-        var dbContext = context.HttpContext.RequestServices.GetRequiredService<IDbContextProvider>();
-        var claimsMapper = await (await dbContext.GetCollection<BsonDocument>("ThirdPartyJWTClaims").FindAsync(Builders<BsonDocument>.Filter.Empty)).FirstOrDefaultAsync();
+        var mapping = provider.ClaimsMapping;
 
-        if (claimsMapper == null)
+        if (mapping is null || !mapping.IsConfigured())
         {
             SecurityLog(
                 "third_party_claims_mapper_missing",
-                "No ThirdPartyJWTClaims document exists in this tenant's database, so no Blocks context can be built. " +
-                "The token was accepted, so this does not surface as a 401 -- the request proceeds with an empty " +
-                "context and fails at the first database call instead.",
+                "This provider has no claim mapping, so no Blocks context can be built. The token was accepted, " +
+                "so this does not surface as a 401 -- the request proceeds with an empty context and fails at the " +
+                "first database call instead.",
+                detail: new { provider.Key },
                 isWarning: true);
             return;
         }
 
         // The single most useful line when a mapping misbehaves: what was configured, next to what
-        // the token actually carries. Read through GetValue so a partially-filled mapper document
-        // is reported rather than throwing from inside the logging itself.
+        // the token actually carries.
         SecurityLog(
             "third_party_claim_mapping",
-            "Applying the configured claim mapping to the token.",
+            "Applying the provider's claim mapping to the token.",
             detail: new
             {
+                provider.Key,
                 mapping = new
                 {
-                    UserId = claimsMapper.GetValue("UserId", "").ToString(),
-                    Email = claimsMapper.GetValue("Email", "").ToString(),
-                    UserName = claimsMapper.GetValue("UserName", "").ToString(),
-                    Name = claimsMapper.GetValue("Name", "").ToString(),
-                    Roles = claimsMapper.GetValue("Roles", "").ToString()
+                    mapping.UserId,
+                    mapping.Email,
+                    mapping.UserName,
+                    mapping.Name,
+                    mapping.Roles
                 },
                 tokenClaims = identity.Claims.Select(c => c.Type).Distinct().ToArray()
             });
@@ -603,67 +866,57 @@ public static class JwtBearerAuthenticationExtension
 
         if (roleClaim.Length == 0)
         {
-            roleClaim = ExtractRolesFromClaim(identity, claimsMapper);
+            roleClaim = ExtractRolesFromClaim(identity, mapping.Roles);
         }
 
-        var userIdMapping = claimsMapper["UserId"]?.ToString() ?? string.Empty;
         var subClaim = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
         var emailClaim = identity.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
 
         // "sub" names the standard subject claim, which the handler has already mapped to
-        // NameIdentifier. Compared whole: a claim named "x.sub" is a different claim, and
-        // matching on the last dot-segment used to conflate the two.
-        var resolvedSubject = userIdMapping == "sub"
+        // NameIdentifier. Compared whole: a claim named "x.sub" is a different claim.
+        var resolvedSubject = mapping.UserId == "sub"
             ? subClaim
-            : ResolveMappedClaim(identity, "UserId", userIdMapping);
+            : ResolveMappedClaim(identity, "UserId", mapping.UserId);
 
         var resolvedEmail = !string.IsNullOrWhiteSpace(emailClaim)
             ? emailClaim
-            : ResolveMappedClaim(identity, "Email", claimsMapper["Email"]?.ToString() ?? string.Empty);
+            : ResolveMappedClaim(identity, "Email", mapping.Email);
 
-        var resolvedUserName = claimsMapper["UserName"]?.ToString()?.ToLower() == "email"
+        var resolvedUserName = string.Equals(mapping.UserName, "email", StringComparison.OrdinalIgnoreCase)
             ? emailClaim
-            : ResolveMappedClaim(identity, "UserName", claimsMapper["UserName"]?.ToString() ?? string.Empty);
+            : ResolveMappedClaim(identity, "UserName", mapping.UserName);
 
-        var resolvedDisplayName = ResolveMappedClaim(identity, "Name", claimsMapper["Name"]?.ToString() ?? string.Empty);
+        var resolvedDisplayName = ResolveMappedClaim(identity, "Name", mapping.Name);
 
         if (string.IsNullOrWhiteSpace(resolvedSubject))
         {
             // Not a rejection -- the context is still built, and the principal becomes the bare
-            // suffix "_external", which every user with a broken mapping collapses onto. Logged
+            // suffix "_external", which every token with a broken mapping collapses onto. Logged
             // loudly because nothing downstream will complain about it.
             SecurityLog(
                 "third_party_subject_missing",
                 "The UserId mapping resolved to nothing. The principal will be the bare suffix \"_external\", " +
                 "which is shared by every token whose subject cannot be resolved. Fix the UserId mapping.",
-                detail: new { mapping = userIdMapping },
+                detail: new { provider.Key, mapping = mapping.UserId },
                 isWarning: true);
         }
 
         var origin = context.Request.Headers.Origin.FirstOrDefault();
         var referer = context.Request.Headers.Referer.FirstOrDefault();
-
-
         var applicationDomain = TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer);
-
 
         var mappedContext = BlocksContext.Create(
             tenantId: tenant.ItemId,
             roles: roleClaim,
-
             userId: resolvedSubject + "_external",
-
             isAuthenticated: identity.IsAuthenticated,
             requestUri: context.Request.Host.ToString(),
             organizationId: string.Empty,
             expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var exp)
                       ? exp : DateTime.MinValue,
-
             email: resolvedEmail,
-
             permissions: [],
             userName: resolvedUserName,
-
             phoneNumber: string.Empty,
             displayName: resolvedDisplayName,
             oauthToken: string.Empty,
@@ -681,6 +934,7 @@ public static class JwtBearerAuthenticationExtension
             detail: new
             {
                 tenantId = tenant.ItemId,
+                provider.Key,
                 userId = mappedContext.UserId,
                 roles = roleClaim,
                 emailResolved = !string.IsNullOrWhiteSpace(resolvedEmail),
@@ -690,7 +944,6 @@ public static class JwtBearerAuthenticationExtension
 
         context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] =
             JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(mappedContext));
-
     }
 
     private static string ExtractClaimProperty(string claimObject)
@@ -805,14 +1058,9 @@ public static class JwtBearerAuthenticationExtension
     /// which this mapping does not carry yet.
     /// </para>
     /// </summary>
-    public static string[] ExtractRolesFromClaim(ClaimsIdentity identity, BsonDocument claimsMapper)
+    public static string[] ExtractRolesFromClaim(ClaimsIdentity identity, string rolesMapping)
     {
-        if (identity == null || claimsMapper == null)
-            return [];
-
-        var rolesMapping = claimsMapper["Roles"]?.ToString() ?? string.Empty;
-
-        if (string.IsNullOrWhiteSpace(rolesMapping))
+        if (identity == null || string.IsNullOrWhiteSpace(rolesMapping))
             return [];
 
         var literalRoles = identity.FindAll(rolesMapping)

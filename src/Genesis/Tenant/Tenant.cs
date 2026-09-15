@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace Blocks.Genesis;
 
@@ -16,6 +16,17 @@ public class Tenant: BaseEntity
     public string TenantSalt { get; set; } = Guid.NewGuid().ToString("n");
     public required JwtTokenParameters JwtTokenParameters { get; set; }
     public ThirdPartyJwtTokenParameters ThirdPartyJwtTokenParameters { get; set; } = new();
+
+    /// <summary>
+    /// Whether this tenant accepts tokens minted by an external identity provider.
+    /// </summary>
+    /// <remarks>
+    /// Gates the feature outright rather than merely preferring it. A missing value deserializes
+    /// to <c>false</c>, so third-party validation is off everywhere until switched on per tenant —
+    /// which also means an unauthenticated caller cannot provoke an outbound key fetch on a tenant
+    /// that never opted in.
+    /// </remarks>
+    public bool IsThirdPartyJwtEnabled { get; set; }
     public bool IsRootTenant { get; set; }
     public string Environment { get; set; } = string.Empty;
     public string TenantGroupId { get; set; } = string.Empty;
