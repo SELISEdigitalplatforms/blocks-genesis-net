@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -86,7 +87,7 @@ public static class JwtBearerAuthenticationExtension
 
         if (tokenResult.IsThirdPartyToken)
         {
-            await TryFallbackAsync(new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+            await TryFallbackAsync(context,
                                    tenants,
                                    tokenResult.Token,
                                    tenantId,
@@ -100,7 +101,7 @@ public static class JwtBearerAuthenticationExtension
         if (tenant?.IsThirdPartyJwtEnabled == true)
         {
             var acceptedAsThirdParty = await TryFallbackAsync(
-                new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+                context,
                 tenants,
                 tokenResult.Token,
                 tenantId,
@@ -180,7 +181,7 @@ public static class JwtBearerAuthenticationExtension
 
         SecurityLog("authentication_failed", "Primary token validation failed, attempting fallback.", ex);
         await TryFallbackAsync(
-            new TokenValidatedContext(context.HttpContext, context.Scheme, context.Options),
+            context,
             tenants,
             GetRequestAccessToken(context.HttpContext),
             GetRequestTenantId(context.HttpContext),
@@ -252,7 +253,7 @@ public static class JwtBearerAuthenticationExtension
     }
 
     public static async Task<bool> TryFallbackAsync(
-        TokenValidatedContext context,
+        ResultContext<JwtBearerOptions> context,
         ITenants tenants,
         string token,
         string? tenantId,
@@ -296,7 +297,7 @@ public static class JwtBearerAuthenticationExtension
     }
 
     private static async Task<(bool Accepted, ThirdPartyProviderSelection Outcome)> RunFallbackAsync(
-        TokenValidatedContext context,
+        ResultContext<JwtBearerOptions> context,
         ITenants tenants,
         string token,
         string? tenantId,
@@ -313,13 +314,24 @@ public static class JwtBearerAuthenticationExtension
                 return (false, ThirdPartyProviderSelection.NoProviders);
             }
 
-            tenantId ??= await TenantContextHelper.ResolveTenantIdAsync(context.Request, token);
+            // Resolved from the request alone -- deliberately NOT from the token, and deliberately
+            // ignoring any tenant the caller already resolved, which may have come from it.
+            //
+            // ResolveTenantIdAsync falls back to the token's own tenant_id claim when no header,
+            // query or form value carries one. For a Blocks token that is safe: we signed it. For a
+            // third-party token it is not, because the claim is written by someone outside this
+            // system. Honouring it would let any provider name the tenant whose providers, claim
+            // mapping and roles get applied to its token -- so a token from an issuer that one
+            // tenant trusts could be pointed at another tenant entirely.
+            tenantId = await TenantContextHelper.ResolveTenantIdAsync(context.Request);
+
             if (string.IsNullOrWhiteSpace(tenantId))
             {
                 SecurityLog(
                     "fallback_missing_tenant_context",
-                    "No tenant could be resolved for this request. Send the tenant as the x-blocks-key header " +
-                    "or tenant_id header/query value, or issue the token with a tenant_id claim.",
+                    "No tenant was declared on the request. A third-party token must be accompanied by the " +
+                    "x-blocks-key header (or a tenant_id header/query value): the tenant is never taken from " +
+                    "the token itself, because the token is minted outside this system.",
                     isWarning: true);
                 return (false, ThirdPartyProviderSelection.NoProviders);
             }
@@ -526,7 +538,7 @@ public static class JwtBearerAuthenticationExtension
     private static async Task<TokenValidationParameters?> BuildProviderValidationParametersAsync(
         Tenant tenant,
         ThirdPartyJwtProvider provider,
-        TokenValidatedContext context,
+        ResultContext<JwtBearerOptions> context,
         IHttpClientFactory httpClientFactory)
     {
         var algorithms = provider.Algorithms;
@@ -592,7 +604,7 @@ public static class JwtBearerAuthenticationExtension
     private static SymmetricSecurityKey? ResolveSymmetricKey(
         Tenant tenant,
         ThirdPartyJwtProvider provider,
-        TokenValidatedContext context)
+        ResultContext<JwtBearerOptions> context)
     {
         if (string.IsNullOrWhiteSpace(provider.SigningSecretCipher))
         {
@@ -646,7 +658,7 @@ public static class JwtBearerAuthenticationExtension
         string token,
         Tenant tenant,
         ThirdPartyJwtProvider provider,
-        TokenValidatedContext context,
+        ResultContext<JwtBearerOptions> context,
         IHttpClientFactory httpClientFactory)
     {
         try
@@ -666,11 +678,28 @@ public static class JwtBearerAuthenticationExtension
             if (validatedPrincipal.Identity is ClaimsIdentity claimsIdentity)
             {
                 HandleTokenIssuer(claimsIdentity, context.Request.GetDisplayUrl(), string.Empty);
-                StoreThirdPartyBlocksContextActivity(claimsIdentity, context, tenant, provider);
+                var mappedContext = StoreThirdPartyBlocksContextActivity(claimsIdentity, context, tenant, provider);
+
+                if (mappedContext is not null)
+                {
+                    // The principal is the only carrier that reaches the endpoint. SetContext writes
+                    // an AsyncLocal from inside the authentication event's own async subtree, and a
+                    // value set there does not flow back out to the middleware that awaited it -- by
+                    // the time the controller runs it is gone. GetContext() then falls through to
+                    // HttpContext.User, so anything the mapping resolved has to be a claim on this
+                    // identity or it is lost, and the first database call fails for want of a tenant.
+                    StampBlocksClaims(claimsIdentity, mappedContext);
+                    StoreBlocksContextInActivity(mappedContext);
+                }
             }
 
             context.Principal = validatedPrincipal;
             context.HttpContext.User = validatedPrincipal;
+
+            // Sets Result on the event context ASP.NET is holding, which is what stops the handler.
+            // Without it the accepted token still falls through to primary validation, fails against
+            // the tenant's own Blocks certificate, and the handler answers AuthenticateResult.Fail --
+            // the "Bearer was not authenticated" line -- after this method has already said yes.
             context.Success();
 
             SecurityLog(
@@ -823,9 +852,9 @@ public static class JwtBearerAuthenticationExtension
     /// <summary>
     /// Maps a validated third-party token onto a Blocks context using the provider's own mapping.
     /// </summary>
-    private static void StoreThirdPartyBlocksContextActivity(
+    private static BlocksContext? StoreThirdPartyBlocksContextActivity(
         ClaimsIdentity identity,
-        TokenValidatedContext context,
+        ResultContext<JwtBearerOptions> context,
         Tenant tenant,
         ThirdPartyJwtProvider provider)
     {
@@ -840,7 +869,7 @@ public static class JwtBearerAuthenticationExtension
                 "first database call instead.",
                 detail: new { provider.Key },
                 isWarning: true);
-            return;
+            return null;
         }
 
         // The single most useful line when a mapping misbehaves: what was configured, next to what
@@ -905,8 +934,10 @@ public static class JwtBearerAuthenticationExtension
         var referer = context.Request.Headers.Referer.FirstOrDefault();
         var applicationDomain = TenantContextHelper.ResolveApplicationDomain(tenant, origin, referer);
 
+        // TenantId, not ItemId: tenant lookup, the database registry and every other context in
+        // the system are keyed by TenantId, so an ItemId here resolves to no database at all.
         var mappedContext = BlocksContext.Create(
-            tenantId: tenant.ItemId,
+            tenantId: tenant.TenantId,
             roles: roleClaim,
             userId: resolvedSubject + "_external",
             isAuthenticated: identity.IsAuthenticated,
@@ -920,7 +951,7 @@ public static class JwtBearerAuthenticationExtension
             phoneNumber: string.Empty,
             displayName: resolvedDisplayName,
             oauthToken: string.Empty,
-            originalTenantId: tenant.ItemId,
+            originalTenantId: tenant.TenantId,
             applicationDomain: applicationDomain);
 
         BlocksContext.SetContext(mappedContext);
@@ -933,7 +964,7 @@ public static class JwtBearerAuthenticationExtension
             "Token mapped to a Blocks context; the request is authenticated.",
             detail: new
             {
-                tenantId = tenant.ItemId,
+                tenantId = tenant.TenantId,
                 provider.Key,
                 userId = mappedContext.UserId,
                 roles = roleClaim,
@@ -944,6 +975,64 @@ public static class JwtBearerAuthenticationExtension
 
         context.Request.Headers[BlocksConstants.ThirdPartyContextHeader] =
             JsonSerializer.Serialize(BlocksContext.CreateSanitizedForTransport(mappedContext));
+
+        return mappedContext;
+    }
+
+    /// <summary>
+    /// Writes the mapped values onto the third-party identity as the Blocks claims every consumer
+    /// downstream reads.
+    /// </summary>
+    /// <remarks>
+    /// Reserved claims are stripped first. Without that a provider could name its own tenant,
+    /// permissions or Blocks user id simply by minting those claims into its token -- after this,
+    /// only what the provider's configured mapping resolved survives.
+    /// </remarks>
+    private static void StampBlocksClaims(ClaimsIdentity identity, BlocksContext blocksContext)
+    {
+        string[] reserved =
+        [
+            BlocksContext.TENANT_ID_CLAIM,
+            BlocksContext.ORIGINAL_TENANT_ID_CLAIM,
+            BlocksContext.USER_ID_CLAIM,
+            BlocksContext.USER_NAME_CLAIM,
+            BlocksContext.DISPLAY_NAME_CLAIM,
+            BlocksContext.EMAIL_CLAIM,
+            BlocksContext.PERMISSION_CLAIM,
+            BlocksContext.ORGANIZATION_ID_CLAIM,
+            BlocksContext.IMPERSONATED_CLAIM,
+            BlocksContext.IMPERSONATION_SESSION_ID_CLAIM,
+            BlocksContext.CLIENT_ID_CLAIM,
+            BlocksContext.ROLES_CLAIM,
+            identity.RoleClaimType
+        ];
+
+        foreach (var claim in identity.Claims.Where(c => reserved.Contains(c.Type, StringComparer.Ordinal)).ToArray())
+        {
+            identity.TryRemoveClaim(claim);
+        }
+
+        AddClaim(BlocksContext.TENANT_ID_CLAIM, blocksContext.TenantId);
+        AddClaim(BlocksContext.ORIGINAL_TENANT_ID_CLAIM, blocksContext.OriginalTenantId);
+        AddClaim(BlocksContext.USER_ID_CLAIM, blocksContext.UserId);
+        AddClaim(BlocksContext.USER_NAME_CLAIM, blocksContext.UserName);
+        AddClaim(BlocksContext.DISPLAY_NAME_CLAIM, blocksContext.DisplayName);
+        AddClaim(BlocksContext.EMAIL_CLAIM, blocksContext.Email);
+
+        foreach (var role in blocksContext.Roles ?? [])
+        {
+            // Written under the identity's own role claim type, which is what
+            // CreateFromClaimsIdentity reads them back through.
+            AddClaim(identity.RoleClaimType, role);
+        }
+
+        void AddClaim(string type, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                identity.AddClaim(new Claim(type, value));
+            }
+        }
     }
 
     private static string ExtractClaimProperty(string claimObject)
