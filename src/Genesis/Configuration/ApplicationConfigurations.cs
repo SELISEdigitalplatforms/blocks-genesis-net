@@ -1,4 +1,4 @@
-﻿using Blocks.Genesis.Health;
+using Blocks.Genesis.Health;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
@@ -171,6 +171,7 @@ public static class ApplicationConfigurations
         }
 
         services.AddSingleton<ICryptoService, CryptoService>();
+        services.AddSingleton<IThirdPartyJwtProviderStore, ThirdPartyJwtProviderStore>();
         services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();
         services.AddHostedService<GenesisHealthPingBackgroundService>();
     }
