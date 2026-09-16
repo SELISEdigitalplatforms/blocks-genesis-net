@@ -942,7 +942,10 @@ public static class JwtBearerAuthenticationExtension
             userId: resolvedSubject + "_external",
             isAuthenticated: identity.IsAuthenticated,
             requestUri: context.Request.Host.ToString(),
-            organizationId: string.Empty,
+            // The provider's configured organization, not an empty value: an empty organization is
+            // collapsed to "default" by some consumers and denied outright by others, so leaving it
+            // blank means the scope a caller gets depends on which layer happens to read it.
+            organizationId: provider.DefaultOrganizationId,
             expireOn: DateTime.TryParse(identity.FindFirst("exp")?.Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var exp)
                       ? exp : DateTime.MinValue,
             email: resolvedEmail,
@@ -967,6 +970,7 @@ public static class JwtBearerAuthenticationExtension
                 tenantId = tenant.TenantId,
                 provider.Key,
                 userId = mappedContext.UserId,
+                organizationId = mappedContext.OrganizationId,
                 roles = roleClaim,
                 emailResolved = !string.IsNullOrWhiteSpace(resolvedEmail),
                 userNameResolved = !string.IsNullOrWhiteSpace(resolvedUserName),
@@ -1018,6 +1022,11 @@ public static class JwtBearerAuthenticationExtension
         AddClaim(BlocksContext.USER_NAME_CLAIM, blocksContext.UserName);
         AddClaim(BlocksContext.DISPLAY_NAME_CLAIM, blocksContext.DisplayName);
         AddClaim(BlocksContext.EMAIL_CLAIM, blocksContext.Email);
+
+        // Stripped as reserved above, so it has to be written back like the rest. Without it
+        // CreateFromClaimsIdentity rebuilds the context with an empty organization, and the
+        // organization on the mapped context never reaches anything that reads one.
+        AddClaim(BlocksContext.ORGANIZATION_ID_CLAIM, blocksContext.OrganizationId);
 
         foreach (var role in blocksContext.Roles ?? [])
         {

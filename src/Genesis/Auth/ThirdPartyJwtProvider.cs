@@ -65,6 +65,50 @@ public class ThirdPartyJwtProvider : BaseEntity
     /// <summary>Cookie this provider's token may arrive in, for the non-header path.</summary>
     public string CookieKey { get; set; } = string.Empty;
 
+    /// <summary>Organization scope a provider falls back to when none is configured.</summary>
+    /// <remarks>Read as tenant-wide by consumers, so it is the widest scope, not a narrow one.</remarks>
+    public const string DefaultOrganization = "default";
+
+    private string _defaultOrganizationId = DefaultOrganization;
+
+    /// <summary>
+    /// Organization every caller arriving through this provider acts in. Never blank.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately distinct from <see cref="BaseEntity.OrganizationId"/>, which is row metadata
+    /// saying where this configuration document lives. This one is configuration: it names the
+    /// organization scope granted to the tokens this provider validates.
+    /// </para>
+    /// <para>
+    /// <b>Blank is normalised away on assignment</b>, so nothing that reads this has to guard
+    /// against it. A document written before the field existed carries no element and keeps the
+    /// initial value; a document written by a form that left the field empty carries <c>""</c>,
+    /// which would otherwise overwrite that initial value during deserialisation. Both land on
+    /// <see cref="DefaultOrganization"/> here, once, rather than at each place that reads an
+    /// organization -- some of which collapse a blank to <c>"default"</c> while others deny it
+    /// outright, so a blank would leave the scope a caller receives depending on which layer read
+    /// it.
+    /// </para>
+    /// <para>
+    /// A provider-level value, so every caller through one provider shares it. Per-user
+    /// organization selection needs a provisioned Blocks user to hold memberships against; until
+    /// that exists this is the single answer, and afterwards it becomes the default that a
+    /// resolved membership overrides.
+    /// </para>
+    /// <para>
+    /// <b><c>"default"</c> is not a narrow scope.</b> Consumers read it as tenant-wide, so a
+    /// provider left on the initial value grants the widest organization scope there is. Narrow it
+    /// deliberately for any provider that should not have that.
+    /// </para>
+    /// </remarks>
+    public string DefaultOrganizationId
+    {
+        get => _defaultOrganizationId;
+        set => _defaultOrganizationId =
+            string.IsNullOrWhiteSpace(value) ? DefaultOrganization : value.Trim();
+    }
+
     /// <summary>
     /// How this provider's claims map onto a Blocks context. Held on the provider so configuration
     /// and mapping are saved together.

@@ -85,7 +85,54 @@ public class ThirdPartyFallbackAcceptanceTests
         Assert.Empty(BlocksContext.CreateFromClaimsIdentity(identity).Permissions);
     }
 
-    private static async Task<MessageReceivedContext> RunMessageReceivedAsync()
+    /// <param name="providerOrganizationId">
+    /// Left null to exercise the entity's own initial value, which is what every provider written
+    /// before the field existed deserializes to.
+    /// </param>
+    [Fact]
+    public async Task CarriesTheProvidersOrganization_OntoThePrincipal()
+    {
+        var context = await RunMessageReceivedAsync(providerOrganizationId: "org-7");
+
+        var identity = (ClaimsIdentity)context.Result!.Principal!.Identity!;
+
+        // Stamped as a claim, not merely set on the mapped context: the claims are what
+        // CreateFromClaimsIdentity rebuilds from, so an organization that never becomes a claim
+        // never reaches anything that reads one.
+        Assert.Equal("org-7", identity.FindFirst(BlocksContext.ORGANIZATION_ID_CLAIM)?.Value);
+        Assert.Equal("org-7", BlocksContext.CreateFromClaimsIdentity(identity).OrganizationId);
+    }
+
+    [Fact]
+    public async Task FallsBackToTheEntityDefault_WhenTheProviderNamesNoOrganization()
+    {
+        // A provider stored before the field existed has no such element, so BSON leaves the
+        // property at its initial value rather than blank. Blank is the case that matters: some
+        // consumers collapse it to "default" and others deny it outright, so the scope a caller
+        // gets would depend on which layer read it.
+        var context = await RunMessageReceivedAsync();
+
+        var identity = (ClaimsIdentity)context.Result!.Principal!.Identity!;
+
+        Assert.Equal("default", identity.FindFirst(BlocksContext.ORGANIZATION_ID_CLAIM)?.Value);
+        Assert.Equal("default", BlocksContext.CreateFromClaimsIdentity(identity).OrganizationId);
+    }
+
+    [Fact]
+    public async Task ProviderCannotNameItsOwnOrganization()
+    {
+        // "default" is read as tenant-wide, so a token that mints its own organization claim is
+        // asking for the widest scope there is. The configured value has to win, and there must be
+        // exactly one claim left -- two would leave the winner to whichever FindFirst returns.
+        var context = await RunMessageReceivedAsync(providerOrganizationId: "org-7");
+
+        var identity = (ClaimsIdentity)context.Result!.Principal!.Identity!;
+
+        Assert.Equal("org-7", Assert.Single(identity.FindAll(BlocksContext.ORGANIZATION_ID_CLAIM)).Value);
+    }
+
+    private static async Task<MessageReceivedContext> RunMessageReceivedAsync(
+        string? providerOrganizationId = null)
     {
         var crypto = new CryptoService();
 
@@ -128,6 +175,11 @@ public class ThirdPartyFallbackAcceptanceTests
                 Roles = NsRoles
             }
         };
+
+        if (providerOrganizationId is not null)
+        {
+            provider.DefaultOrganizationId = providerOrganizationId;
+        }
 
         var tenants = new Mock<ITenants>();
         tenants.Setup(t => t.GetTenantByID(TenantId)).Returns(tenant);
@@ -176,9 +228,10 @@ public class ThirdPartyFallbackAcceptanceTests
                 [NsName] = "asif.rafeen.auth0@yopmail.com",
                 [NsRoles] = new[] { "TestAuth0Role" },
 
-                // Forged: neither may survive onto the principal.
+                // Forged: none of these may survive onto the principal.
                 [BlocksContext.TENANT_ID_CLAIM] = "a-tenant-this-provider-does-not-own",
-                [BlocksContext.PERMISSION_CLAIM] = new[] { "blocks-iam::iam::mutate-users" }
+                [BlocksContext.PERMISSION_CLAIM] = new[] { "blocks-iam::iam::mutate-users" },
+                [BlocksContext.ORGANIZATION_ID_CLAIM] = "default"
             },
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningSecret)),
