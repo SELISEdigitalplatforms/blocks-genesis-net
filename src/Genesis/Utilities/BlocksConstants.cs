@@ -1,9 +1,19 @@
-namespace Blocks.Genesis;
+﻿namespace Blocks.Genesis;
 
 public static class BlocksConstants
 {
     internal const string TenantCollectionName = "Tenants";
     internal const string TenantTokenPublicCertificateCachePrefix = "tetocertpublic::";
+
+    /// <summary>
+    /// Cache slot for one external provider's public certificate, keyed by tenant and provider.
+    /// </summary>
+    /// <remarks>
+    /// Scoped per provider rather than per tenant, unlike
+    /// <see cref="TenantTokenPublicCertificateCachePrefix"/>: a tenant may trust several external
+    /// providers at once, and a tenant-wide slot would hand one provider's certificate to another.
+    /// </remarks>
+    internal const string ThirdPartyProviderCertificateCachePrefix = "tpprovcert::";
     internal const string ThirdPartyContextHeader = "ThirdPartyContext";
     public const string BlocksKey = "x-blocks-key";
 

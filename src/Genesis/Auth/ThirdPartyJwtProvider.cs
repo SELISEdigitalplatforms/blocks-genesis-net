@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 
 namespace Blocks.Genesis;
 
@@ -54,13 +54,83 @@ public class ThirdPartyJwtProvider : BaseEntity
     public List<JwtSigningAlgorithm> Algorithms { get; set; } = [];
 
     /// <summary>Key source for the asymmetric families. Public, fetched over HTTPS.</summary>
+    /// <remarks>
+    /// One of two key sources an asymmetric provider may use, the other being
+    /// <see cref="PublicCertificatePath"/>. A provider configures exactly one: holding both would
+    /// give it two independent signing authorities, and the one consulted would depend on the
+    /// order this code happens to check them in.
+    /// </remarks>
     public string JwksUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The other key source for the asymmetric families: a single public certificate, addressed
+    /// either as an absolute URL or as a path on the host's filesystem.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For a provider that publishes no JWKS — an in-house issuer, or one reachable only from
+    /// inside a network this process cannot see. The file is read on demand and cached, so the URL
+    /// has to stay valid and readable without credentials for as long as the provider is
+    /// configured; a signed URL that expires would turn into 401s on perfectly valid tokens.
+    /// </para>
+    /// <para>
+    /// A JWKS is preferable wherever it exists, because it carries several keys and so survives
+    /// the provider rotating one. A certificate pins exactly one key: when the provider rotates,
+    /// this has to be re-uploaded.
+    /// </para>
+    /// </remarks>
+    public string PublicCertificatePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Passphrase for a PKCS#12 certificate (<c>.pfx</c>, <c>.p12</c>), AES-GCM encrypted under a
+    /// key derived from the tenant's salt — exactly as <see cref="SigningSecretCipher"/> is.
+    /// </summary>
+    /// <remarks>
+    /// Empty is the ordinary case, not a misconfiguration: a bare <c>.crt</c> or <c>.der</c> holds
+    /// only a public key and has nothing to protect, and plenty of PKCS#12 files carry no
+    /// passphrase either. Only ever the ciphertext, and never returned by a read API.
+    /// </remarks>
+    public string PublicCertificatePasswordCipher { get; set; } = string.Empty;
 
     /// <summary>
     /// Key source for the HMAC family: the shared secret, AES-GCM encrypted under a key derived
     /// from the tenant's salt. Never the plaintext, and never returned by a read API.
     /// </summary>
     public string SigningSecretCipher { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The configured certificate's subject, as read from the file when it was saved.
+    /// </summary>
+    /// <remarks>
+    /// Descriptive only — nothing routes or validates on it. Recorded because the blob is named
+    /// after the tenant and provider rather than after the uploaded file, so without this there is
+    /// nothing in the configuration an operator can match against the certificate the provider
+    /// actually sent them.
+    /// </remarks>
+    public string CertificateSubject { get; set; } = string.Empty;
+
+    /// <summary>
+    /// SHA-1 thumbprint of the configured certificate, for matching against what the provider
+    /// published. Descriptive only.
+    /// </summary>
+    public string CertificateThumbprint { get; set; } = string.Empty;
+
+    /// <summary>
+    /// When the configured certificate stops being valid, or <c>null</c> if it was never read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The single most useful fact about this key source, because a certificate pins exactly one
+    /// key: once it lapses, every token the provider issues is refused and nothing in the token
+    /// hints at why. Recorded at save time so the UI can warn before that happens.
+    /// </para>
+    /// <para>
+    /// <b>Not consulted during validation.</b> The certificate's own <c>NotAfter</c> is what the
+    /// handler enforces, read from the file itself; this copy is a stale snapshot for display and
+    /// must never be the thing a decision is made on.
+    /// </para>
+    /// </remarks>
+    public DateTime? CertificateNotAfter { get; set; }
 
     /// <summary>Cookie this provider's token may arrive in, for the non-header path.</summary>
     public string CookieKey { get; set; } = string.Empty;

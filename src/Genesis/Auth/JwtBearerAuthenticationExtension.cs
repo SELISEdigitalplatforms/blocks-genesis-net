@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication;
+﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -278,6 +278,9 @@ public static class JwtBearerAuthenticationExtension
         // "No provider claims this issuer" is the everyday case on an enabled tenant -- every
         // Blocks token looks exactly like that -- so it stays quiet. Logging it as a rejection
         // would flood the channel and desensitise everyone to the events that matter.
+        // IssuerAbsentUnmatched is deliberately absent from this set: a token with no issuer at
+        // all is not what an ordinary Blocks token looks like, so it does not flood the channel
+        // and it is worth a terminal line.
         var isRoutineMiss = outcome is ThirdPartyProviderSelection.IssuerUnmatched
                                     or ThirdPartyProviderSelection.NoProviders;
 
@@ -447,6 +450,18 @@ public static class JwtBearerAuthenticationExtension
                     detail: detail);
                 break;
 
+            case ThirdPartyProviderSelection.IssuerAbsentUnmatched:
+                // Loud, unlike an unrecognised issuer: Blocks always stamps an issuer, so a token
+                // without one came from outside and someone meant it to be accepted here.
+                SecurityLog(
+                    "third_party_provider_unmatched",
+                    "This token carries no iss claim, and no provider is configured to receive tokens without " +
+                    "one. Leave a provider's issuer blank to accept them, and give it a key -- the x-blocks-idp " +
+                    "header is what separates two such providers.",
+                    detail: detail,
+                    isWarning: true);
+                break;
+
             case ThirdPartyProviderSelection.AudienceUnmatched:
                 SecurityLog(
                     "third_party_provider_unmatched",
@@ -578,19 +593,138 @@ public static class JwtBearerAuthenticationExtension
             return parameters;
         }
 
-        if (string.IsNullOrWhiteSpace(provider.JwksUrl))
+        // A JWKS is preferred wherever the provider publishes one: it carries several keys, so it
+        // survives the provider rotating one without anything here being touched. The certificate
+        // is the fallback for an issuer that publishes no JWKS, or none this process can reach.
+        if (!string.IsNullOrWhiteSpace(provider.JwksUrl))
         {
+            var jwks = await httpClientFactory.CreateClient().GetFromJsonAsync<JsonWebKeySet>(provider.JwksUrl);
+            parameters.IssuerSigningKeys = jwks!.Keys;
+            return parameters;
+        }
+
+        if (!string.IsNullOrWhiteSpace(provider.PublicCertificatePath))
+        {
+            var certificateKey = await ResolveCertificateKeyAsync(tenant, provider, context, httpClientFactory);
+            if (certificateKey is null)
+            {
+                // Already reported with the specific reason.
+                return null;
+            }
+
+            parameters.IssuerSigningKey = certificateKey;
+            return parameters;
+        }
+
+        SecurityLog(
+            "third_party_key_source_missing",
+            "This provider uses an asymmetric algorithm but configures neither a JwksUrl nor a " +
+            "PublicCertificatePath, so there is no key to verify with.",
+            detail: new { provider.Key, algorithms },
+            isWarning: true);
+        return null;
+    }
+
+    /// <summary>
+    /// How long one external provider's certificate bytes are cached for.
+    /// </summary>
+    /// <remarks>
+    /// A certificate pins a single key, so this window is also how long a rotation the provider has
+    /// already performed keeps being rejected. Short enough that the lag is an inconvenience rather
+    /// than an outage, long enough that a busy endpoint is not re-fetching the file per request.
+    /// </remarks>
+    private static readonly TimeSpan ProviderCertificateCacheTtl = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Loads this provider's public certificate and wraps it as a signing key, decrypting the
+    /// PKCS#12 passphrase first when one is stored.
+    /// </summary>
+    /// <remarks>
+    /// Every failure is reported as its own outcome. A certificate that will not load is a
+    /// configuration fault, not a bad token, and conflating the two sends people looking at a
+    /// perfectly valid token for the cause of a 401.
+    /// </remarks>
+    private static async Task<X509SecurityKey?> ResolveCertificateKeyAsync(
+        Tenant tenant,
+        ThirdPartyJwtProvider provider,
+        ResultContext<JwtBearerOptions> context,
+        IHttpClientFactory httpClientFactory)
+    {
+        string? password = null;
+
+        // Absent is the ordinary case: a bare .crt or .der has no passphrase to hold, and many
+        // PKCS#12 files carry none either.
+        if (!string.IsNullOrWhiteSpace(provider.PublicCertificatePasswordCipher))
+        {
+            password = DecryptProviderSecret(
+                tenant,
+                provider,
+                context,
+                provider.PublicCertificatePasswordCipher,
+                "certificate passphrase");
+
+            if (password is null)
+            {
+                return null;
+            }
+        }
+
+        // Optional on purpose, unlike the primary path's cache: without a cache the certificate is
+        // simply fetched each time, which is slower but still correct. Failing the token instead
+        // would make a cache outage look like a provider misconfiguration.
+        var cacheDb = context.HttpContext.RequestServices.GetService<ICacheClient>()?.CacheDatabase();
+        var cacheKey = $"{BlocksConstants.ThirdPartyProviderCertificateCachePrefix}{provider.TenantId}::{provider.Key}";
+
+        byte[]? certificateData = null;
+
+        if (cacheDb is not null)
+        {
+            var cached = await cacheDb.StringGetAsync(cacheKey);
+            if (cached.HasValue)
+            {
+                certificateData = (byte[])cached!;
+            }
+        }
+
+        if (certificateData is null)
+        {
+            certificateData = await LoadCertificateDataAsync(provider.PublicCertificatePath, httpClientFactory);
+
+            if (certificateData is null)
+            {
+                SecurityLog(
+                    "third_party_certificate_unreadable",
+                    "The provider's public certificate could not be read from its configured path. The path must " +
+                    "be an absolute URL this process can fetch without credentials, or a file on this host.",
+                    detail: new { provider.Key, provider.PublicCertificatePath },
+                    isWarning: true);
+                return null;
+            }
+
+            if (cacheDb is not null)
+            {
+                await cacheDb.StringSetAsync(cacheKey, certificateData, ProviderCertificateCacheTtl);
+            }
+        }
+
+        try
+        {
+            return new X509SecurityKey(CreateCertificate(certificateData, password));
+        }
+        catch (Exception ex)
+        {
+            // CreateCertificate tries PKCS#12 first and falls back to a bare certificate, so
+            // arriving here means neither worked. A wrong passphrase looks exactly like this,
+            // which is worth saying outright rather than leaving to the inner exception's text.
             SecurityLog(
-                "third_party_key_source_missing",
-                "This provider uses an asymmetric algorithm but has no JwksUrl, so there is no key to verify with.",
-                detail: new { provider.Key, algorithms },
+                "third_party_certificate_unreadable",
+                "The provider's certificate file was fetched but could not be parsed. A stored passphrase that " +
+                "does not match the file fails in exactly this way, as does a file that is not a certificate.",
+                ex,
+                detail: new { provider.Key, provider.PublicCertificatePath, hasPassphrase = password is not null },
                 isWarning: true);
             return null;
         }
-
-        var jwks = await httpClientFactory.CreateClient().GetFromJsonAsync<JsonWebKeySet>(provider.JwksUrl);
-        parameters.IssuerSigningKeys = jwks!.Keys;
-        return parameters;
     }
 
     /// <summary>
@@ -616,12 +750,43 @@ public static class JwtBearerAuthenticationExtension
             return null;
         }
 
+        var secret = DecryptProviderSecret(
+            tenant,
+            provider,
+            context,
+            provider.SigningSecretCipher,
+            "signing secret");
+
+        return secret is null ? null : new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+    }
+
+    /// <summary>
+    /// Decrypts one of a provider's stored ciphertexts under the tenant's salt.
+    /// </summary>
+    /// <param name="purpose">
+    /// What the value is, woven into the log line -- a host is far more likely to hold a provider
+    /// with a signing secret and one with a certificate passphrase than to have both fail at once,
+    /// so naming which one failed is what makes the event actionable.
+    /// </param>
+    /// <returns><c>null</c> on any failure, already reported.</returns>
+    /// <remarks>
+    /// Shared by the HMAC secret and the certificate passphrase because the failure modes are
+    /// identical: both are AES-GCM ciphertexts keyed on <see cref="Tenant.TenantSalt"/>, so both
+    /// become unreadable the moment that salt is regenerated.
+    /// </remarks>
+    private static string? DecryptProviderSecret(
+        Tenant tenant,
+        ThirdPartyJwtProvider provider,
+        ResultContext<JwtBearerOptions> context,
+        string cipher,
+        string purpose)
+    {
         var crypto = context.HttpContext.RequestServices.GetService<ICryptoService>();
         if (crypto is null)
         {
             SecurityLog(
                 "third_party_secret_undecryptable",
-                "ICryptoService is not registered in this host, so the signing secret cannot be decrypted.",
+                $"ICryptoService is not registered in this host, so the {purpose} cannot be decrypted.",
                 isWarning: true);
             return null;
         }
@@ -630,28 +795,28 @@ public static class JwtBearerAuthenticationExtension
         {
             SecurityLog(
                 "third_party_secret_undecryptable",
-                "The tenant has no TenantSalt, which is the key material the signing secret was encrypted under.",
+                $"The tenant has no TenantSalt, which is the key material the {purpose} was encrypted under.",
                 detail: new { provider.Key },
                 isWarning: true);
             return null;
         }
 
-        var secret = crypto.Decrypt(provider.SigningSecretCipher, tenant.TenantSalt);
+        var plaintext = crypto.Decrypt(cipher, tenant.TenantSalt);
 
-        if (string.IsNullOrWhiteSpace(secret))
+        if (string.IsNullOrWhiteSpace(plaintext))
         {
             // TenantSalt is load-bearing here: regenerating it makes every stored secret for the
             // tenant undecryptable, and the symptom is a 401 carrying a perfectly valid token.
             SecurityLog(
                 "third_party_secret_undecryptable",
-                "The stored signing secret did not decrypt. Either it was tampered with, or the tenant salt it " +
+                $"The stored {purpose} did not decrypt. Either it was tampered with, or the tenant salt it " +
                 "was encrypted under has changed -- re-save the provider to re-encrypt it.",
                 detail: new { provider.Key },
                 isWarning: true);
             return null;
         }
 
-        return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+        return plaintext;
     }
 
     private static async Task<bool> ValidateTokenWithFallbackAsync(
