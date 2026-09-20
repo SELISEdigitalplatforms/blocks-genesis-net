@@ -20,14 +20,13 @@ public class MongoDbContextProviderCoverageTests
         var first = provider.GetDatabase(MongoConnectionString, "CacheDbA");
         var second = provider.GetDatabase(MongoConnectionString, "CacheDbA", isCacheRefreshed: true);
 
-        // IsSameDbConnection compares against the provider's own cached client
-        // for the connection string, so an unchanged connection keeps the
-        // cached database instance instead of evicting it.
+        // An unchanged connection/database pair reuses its handle, including
+        // callers that still pass the legacy refresh flag.
         Assert.Same(first, second);
     }
 
     [Fact]
-    public void GetDatabase_ShouldReplaceCachedInstance_WhenCacheRefreshedAndConnectionDiffers()
+    public void GetDatabase_ShouldKeepSeparateInstances_WhenCacheRefreshedAndConnectionDiffers()
     {
         var provider = CreateProvider(out _);
 
@@ -35,6 +34,7 @@ public class MongoDbContextProviderCoverageTests
         var second = provider.GetDatabase(AlternateConnectionString, "CacheDbB", isCacheRefreshed: true);
 
         Assert.NotSame(first, second);
+        Assert.Same(first, provider.GetDatabase(MongoConnectionString, "CacheDbB"));
     }
 
     [Fact]
