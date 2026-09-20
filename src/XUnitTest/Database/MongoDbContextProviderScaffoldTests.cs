@@ -70,14 +70,17 @@ public class MongoDbContextProviderScaffoldTests
     }
 
     [Fact]
-    public void GetDatabase_ByConnectionAndDatabaseName_ShouldCacheCaseInsensitiveKey()
+    public void GetDatabase_ByConnectionAndDatabaseName_ShouldPreserveRequestedDatabaseName()
     {
         var provider = CreateProvider(new Mock<ITenants>());
 
         var first = provider.GetDatabase("mongodb://localhost:27017", "MainDb");
         var second = provider.GetDatabase("mongodb://localhost:27017", "maindb");
 
-        Assert.Same(first, second);
+        Assert.NotSame(first, second);
+        Assert.Equal("MainDb", first.DatabaseNamespace.DatabaseName);
+        Assert.Equal("maindb", second.DatabaseNamespace.DatabaseName);
+        Assert.Same(first.Client, second.Client);
     }
 
     [Fact]

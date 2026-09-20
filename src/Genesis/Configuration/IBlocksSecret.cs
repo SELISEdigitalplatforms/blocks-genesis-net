@@ -12,6 +12,8 @@ public interface IBlocksSecret
     public string TraceDatabaseName { get; set; }
     public string ServiceName { get; set; }
     public string DatabaseConnectionString { get; set; }
+    public string DevDatabaseConnectionString { get; set; }
+    public string OtherDatabaseConnectionString { get; set; }
     public string RootDatabaseName { get; set; }
     public bool EnableHsts { get; set; }
     public string SshHost { get; set; }
