@@ -121,6 +121,50 @@ public class DelegationGrantStoreTests
     }
 
     [Fact]
+    public async Task CreateForClientAsync_ShouldWriteAClientRecordWithNoUserOrVersionMaterial()
+    {
+        var (store, database, _) = CreateStore();
+        RedisValue capturedValue = default;
+        TimeSpan? capturedExpiry = null;
+
+        database
+            .Setup(db => db.StringSetAsync(
+                It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(),
+                It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()))
+            .Callback((RedisKey _, RedisValue value, TimeSpan? expiry, bool ___, When ____, CommandFlags _____) =>
+            {
+                capturedValue = value;
+                capturedExpiry = expiry;
+            })
+            .ReturnsAsync(true);
+
+        var id = await store.CreateForClientAsync("tenant-1", "client-1", "org-1");
+
+        Assert.True(DelegationGrantStore.IsWellFormed(id));
+        Assert.Equal(DelegationConstants.DefaultGrantTtl, capturedExpiry);
+
+        var record = JsonSerializer.Deserialize<DelegationGrantRecord>(capturedValue.ToString());
+        Assert.NotNull(record);
+        Assert.Equal("tenant-1", record!.TenantId);
+        Assert.Equal("client-1", record.ClientId);
+        Assert.Equal("org-1", record.OrganizationId);
+        Assert.Equal(string.Empty, record.UserId);
+        Assert.Equal(string.Empty, record.TokenVersion);
+        Assert.Equal(string.Empty, record.SecurityStamp);
+        Assert.True(record.IsClientGrant);
+    }
+
+    [Theory]
+    [InlineData("", "client-1")]
+    [InlineData("tenant-1", "")]
+    public async Task CreateForClientAsync_ShouldReject_WhenTenantOrClientIsMissing(string tenantId, string clientId)
+    {
+        var (store, _, _) = CreateStore();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.CreateForClientAsync(tenantId, clientId, null));
+    }
+
+    [Fact]
     public void NewGrantId_ShouldBePrefixedHex_AndUnique()
     {
         var ids = Enumerable.Range(0, 200).Select(_ => DelegationGrantStore.NewGrantId()).ToList();
