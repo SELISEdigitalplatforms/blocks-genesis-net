@@ -9,6 +9,11 @@ namespace Blocks.Genesis;
 /// delegated access token. Property names are the wire contract and are serialized in
 /// PascalCase so blocks-genesis-py and blocks-iam read the same JSON.
 /// </para>
+/// <para>
+/// A grant names exactly one subject: a user (<see cref="UserId"/> plus <see cref="TokenVersion"/>
+/// and <see cref="SecurityStamp"/>), or an OAuth client authenticated with
+/// <c>client_credentials</c> (<see cref="ClientId"/>, no version material).
+/// </para>
 /// </summary>
 public sealed record DelegationGrantRecord
 {
@@ -26,4 +31,12 @@ public sealed record DelegationGrantRecord
 
     [JsonPropertyName("SecurityStamp")]
     public string SecurityStamp { get; init; } = string.Empty;
+
+    /// <summary>The client credential behind a machine-to-machine grant. Empty on a user grant.</summary>
+    [JsonPropertyName("ClientId")]
+    public string ClientId { get; init; } = string.Empty;
+
+    /// <summary>True when the grant names a client and no user.</summary>
+    [JsonIgnore]
+    public bool IsClientGrant => string.IsNullOrWhiteSpace(UserId) && !string.IsNullOrWhiteSpace(ClientId);
 }

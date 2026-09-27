@@ -44,6 +44,28 @@ public sealed class DelegationGrantStore : IDelegationGrantStore
             SecurityStamp = securityStamp ?? string.Empty
         };
 
+        return await WriteAsync(record, ttl).ConfigureAwait(false);
+    }
+
+    public async Task<string> CreateForClientAsync(string tenantId, string clientId, string? organizationId, TimeSpan? ttl = null)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId))
+        {
+            throw new InvalidOperationException("A client delegation grant requires both a tenant and a client id.");
+        }
+
+        var record = new DelegationGrantRecord
+        {
+            TenantId = tenantId,
+            ClientId = clientId,
+            OrganizationId = organizationId ?? string.Empty
+        };
+
+        return await WriteAsync(record, ttl).ConfigureAwait(false);
+    }
+
+    private async Task<string> WriteAsync(DelegationGrantRecord record, TimeSpan? ttl)
+    {
         var id = NewGrantId();
         var lifetime = NormalizeTtl(ttl);
 
