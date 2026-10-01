@@ -134,7 +134,7 @@ MaxFailedBatches=100
 
 ## Middleware pipeline (API)
 
-`HSTS -> CORS -> Health endpoints (/ping, /health/live, /health/ready) -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> RateLimiter -> Authentication -> Authorization -> Antiforgery -> Controllers`
+`HSTS -> CORS -> Health endpoints (/ping, /health/live, /health/ready) -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> Antiforgery -> Controllers`
 
 ## Local development
 

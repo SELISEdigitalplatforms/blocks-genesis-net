@@ -17,6 +17,7 @@ namespace XUnitTest.Auth;
 /// the legacy HttpContext.Items resource name path, missing tenant context, impersonation
 /// and explicit organization scoping.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class ProtectedEndpointAccessHandlerCoverageTests : IDisposable
 {
     private const string HandlerTypeName = "Blocks.Genesis.ProtectedEndpointAccessHandler, Blocks.Genesis";

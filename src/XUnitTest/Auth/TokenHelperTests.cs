@@ -5,6 +5,7 @@ using System.Security.Claims;
 
 namespace XUnitTest.Auth;
 
+[Collection("BlocksAuthStaticState")]
 public class TokenHelperTests : IDisposable
 {
     public void Dispose()

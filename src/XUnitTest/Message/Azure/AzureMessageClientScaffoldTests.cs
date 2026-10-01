@@ -5,6 +5,7 @@ using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.Azure;
 
@@ -23,7 +24,7 @@ public class AzureMessageClientScaffoldTests
             }
         };
 
-        var client = new AzureMessageClient(configuration, new System.Diagnostics.ActivitySource("test-azure-client"));
+        var client = new AzureMessageClient(configuration, new System.Diagnostics.ActivitySource("test-azure-client"), DelegationTestDoubles.NoGrantFactory());
 
         var field = typeof(AzureMessageClient).GetField("_senders", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
@@ -168,7 +169,7 @@ public class AzureMessageClientScaffoldTests
             AzureServiceBusConfiguration = new AzureServiceBusConfiguration()
         };
 
-        Assert.Throws<FormatException>(() => new AzureMessageClient(configuration, new System.Diagnostics.ActivitySource("test-azure-client")));
+        Assert.Throws<FormatException>(() => new AzureMessageClient(configuration, new System.Diagnostics.ActivitySource("test-azure-client"), DelegationTestDoubles.NoGrantFactory()));
     }
 
     private static AzureMessageClient CreateClientWithInjectedSender(string consumerName, ServiceBusSender sender)
@@ -183,7 +184,7 @@ public class AzureMessageClientScaffoldTests
             }
         };
 
-        var client = new AzureMessageClient(configuration, new System.Diagnostics.ActivitySource("test-azure-client"));
+        var client = new AzureMessageClient(configuration, new System.Diagnostics.ActivitySource("test-azure-client"), DelegationTestDoubles.NoGrantFactory());
 
         var field = typeof(AzureMessageClient).GetField("_senders", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);

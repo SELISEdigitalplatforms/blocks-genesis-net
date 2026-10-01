@@ -7,11 +7,11 @@ namespace Blocks.Genesis;
 
 public class MongoDbContextProvider : IDbContextProvider
 {
-    private readonly ConcurrentDictionary<string, IMongoDatabase> _databases = new();
+    private readonly ConcurrentDictionary<(string ConnectionString, string DatabaseName), IMongoDatabase> _databases = new();
     private readonly ILogger<MongoDbContextProvider> _logger;
     private readonly ITenants _tenants;
     private readonly ActivitySource _activitySource;
-    private readonly ConcurrentDictionary<string, MongoClient> _mongoClients = new();
+    private readonly ConcurrentDictionary<string, Lazy<MongoClient>> _mongoClients = new();
 
     public MongoDbContextProvider(ILogger<MongoDbContextProvider> logger, ITenants tenants, ActivitySource activitySource)
     {
@@ -25,12 +25,9 @@ public class MongoDbContextProvider : IDbContextProvider
         if (string.IsNullOrWhiteSpace(tenantId))
             throw new ArgumentNullException(nameof(tenantId), "Tenant ID cannot be null or empty.");
 
-        // Use lazy loading for tenant databases
-        return _databases.GetOrAdd(tenantId, id =>
-        {
-            _logger.LogInformation("Loading database for tenant: {TenantId}", id);
-            return InitializeDatabaseForTenant(id);
-        });
+        // Resolve the tenant snapshot on each operation so tenant-cache updates also
+        // change routing. Clients and database handles are still reused below.
+        return InitializeDatabaseForTenant(tenantId);
     }
 
     public IMongoDatabase? GetDatabase()
@@ -53,27 +50,12 @@ public class MongoDbContextProvider : IDbContextProvider
         if (string.IsNullOrWhiteSpace(databaseName))
             throw new ArgumentNullException(nameof(databaseName), "Database name cannot be null or empty.");
 
-        var dbKey = databaseName.ToLower();
-
-        if (isCacheRefreshed && _databases.TryGetValue(dbKey, out var database))
-            {
-            _logger.LogInformation("Database instance for {DatabaseName} already exists in cache.", databaseName);
-
-            // Check if the existing database instance is still valid (e.g., connection is alive)
-            if (IsSameDbConnection(database, connectionString))
-                {
-                return database;
-                }
-            else
-                {
-                _databases.TryRemove(dbKey, out _);
-                }
-            }
-
-        return _databases.GetOrAdd(dbKey, key =>
+        // Keep isCacheRefreshed for API compatibility. Connection changes always
+        // select a different entry now, regardless of the caller's refresh flag.
+        return _databases.GetOrAdd((connectionString, databaseName), key =>
         {
-            _logger.LogInformation("Creating database instance for: {DatabaseName}", key);
-            return CreateMongoClient(connectionString).GetDatabase(databaseName);
+            _logger.LogInformation("Creating database instance for: {DatabaseName}", key.DatabaseName);
+            return CreateMongoClient(key.ConnectionString).GetDatabase(key.DatabaseName);
         });
     }
 
@@ -104,7 +86,7 @@ public class MongoDbContextProvider : IDbContextProvider
                 throw new KeyNotFoundException($"Database information is missing for tenant: {tenantId}");
             }
 
-            return CreateMongoClient(dbConnection).GetDatabase(dbName);
+            return GetDatabase(dbConnection, dbName);
         }
         catch (Exception ex)
         {
@@ -115,8 +97,8 @@ public class MongoDbContextProvider : IDbContextProvider
 
     private MongoClient CreateMongoClient(string connectionString)
     {
-        // Reuse MongoClient instances for the same connection string
-        return _mongoClients.GetOrAdd(connectionString, conn =>
+        // Lazy prevents concurrent cache misses from creating duplicate clients.
+        return _mongoClients.GetOrAdd(connectionString, conn => new Lazy<MongoClient>(() =>
         {
             _logger.LogInformation("Creating new MongoClient for connection string.");
             var settings = MongoClientSettings.FromConnectionString(conn);
@@ -126,14 +108,6 @@ public class MongoDbContextProvider : IDbContextProvider
             settings.ConnectTimeout = TimeSpan.FromSeconds(10);
             settings.ClusterConfigurator = cb => cb.Subscribe(new MongoEventSubscriber(_activitySource));
             return new MongoClient(settings);
-        });
-    }
-    private bool IsSameDbConnection(IMongoDatabase database, string connectionString)
-    {
-        // Compare against the client this provider builds for the connection
-        // string. Comparing raw FromConnectionString settings never matched,
-        // because CreateMongoClient customizes retries, timeouts, and the
-        // cluster configurator, so the cache was evicted on every refresh.
-        return database.Client.Settings.Equals(CreateMongoClient(connectionString).Settings);
+        }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 }

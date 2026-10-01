@@ -5,6 +5,7 @@ using Moq;
 
 namespace XUnitTest.Database;
 
+[Collection("BlocksAuthStaticState")]
 public class MongoDbContextProviderAdditionalTests : IDisposable
 {
     public MongoDbContextProviderAdditionalTests()

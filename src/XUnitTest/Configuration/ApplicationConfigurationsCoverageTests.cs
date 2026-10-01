@@ -1,9 +1,8 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -445,26 +444,6 @@ public class ApplicationConfigurationsCoverageTests
     }
 
     [Fact]
-    public void ConfigureApi_ShouldConfigureRateLimiting_WhenPermitLimitEnvironmentVariableIsSet()
-    {
-        var previousPermitLimit = Environment.GetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE");
-
-        try
-        {
-            Environment.SetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE", "5");
-
-            var services = new ServiceCollection();
-            var ex = Record.Exception(() => ApplicationConfigurations.ConfigureApi(services, "svc-rate-limit"));
-
-            Assert.Null(ex);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE", previousPermitLimit);
-        }
-    }
-
-    [Fact]
     public void ConfigureWorker_ShouldRegisterSwaggerAndKeepPresetConnection_WhenMessagingConfigurationsAreMissing()
     {
         var secret = new BlocksSecret
@@ -638,34 +617,6 @@ public class ApplicationConfigurationsCoverageTests
         var grpcOptions = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
 
         Assert.Contains(grpcOptions.Interceptors, r => r.Type == typeof(GrpcServerInterceptor));
-    }
-
-    [Fact]
-    public async Task ConfigureApi_RateLimiterPartitioner_ShouldPartitionByTenantHeaderOrClientIp()
-    {
-        SetPrivateStaticField("_blocksSecret", new BlocksSecret { EnableHsts = false });
-        SetPrivateStaticField("_blocksSwaggerOptions", null);
-        SetPrivateStaticField("_serviceName", "svc-rate-limit");
-
-        var builder = WebApplication.CreateBuilder();
-        RegisterApiPrerequisites(builder.Services);
-        ApplicationConfigurations.ConfigureApi(builder.Services, "svc-rate-limit");
-        using var app = builder.Build();
-
-        var limiterOptions = app.Services.GetRequiredService<IOptions<RateLimiterOptions>>().Value;
-        Assert.NotNull(limiterOptions.GlobalLimiter);
-
-        // No tenant header and no remote address: partitions on "ip:unknown".
-        var anonymousContext = new DefaultHttpContext();
-        using var ipLease = await limiterOptions.GlobalLimiter!.AcquireAsync(anonymousContext);
-        Assert.True(ipLease.IsAcquired);
-
-        // Tenant header present: partitions on the tenant id.
-        var tenantContext = new DefaultHttpContext();
-        tenantContext.Request.Headers["tenant-id"] = "tenant-1";
-        tenantContext.Connection.RemoteIpAddress = System.Net.IPAddress.Loopback;
-        using var tenantLease = await limiterOptions.GlobalLimiter.AcquireAsync(tenantContext);
-        Assert.True(tenantLease.IsAcquired);
     }
 
     [Fact]

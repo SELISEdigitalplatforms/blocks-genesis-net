@@ -15,6 +15,7 @@ namespace XUnitTest.Auth;
 /// name from the endpoint's <see cref="ProtectedEndPointAttribute"/>, enforces a per-tenant
 /// request quota, then checks the caller's permissions before succeeding the requirement.
 /// </summary>
+[Collection("BlocksAuthStaticState")]
 public class ProtectedEndpointAccessHandlerScaffoldTests : IDisposable
 {
     private const string HandlerTypeName = "Blocks.Genesis.ProtectedEndpointAccessHandler, Blocks.Genesis";

@@ -16,6 +16,8 @@ public sealed class RabbitMessageWorker : BackgroundService
     private readonly IRabbitMqService _rabbitMqService;
     private readonly Consumer _consumer;
     private readonly ActivitySource _activitySource;
+    private readonly IDelegationGrantStore _delegationGrantStore;
+    private readonly IDelegatedTokenProvider _delegatedTokenProvider;
 
     private IChannel? _channel;
 
@@ -24,13 +26,17 @@ public sealed class RabbitMessageWorker : BackgroundService
         MessageConfiguration messageConfiguration,
         IRabbitMqService rabbitMqService,
         Consumer consumer,
-        ActivitySource activitySource)
+        ActivitySource activitySource,
+        IDelegationGrantStore delegationGrantStore,
+        IDelegatedTokenProvider delegatedTokenProvider)
     {
         _logger = logger;
         _messageConfiguration = messageConfiguration;
         _rabbitMqService = rabbitMqService;
         _consumer = consumer;
         _activitySource = activitySource;
+        _delegationGrantStore = delegationGrantStore;
+        _delegatedTokenProvider = delegatedTokenProvider;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -87,9 +93,13 @@ public sealed class RabbitMessageWorker : BackgroundService
     {
         try
         {
-            ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext, out var baggage);
+            ExtractHeaders(ea.BasicProperties, out var tenantId, out var traceId, out var spanId, out var securityContext, out var baggage, out var delegationGrant);
 
             SetSecurityContextFromHeader(securityContext);
+
+            // Deliberately not tagged on the activity and not put in Baggage: the grant id is a credential.
+            DelegatedTokenContext.Set(delegationGrant);
+
             ApplyBaggage(baggage, tenantId);
 
             var parentContext = BuildParentActivityContext(traceId, spanId);
@@ -104,7 +114,7 @@ public sealed class RabbitMessageWorker : BackgroundService
             var body = ea.Body.ToArray();
             _logger.LogInformation("Received message for queue {Queue}", ea.RoutingKey);
 
-            await DispatchAndAckAsync(body, activity, ea);
+            await DispatchAndAckAsync(body, activity, ea, delegationGrant);
         }
         catch (Exception ex)
         {
@@ -113,8 +123,9 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
         finally
         {
-            // ClearContext only resets an AsyncLocal and cannot throw.
+            // Both only reset an AsyncLocal and cannot throw.
             BlocksContext.ClearContext();
+            DelegatedTokenContext.Clear();
         }
     }
 
@@ -195,7 +206,7 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
     }
 
-    private async Task DispatchAndAckAsync(byte[] body, Activity? activity, BasicDeliverEventArgs ea)
+    private async Task DispatchAndAckAsync(byte[] body, Activity? activity, BasicDeliverEventArgs ea, string? delegationGrant)
     {
         var processedSuccessfully = false;
         try
@@ -234,6 +245,10 @@ public sealed class RabbitMessageWorker : BackgroundService
             {
                 if (_channel?.IsOpen == true)
                     await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
+
+                // Order is fixed: business op -> ACK -> DEL. A grant released before the ACK
+                // would leave a redelivery unable to mint a token.
+                await ReleaseDelegationGrantAsync(delegationGrant);
             }
             else
             {
@@ -258,13 +273,26 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
     }
 
-    private static void ExtractHeaders(IReadOnlyBasicProperties properties, out string? tenantId, out string? traceId, out string? spanId, out string? securityContext, out string baggage)
+    /// <summary>
+    /// Removes the grant and its cached token after a successful settle. Best effort: if this
+    /// fails, the absolute TTL still bounds the grant.
+    /// </summary>
+    private async Task ReleaseDelegationGrantAsync(string? delegationGrant)
+    {
+        if (string.IsNullOrWhiteSpace(delegationGrant)) return;
+
+        _delegatedTokenProvider.Invalidate(delegationGrant);
+        await _delegationGrantStore.DeleteAsync(delegationGrant!);
+    }
+
+    private static void ExtractHeaders(IReadOnlyBasicProperties properties, out string? tenantId, out string? traceId, out string? spanId, out string? securityContext, out string baggage, out string? delegationGrant)
     {
         tenantId = GetHeader(properties, "TenantId");
         traceId = GetHeader(properties, "TraceId");
         spanId = GetHeader(properties, "SpanId");
         securityContext = GetHeader(properties, "SecurityContext");
         baggage = GetHeader(properties, "Baggage");
+        delegationGrant = GetHeader(properties, DelegationConstants.DelegationGrantHeader);
     }
 
     private static string? GetHeader(IReadOnlyBasicProperties properties, string key)

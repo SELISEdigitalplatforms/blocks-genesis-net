@@ -16,16 +16,26 @@ public sealed class AzureMessageWorker : BackgroundService
     private readonly ActivitySource _activitySource;
     private ServiceBusClient _serviceBusClient;
     private readonly Consumer _consumer;
+    private readonly IDelegationGrantStore _delegationGrantStore;
+    private readonly IDelegatedTokenProvider _delegatedTokenProvider;
 
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeMessageRenewals = new ConcurrentDictionary<string, CancellationTokenSource>();
     public event EventHandler<AutoRenewalEventArgs> MessageProcessingStarted;
 
-    public AzureMessageWorker(ILogger<AzureMessageWorker> logger, MessageConfiguration messageConfiguration, Consumer consumer, ActivitySource activitySource)
+    public AzureMessageWorker(
+        ILogger<AzureMessageWorker> logger,
+        MessageConfiguration messageConfiguration,
+        Consumer consumer,
+        ActivitySource activitySource,
+        IDelegationGrantStore delegationGrantStore,
+        IDelegatedTokenProvider delegatedTokenProvider)
     {
         _logger = logger;
         _messageConfiguration = messageConfiguration;
         _consumer = consumer;
         _activitySource = activitySource;
+        _delegationGrantStore = delegationGrantStore;
+        _delegatedTokenProvider = delegatedTokenProvider;
 
         Initialization();
     }
@@ -146,6 +156,9 @@ public sealed class AzureMessageWorker : BackgroundService
         var tenantId = args.Message.ApplicationProperties.TryGetValue("TenantId", out var tenantIdObj) ? tenantIdObj.ToString() : "";
         var securityContextString = args.Message.ApplicationProperties.TryGetValue("SecurityContext", out var securityContextObj) ? securityContextObj.ToString() : "";
         var baggageString = args.Message.ApplicationProperties.TryGetValue("Baggage", out var baggageObj) ? baggageObj.ToString() : "";
+        var delegationGrant = args.Message.ApplicationProperties.TryGetValue(DelegationConstants.DelegationGrantHeader, out var delegationGrantObj)
+            ? delegationGrantObj?.ToString()
+            : null;
 
         try
         {
@@ -155,6 +168,9 @@ public sealed class AzureMessageWorker : BackgroundService
         {
             BlocksContext.SetContext(null);
         }
+
+        // Deliberately not tagged on the activity and not put in Baggage: the grant id is a credential.
+        DelegatedTokenContext.Set(delegationGrant);
 
         foreach (var kvp in DeserializeBaggage(baggageString))
         {
@@ -233,6 +249,10 @@ public sealed class AzureMessageWorker : BackgroundService
                 if (isProcessedSuccessfully)
                 {
                     await args.CompleteMessageAsync(args.Message).ConfigureAwait(false);
+
+                    // Order is fixed: business op -> ACK -> DEL. A grant released before the ACK
+                    // would leave a redelivery unable to mint a token.
+                    await ReleaseDelegationGrantAsync(delegationGrant).ConfigureAwait(false);
                 }
                 else
                 {
@@ -262,6 +282,19 @@ public sealed class AzureMessageWorker : BackgroundService
         }
 
         BlocksContext.ClearContext();
+        DelegatedTokenContext.Clear();
+    }
+
+    /// <summary>
+    /// Removes the grant and its cached token after a successful settle. Best effort: if this
+    /// fails, the absolute TTL still bounds the grant.
+    /// </summary>
+    private async Task ReleaseDelegationGrantAsync(string? delegationGrant)
+    {
+        if (string.IsNullOrWhiteSpace(delegationGrant)) return;
+
+        _delegatedTokenProvider.Invalidate(delegationGrant);
+        await _delegationGrantStore.DeleteAsync(delegationGrant!).ConfigureAwait(false);
     }
 
     private static Dictionary<string, string> DeserializeBaggage(string? baggageString)

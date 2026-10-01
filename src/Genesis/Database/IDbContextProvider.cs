@@ -24,7 +24,8 @@ public interface IDbContextProvider
     /// </summary>
     /// <param name="connectionString"></param>
     /// <param name="databaseName"></param>
-    /// <param name="isCacheRefreshed"></param>
+    /// <param name="isCacheRefreshed">Retained for compatibility. Database handles are
+    /// always keyed by both connection string and database name.</param>
 /// <returns></returns>
     IMongoDatabase GetDatabase ( string connectionString, string databaseName, bool isCacheRefreshed = false );
     /// <summary>

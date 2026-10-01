@@ -53,6 +53,10 @@ set_env_variable "BlocksSecret__RootDatabaseName" "ROOT_DB"
 set_env_variable "BlocksSecret__EnableHsts" "true"
 set_env_variable "BlocksSecret__AllowedCorsOrigins" "https://app.example.com,https://admin.example.com"
 
+# Delegated access. One of BLOCKS_IAM_BASE_URL / BLOCKS_IAM_TOKEN_ENDPOINT is required, or the host
+# refuses to start. Must be IAM's internal address, never the public host.
+set_env_variable "BLOCKS_IAM_BASE_URL" "http://localhost:5000"
+
 echo "Environment variables have been set for the current session."
 
 if [[ "$OS_TYPE" == "Linux" || "$OS_TYPE" == "macOS" ]]; then

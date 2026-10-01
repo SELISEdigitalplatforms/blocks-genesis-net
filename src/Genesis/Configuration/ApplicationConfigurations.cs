@@ -15,7 +15,6 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
 using System.Diagnostics;
-using System.Threading.RateLimiting;
 
 namespace Blocks.Genesis;
 
@@ -119,6 +118,7 @@ public static class ApplicationConfigurations
         services.AddSingleton<ICacheClient, RedisClient>();
         services.AddSingleton<ITenants, Tenants>();
         services.AddSingleton<IDbContextProvider, MongoDbContextProvider>();
+        services.AddKeyValueStore();
 
         var objectSerializer = new ObjectSerializer(_ => true);
         BsonSerializer.RegisterSerializer(objectSerializer);
@@ -148,6 +148,10 @@ public static class ApplicationConfigurations
 
         services.AddSingleton<IHttpService, HttpService>();
 
+        // Delegated access must be registered before the message client: the client depends on
+        // IDelegationGrantFactory to stamp the DelegationGrant header at send time.
+        services.AddBlocksDelegation();
+
         ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
         services.AddHttpContextAccessor();
@@ -167,6 +171,7 @@ public static class ApplicationConfigurations
         }
 
         services.AddSingleton<ICryptoService, CryptoService>();
+        services.AddSingleton<IThirdPartyJwtProviderStore, ThirdPartyJwtProviderStore>();
         services.AddSingleton<IGrpcClientFactory, GrpcClientFactory>();
         services.AddHostedService<GenesisHealthPingBackgroundService>();
     }
@@ -218,7 +223,6 @@ public static class ApplicationConfigurations
         });
 
         services.AddHttpClient();
-        ConfigureRateLimiting(services);
 
         services.AddGrpc(options =>
         {
@@ -241,6 +245,12 @@ public static class ApplicationConfigurations
         IEnumerable<string>? tenantValidationPrefixes = null)
     {
         ArgumentNullException.ThrowIfNull(app);
+
+        // Zero-config for consumers: by the time middleware is wired, any seeded Rollbar token is
+        // already in app.Configuration, and the service name was captured by ConfigureApi. A
+        // service with no token seeded stays silent -- see BlocksRollbar.
+        BlocksRollbar.Initialize(app.Configuration, _serviceName, app.Environment.EnvironmentName);
+        BlocksRollbar.AttachDiagnostics(app.Logger);
 
         var enableHsts = _blocksSecret.EnableHsts || app.Configuration.GetValue<bool>("EnableHsts");
         if (enableHsts)
@@ -343,7 +353,6 @@ public static class ApplicationConfigurations
         var tenantPrefixes = tenantValidationPrefixes?.ToArray() ?? Array.Empty<string>();
         app.UseMiddleware<TenantValidationMiddleware>((object)tenantPrefixes);
         app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-        app.UseRateLimiter();
 
         beforeAuthentication?.Invoke(app);
 
@@ -483,39 +492,6 @@ public static class ApplicationConfigurations
 
         var normalizedOrigin = uri.GetLeftPart(UriPartial.Authority);
         return tenants.GetTenantByApplicationDomain(normalizedOrigin) != null;
-    }
-
-    private static void ConfigureRateLimiting(IServiceCollection services)
-    {
-        var permitLimit = int.TryParse(
-            Environment.GetEnvironmentVariable("BLOCKS_RATE_LIMIT_PER_MINUTE"),
-            out var configuredPermitLimit)
-            ? Math.Max(1, configuredPermitLimit)
-            : 120;
-
-        services.AddRateLimiter(options =>
-        {
-            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            {
-                var tenantId = httpContext.Request.Headers["tenant-id"].FirstOrDefault();
-                var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                var partitionKey = string.IsNullOrWhiteSpace(tenantId)
-                    ? $"ip:{remoteIp}"
-                    : $"tenant:{tenantId}";
-
-                return RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey,
-                    _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = permitLimit,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 0,
-                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                        AutoReplenishment = true
-                    });
-            });
-        });
     }
 
     private static string NormalizePathBase(string? rawPathBase)

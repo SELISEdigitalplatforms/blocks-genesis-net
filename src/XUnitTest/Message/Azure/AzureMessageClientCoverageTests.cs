@@ -4,9 +4,11 @@ using Moq;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.Azure;
 
+[Collection("BlocksAuthStaticState")]
 public class AzureMessageClientCoverageTests
 {
     private const string ValidConnection = "Endpoint=sb://unit-test.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=01234567890123456789012345678901234567890123456789=";
@@ -125,7 +127,10 @@ public class AzureMessageClientCoverageTests
 
     private static AzureMessageClient CreateClient(MessageConfiguration configuration, ActivitySource? activitySource = null)
     {
-        return new AzureMessageClient(configuration, activitySource ?? new ActivitySource("test-azure-client-coverage"));
+        return new AzureMessageClient(
+            configuration,
+            activitySource ?? new ActivitySource("test-azure-client-coverage"),
+            DelegationTestDoubles.NoGrantFactory());
     }
 
     private static AzureMessageClient CreateClientWithInjectedSender(string consumerName, ServiceBusSender sender, ActivitySource activitySource)

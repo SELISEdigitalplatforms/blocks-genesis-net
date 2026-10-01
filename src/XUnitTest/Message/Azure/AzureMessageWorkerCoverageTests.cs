@@ -6,9 +6,11 @@ using Moq;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.Azure;
 
+[Collection("BlocksAuthStaticState")]
 public class AzureMessageWorkerCoverageTests
 {
     private const string ValidConnection = "Endpoint=sb://unit-test.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=01234567890123456789012345678901234567890123456789=";
@@ -497,7 +499,9 @@ public class AzureMessageWorkerCoverageTests
             logger.Object,
             configuration,
             consumer,
-            new ActivitySource(activitySourceName ?? "test-azure-worker-coverage"));
+            new ActivitySource(activitySourceName ?? "test-azure-worker-coverage"),
+            DelegationTestDoubles.NoOpStore(),
+            DelegationTestDoubles.NoOpProvider());
     }
 
     private static ServiceBusReceivedMessage CreateReceivedMessage(string messageId, string body, IDictionary<string, object>? properties = null)

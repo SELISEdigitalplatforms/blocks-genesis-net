@@ -2,8 +2,50 @@ using Blocks.Genesis;
 
 namespace XUnitTest.Configuration;
 
+[Collection("DirectorySensitiveTests")]
 public class BlocksSecretTests
 {
+    [Theory]
+    [InlineData("mongodb://127.0.0.1:27018", "mongodb://127.0.0.1:27019")]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    [InlineData("   ", "   ")]
+    [InlineData("mongodb://127.0.0.1:27018", null)]
+    public async Task ProcessBlocksSecret_LoadsOptionalPlacementConnections_WithoutChangingMain(
+        string? devConnection, string? otherConnection)
+    {
+        const string mainConnection = "mongodb://127.0.0.1:27017";
+        var values = new Dictionary<string, string?>
+        {
+            ["BlocksSecret__DatabaseConnectionString"] = mainConnection,
+            ["BlocksSecret__RootDatabaseName"] = "BlocksRootDb",
+            ["BlocksSecret__DevDatabaseConnectionString"] = devConnection,
+            ["BlocksSecret__OtherDatabaseConnectionString"] = otherConnection
+        };
+        var previous = values.Keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+
+        try
+        {
+            foreach (var (key, value) in values)
+                Environment.SetEnvironmentVariable(key, value);
+
+            // Exercise the reflection-based loader and interface used by consumers.
+            IBlocksSecret secret = await BlocksSecret.ProcessBlocksSecret(VaultType.OnPrem);
+
+            Assert.Equal(mainConnection, secret.DatabaseConnectionString);
+            Assert.Equal("BlocksRootDb", secret.RootDatabaseName);
+            Assert.Equal(string.IsNullOrWhiteSpace(devConnection) ? string.Empty : devConnection,
+                secret.DevDatabaseConnectionString);
+            Assert.Equal(string.IsNullOrWhiteSpace(otherConnection) ? string.Empty : otherConnection,
+                secret.OtherDatabaseConnectionString);
+        }
+        finally
+        {
+            foreach (var (key, value) in previous)
+                Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+
     [Fact]
     public void BlocksSecret_ShouldAllowSettingAndGettingAllProperties()
     {

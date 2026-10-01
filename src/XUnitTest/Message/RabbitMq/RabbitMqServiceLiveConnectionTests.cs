@@ -16,7 +16,7 @@ public class RabbitMqServiceLiveConnectionTests
 
         var config = new MessageConfiguration
         {
-            Connection = "amqp://<username>:<password>@127.0.0.1:5672"
+            Connection = "amqp://guest:guest@127.0.0.1:5672"
         };
 
         await using var service = new RabbitMqService(new Mock<ILogger<RabbitMqService>>().Object, config);

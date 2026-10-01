@@ -7,9 +7,11 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.Azure;
 
+[Collection("BlocksAuthStaticState")]
 public class AzureMessageWorkerScaffoldTests
 {
     [Fact]
@@ -239,7 +241,9 @@ public class AzureMessageWorkerScaffoldTests
             logger.Object,
             config,
             consumer,
-            new System.Diagnostics.ActivitySource("test-azure-worker"));
+            new System.Diagnostics.ActivitySource("test-azure-worker"),
+            DelegationTestDoubles.NoOpStore(),
+            DelegationTestDoubles.NoOpProvider());
 
         var exception = await Record.ExceptionAsync(() => worker.StopAsync(CancellationToken.None));
 
@@ -261,7 +265,7 @@ public class AzureMessageWorkerScaffoldTests
             AzureServiceBusConfiguration = new AzureServiceBusConfiguration()
         };
 
-        var ex = Record.Exception(() => new AzureMessageWorker(logger.Object, config, consumer, new ActivitySource("test")));
+        var ex = Record.Exception(() => new AzureMessageWorker(logger.Object, config, consumer, new ActivitySource("test"), DelegationTestDoubles.NoOpStore(), DelegationTestDoubles.NoOpProvider()));
 
         Assert.Null(ex);
     }
@@ -280,7 +284,7 @@ public class AzureMessageWorkerScaffoldTests
             AzureServiceBusConfiguration = new AzureServiceBusConfiguration()
         };
 
-        var ex = Record.Exception(() => new AzureMessageWorker(logger.Object, config, consumer, new ActivitySource("test")));
+        var ex = Record.Exception(() => new AzureMessageWorker(logger.Object, config, consumer, new ActivitySource("test"), DelegationTestDoubles.NoOpStore(), DelegationTestDoubles.NoOpProvider()));
 
         Assert.Null(ex);
     }
@@ -330,7 +334,9 @@ public class AzureMessageWorkerScaffoldTests
             logger.Object,
             configuration,
             consumer,
-            new ActivitySource("test-azure-worker"));
+            new ActivitySource("test-azure-worker"),
+            DelegationTestDoubles.NoOpStore(),
+            DelegationTestDoubles.NoOpProvider());
     }
 
     private static async Task InvokePrivateAsync(object instance, string methodName, params object[] args)

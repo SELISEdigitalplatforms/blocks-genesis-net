@@ -8,6 +8,7 @@ using System.Reflection;
 
 namespace XUnitTest.Middlewares;
 
+[Collection("BlocksAuthStaticState")]
 public class OnboardingApiAccessMiddlewareTests
 {
     private const string MongoConnectionString = "mongodb://127.0.0.1:27017";

@@ -6,6 +6,7 @@ using System.Text;
 
 namespace XUnitTest.Middlewares;
 
+[Collection("BlocksAuthStaticState")]
 public class TenantValidationMiddlewareTests
 {
     [Fact]

@@ -16,6 +16,9 @@ public sealed class BlocksSecret : IBlocksSecret
     public string TraceDatabaseName { get; set; } = string.Empty;
     public string ServiceName { get; set; } = string.Empty;
     public string DatabaseConnectionString { get ; set ; } = string.Empty;
+    // Optional provisioning connections. An empty value uses DatabaseConnectionString.
+    public string DevDatabaseConnectionString { get; set; } = string.Empty;
+    public string OtherDatabaseConnectionString { get; set; } = string.Empty;
     public string RootDatabaseName { get ; set ; } = string.Empty;
     public bool EnableHsts { get; set; }
     public string SshHost { get; set; } = string.Empty;

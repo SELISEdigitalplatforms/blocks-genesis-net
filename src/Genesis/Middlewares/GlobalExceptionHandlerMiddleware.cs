@@ -57,6 +57,12 @@ public class GlobalExceptionHandlerMiddleware
         else if (statusCode >= 500)
         {
             _logger.LogError(exception, "{Message}", logMessage);
+
+            // Reported here rather than from an MVC exception filter: this middleware is the
+            // innermost handler and never rethrows, so nothing outside it sees the exception, and
+            // it already knows which faults are server-side. Anything MapException turns into a
+            // 4xx is a business outcome and is deliberately not reported.
+            BlocksRollbar.Report(exception, context, statusCode);
         }
         else
         {

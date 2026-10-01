@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using RabbitMQ.Client;
 using System.Diagnostics;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.RabbitMq;
 
@@ -20,7 +21,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
@@ -55,7 +57,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
         {
@@ -97,7 +100,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await client.SendToMassConsumerAsync(new ConsumerMessage<TestPayload>
         {
@@ -149,7 +153,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
             client.SendToConsumerAsync<TestPayload>(null!));
@@ -179,7 +184,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfigurationWithoutTtl(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
         {
@@ -221,7 +227,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         var customContext = "{\"TenantId\":\"custom-tenant\"}";
         await client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
@@ -264,7 +271,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         var ex = await Record.ExceptionAsync(() => client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
         {
@@ -300,7 +308,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
         {
@@ -334,7 +343,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
@@ -369,7 +379,8 @@ public class RabbitMessageClientScaffoldTests
             logger.Object,
             rabbitService.Object,
             CreateMessageConfiguration(),
-            new ActivitySource("test-rabbit-client"));
+            new ActivitySource("test-rabbit-client"),
+            DelegationTestDoubles.NoGrantFactory());
 
         await client.SendToConsumerAsync(new ConsumerMessage<TestPayload>
         {

@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.RabbitMq;
 
@@ -66,10 +67,11 @@ public class RabbitMessageWorkerScaffoldTests
             ["TraceId"] = Encoding.UTF8.GetBytes("0123456789abcdef0123456789abcdef"),
             ["SpanId"] = Encoding.UTF8.GetBytes("0123456789abcdef"),
             ["SecurityContext"] = Encoding.UTF8.GetBytes("{}"),
-            ["Baggage"] = Encoding.UTF8.GetBytes("{\"k\":\"v\"}")
+            ["Baggage"] = Encoding.UTF8.GetBytes("{\"k\":\"v\"}"),
+            ["DelegationGrant"] = Encoding.UTF8.GetBytes("dg_" + new string('a', 64))
         });
 
-        object?[] args = [props.Object, null, null, null, null, null];
+        object?[] args = [props.Object, null, null, null, null, null, null];
         method!.Invoke(null, args);
 
         Assert.Equal("tenant-2", args[1]);
@@ -77,6 +79,26 @@ public class RabbitMessageWorkerScaffoldTests
         Assert.Equal("0123456789abcdef", args[3]);
         Assert.Equal("{}", args[4]);
         Assert.Equal("{\"k\":\"v\"}", args[5]);
+        Assert.Equal("dg_" + new string('a', 64), args[6]);
+    }
+
+    [Fact]
+    public void ExtractHeaders_ShouldReturnNullDelegationGrant_WhenTheHeaderIsAbsent()
+    {
+        var method = typeof(RabbitMessageWorker).GetMethod("ExtractHeaders", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var props = new Mock<IReadOnlyBasicProperties>();
+        props.SetupGet(x => x.Headers).Returns(new Dictionary<string, object?>
+        {
+            ["TenantId"] = Encoding.UTF8.GetBytes("tenant-2")
+        });
+
+        object?[] args = [props.Object, null, null, null, null, null, null];
+        method!.Invoke(null, args);
+
+        // A message sent without an authenticated user carries no grant.
+        Assert.Null(args[6]);
     }
 
     [Fact]
@@ -96,7 +118,9 @@ public class RabbitMessageWorkerScaffoldTests
             new MessageConfiguration { RabbitMqConfiguration = new RabbitMqConfiguration() },
             rabbitService.Object,
             consumer,
-            new System.Diagnostics.ActivitySource("test-worker"));
+            new System.Diagnostics.ActivitySource("test-worker"),
+            DelegationTestDoubles.NoOpStore(),
+            DelegationTestDoubles.NoOpProvider());
 
         var field = typeof(RabbitMessageWorker).GetField("_channel", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
@@ -272,7 +296,9 @@ public class RabbitMessageWorkerScaffoldTests
             configuration,
             rabbitService,
             consumer,
-            new ActivitySource("test-worker"));
+            new ActivitySource("test-worker"),
+            DelegationTestDoubles.NoOpStore(),
+            DelegationTestDoubles.NoOpProvider());
     }
 
     private static MessageConfiguration CreateConfiguration(string queueName)
