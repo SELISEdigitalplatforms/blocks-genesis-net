@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry;
 using System.Diagnostics;
 using System.Text.Json;
@@ -64,6 +65,25 @@ public class TenantValidationMiddleware
             if (hash != grpcKey)
             {
                 await TenantContextHelper.RejectRequest(context, StatusCodes.Status403Forbidden, "Forbidden: Missing_Blocks_Service_Key").ConfigureAwait(false);
+                return;
+            }
+        }
+
+        // api.calls is the one meter that can be counted without domain knowledge — every request
+        // is one call. It goes here rather than in the authorization handler because only 330 of
+        // 773 endpoints carry [ProtectedEndPoint]; this path sees all of them. Resolved per request
+        // so a service that has not called AddBlocksQuota is simply not metered.
+        var quota = context.RequestServices?.GetService<IQuota>();
+        if (quota is not null)
+        {
+            var decision = await quota.ConsumeAsync(
+                BlocksQuotaMeters.ApiCalls, 1, context.TraceIdentifier).ConfigureAwait(false);
+
+            if (!decision.IsAllowed)
+            {
+                await TenantContextHelper.RejectRequest(
+                    context, StatusCodes.Status429TooManyRequests,
+                    "TooManyRequests: Api_Call_Limit_Reached").ConfigureAwait(false);
                 return;
             }
         }

@@ -35,43 +35,11 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
             return;
         }
 
-        var tenantId = BlocksContext.GetContext()?.TenantId;
-        if (!(await IsWithinQuotaAsync(resourceName, tenantId)) && httpContext != null)
-        {
-            httpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            await httpContext.Response.WriteAsJsonAsync(new BaseResponse { IsSuccess = false, Errors = new Dictionary<string, string> { { "exceed_limit", "Request limit exceeded." } } });
-            context.Fail(new AuthorizationFailureReason(this, "RATE_LIMIT_EXCEEDED"));
-            return;
-        }
-
         var hasAccess = await CheckHasAccess(identity, resourceName);
         if (hasAccess)
             context.Succeed(requirement);
         else
             context.Fail();
-    }
-
-    /// <summary>
-    /// Check rate limit quota for the resource
-    /// </summary>
-    private async Task<bool> IsWithinQuotaAsync(string resourceName,
-                                                 string? tenantId)
-    {
-        if (string.IsNullOrEmpty(tenantId))
-            return true; // Skip quota check if no tenant context
-
-        var database = _dbContextProvider.GetDatabase(tenantId);
-        var resourceLimitCollection = database.GetCollection<BsonDocument>("ResourceLimits");
-
-        var filter = Builders<BsonDocument>.Filter.Eq("Resource", resourceName);
-        var resourceLimit = await (await resourceLimitCollection.FindAsync(filter)).FirstOrDefaultAsync();
-
-        if (resourceLimit is not null && (resourceLimit["Limit"].ToInt64() - resourceLimit["Usage"].ToInt64()) <= 0)
-        {
-            return false;
-        }
-
-        return true;
     }
 
     private static HttpContext? GetHttpContext(object? resource)

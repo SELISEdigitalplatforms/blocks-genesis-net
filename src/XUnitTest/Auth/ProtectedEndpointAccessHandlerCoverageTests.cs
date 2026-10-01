@@ -41,7 +41,6 @@ public class ProtectedEndpointAccessHandlerCoverageTests : IDisposable
     {
         BlocksContext.SetContext(CreateContext("tenant-mvc"));
         var dbContext = new Mock<IDbContextProvider>();
-        SetupQuota(dbContext, "tenant-mvc", null);
         SetupPermission(dbContext, "tenant-mvc", granted: true);
 
         var http = new DefaultHttpContext();
@@ -102,7 +101,7 @@ public class ProtectedEndpointAccessHandlerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task HandleRequirementAsync_ShouldSkipQuotaAndDenyPermission_WhenTenantContextIsMissing()
+    public async Task HandleRequirementAsync_ShouldDenyPermission_WhenTenantContextIsMissing()
     {
         // No BlocksContext at all: the quota check is skipped and the permission
         // check denies access because no tenant can be resolved.
@@ -128,7 +127,6 @@ public class ProtectedEndpointAccessHandlerCoverageTests : IDisposable
             "", [], "", "", "", "", "tenant-orig", "", impersonated: true));
 
         var dbContext = new Mock<IDbContextProvider>();
-        SetupQuota(dbContext, "tenant-imp", null);
         SetupPermission(dbContext, "tenant-orig", granted: true);
 
         var http = new DefaultHttpContext();
@@ -175,21 +173,6 @@ public class ProtectedEndpointAccessHandlerCoverageTests : IDisposable
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
     }
 
-    private static void SetupQuota(Mock<IDbContextProvider> dbContext, string tenantId, BsonDocument? limitDocument)
-    {
-        var database = new Mock<IMongoDatabase>();
-        var resourceLimits = new Mock<IMongoCollection<BsonDocument>>();
-        resourceLimits
-            .Setup(c => c.FindAsync(
-                It.IsAny<FilterDefinition<BsonDocument>>(),
-                It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateCursor(limitDocument));
-        database
-            .Setup(d => d.GetCollection<BsonDocument>("ResourceLimits", It.IsAny<MongoCollectionSettings>()))
-            .Returns(resourceLimits.Object);
-        dbContext.Setup(d => d.GetDatabase(tenantId)).Returns(database.Object);
-    }
 
     private static void SetupPermission(Mock<IDbContextProvider> dbContext, string tenantId, bool granted)
     {

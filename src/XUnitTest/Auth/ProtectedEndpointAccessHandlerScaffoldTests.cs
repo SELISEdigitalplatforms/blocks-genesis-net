@@ -85,30 +85,12 @@ public class ProtectedEndpointAccessHandlerScaffoldTests : IDisposable
         Assert.True(context.HasFailed);
     }
 
-    [Fact]
-    public async Task HandleRequirementAsync_ShouldFailWith429_WhenQuotaIsExceeded()
-    {
-        BlocksContext.SetContext(CreateContext("tenant-a"));
-        var dbContext = new Mock<IDbContextProvider>();
-        SetupQuota(dbContext, "tenant-a", new BsonDocument { ["Limit"] = 1, ["Usage"] = 1 });
-
-        var (type, handler) = CreateHandler(dbContext.Object);
-        var requirement = CreateRequirement();
-        var http = HttpContextWithResource("svc::orders::get");
-        var context = new AuthorizationHandlerContext([requirement], AuthenticatedUser("svc::orders::get"), http);
-
-        await InvokeHandleAsync(type, handler, context, requirement);
-
-        Assert.True(context.HasFailed);
-        Assert.Equal(StatusCodes.Status429TooManyRequests, http.Response.StatusCode);
-    }
 
     [Fact]
     public async Task HandleRequirementAsync_ShouldSucceed_WhenPermissionGranted()
     {
         BlocksContext.SetContext(CreateContext("tenant-std"));
         var dbContext = new Mock<IDbContextProvider>();
-        SetupQuota(dbContext, "tenant-std", null);
         SetupPermission(dbContext, "tenant-std", granted: true);
 
         var (type, handler) = CreateHandler(dbContext.Object);
@@ -126,7 +108,6 @@ public class ProtectedEndpointAccessHandlerScaffoldTests : IDisposable
     {
         BlocksContext.SetContext(CreateContext("tenant-deny"));
         var dbContext = new Mock<IDbContextProvider>();
-        SetupQuota(dbContext, "tenant-deny", null);
         SetupPermission(dbContext, "tenant-deny", granted: false);
 
         var (type, handler) = CreateHandler(dbContext.Object);
@@ -180,21 +161,6 @@ public class ProtectedEndpointAccessHandlerScaffoldTests : IDisposable
         return http;
     }
 
-    private static void SetupQuota(Mock<IDbContextProvider> dbContext, string tenantId, BsonDocument? limitDocument)
-    {
-        var database = new Mock<IMongoDatabase>();
-        var resourceLimits = new Mock<IMongoCollection<BsonDocument>>();
-        resourceLimits
-            .Setup(c => c.FindAsync(
-                It.IsAny<FilterDefinition<BsonDocument>>(),
-                It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateCursor(limitDocument));
-        database
-            .Setup(d => d.GetCollection<BsonDocument>("ResourceLimits", It.IsAny<MongoCollectionSettings>()))
-            .Returns(resourceLimits.Object);
-        dbContext.Setup(d => d.GetDatabase(tenantId)).Returns(database.Object);
-    }
 
     private static void SetupPermission(Mock<IDbContextProvider> dbContext, string tenantId, bool granted)
     {
