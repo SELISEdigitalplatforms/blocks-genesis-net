@@ -56,6 +56,10 @@ public sealed class DelegationGrantFactory : IDelegationGrantFactory
             || !context.IsAuthenticated
             || string.IsNullOrWhiteSpace(context.TenantId))
         {
+            // Said out loud, because the cost of this being silent is paid downstream and far
+            // away: the message is sent, the consumer has no caller, and every Blocks call it
+            // makes is skipped with nothing anywhere saying why.
+            DelegationGrantFactoryLog.NoCallerInContext(_logger);
             return null;
         }
 
@@ -70,6 +74,7 @@ public sealed class DelegationGrantFactory : IDelegationGrantFactory
             return await CreateForClientAsync(context, ttl).ConfigureAwait(false);
         }
 
+        DelegationGrantFactoryLog.NoSubjectInContext(_logger);
         return null;
     }
 
@@ -243,4 +248,10 @@ internal static partial class DelegationGrantFactoryLog
 
     [LoggerMessage(EventId = 7035, Level = LogLevel.Warning, Message = "The held delegation grant names a different user or organization than the current context; not chaining it.")]
     public static partial void HeldGrantUserMismatch(ILogger logger);
+
+    [LoggerMessage(EventId = 7036, Level = LogLevel.Debug, Message = "No authenticated caller in context; sending without a delegation grant.")]
+    public static partial void NoCallerInContext(ILogger logger);
+
+    [LoggerMessage(EventId = 7037, Level = LogLevel.Debug, Message = "The caller in context names neither a user nor a client; sending without a delegation grant.")]
+    public static partial void NoSubjectInContext(ILogger logger);
 }
