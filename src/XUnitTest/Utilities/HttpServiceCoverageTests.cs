@@ -71,10 +71,14 @@ public class HttpServiceCoverageTests
             requests++;
             if (requests == 1)
             {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                // A 429 is retried only when it says how long to wait (Retry-After) and that wait
+                // fits in the request timeout.
+                var throttled = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
                 {
                     Content = new StringContent("slow down")
-                });
+                };
+                throttled.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.Zero);
+                return Task.FromResult(throttled);
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

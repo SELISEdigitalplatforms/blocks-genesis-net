@@ -273,6 +273,7 @@ Secrets are resolved by `ConfigureLogAndSecretsAsync` from Azure Key Vault (`Vau
 - `BlocksSecret__RootDatabaseName`
 - `BlocksSecret__EnableHsts`
 - `BlocksSecret__AllowedCorsOrigins` (comma-separated absolute origins for credentialed CORS)
+- `BlocksSecret__UserRateLimitPerSecond` (per-subject requests per second; see [Rate limiting](#rate-limiting-per-user-and-per-oauth-client))
 
 With Azure Key Vault the same names are used without the `BlocksSecret__` prefix (for example `DatabaseConnectionString`).
 
@@ -281,6 +282,7 @@ With Azure Key Vault the same names are used without the `BlocksSecret__` prefix
 | Variable | Default | Purpose |
 |---|---|---|
 | `BLOCKS_VAULT_TYPE` | none | Overrides the vault type passed to `ResolveVaultType` |
+| `UserRateLimitPerSecond` | none | Per-subject rate limit for this service; overrides the vault value (default `100`) |
 | `HTTP1_PORT` | `5000` | Kestrel HTTP/1.1 listener (REST) |
 | `HTTP2_PORT` | `5001` | Kestrel HTTP/2 listener (gRPC) |
 | `ServiceBusConnectionString` | none | When set, logs and traces are forwarded to the LMT pipeline over the message bus instead of being written directly to MongoDB |
@@ -297,7 +299,52 @@ Every API service exposes health endpoints: `/ping` (all checks), `/health/live`
 
 Middleware order set up by `ConfigureMiddleware`:
 
-`HSTS -> CORS -> Health endpoints -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> Antiforgery -> Controllers`
+`HSTS -> CORS -> Health endpoints -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> UserRateLimit -> Antiforgery -> Controllers`
+
+## Rate limiting per user and per OAuth client
+
+Every Genesis API service limits each authenticated subject on its authorized and protected endpoints. No code change is needed in the service: `ConfigureServices` registers the limiter and `ConfigureApiBranchMiddleware` (and so `ConfigureMiddleware`) runs it right after `UseAuthorization()`. **Services built on this version can return `429 Too Many Requests`.**
+
+**Scope.** A request is counted only when the endpoint has authorization metadata (`[Authorize]`, `[ProtectedEndPoint]`, `[SecretEndPoint]`) and no `[AllowAnonymous]`, the request is authenticated, and the token has a `user_id` or a `client_id`. Public endpoints, unauthenticated requests and principals without either claim (for example a `[SecretEndPoint]` call authenticated only by its secret header) are not counted and cause no Redis call. Internal gRPC methods without authorization metadata are not limited.
+
+**Subject and key.** A token with `user_id` counts as a user, even when it also has `client_id`. A `client_credentials` token (`client_id`, no `user_id`) counts as a client. Counts live in Redis, shared by all pods, under `ratelimit:{ServiceName}:{TenantId}:{user|client}:{id}` (an empty tenant is `-`). Each service has its own counts. Request headers such as `X-User-Id` or `X-Forwarded-For` are never used.
+
+**Limit.** Requests per second per subject, resolved once at startup:
+
+1. the `UserRateLimitPerSecond` environment variable (including `.env`), so one service can be tuned on its own;
+2. the `UserRateLimitPerSecond` vault secret (`BlocksSecret__UserRateLimitPerSecond` on-prem);
+3. otherwise `100`.
+
+A value must be an integer greater than 0. Other values are skipped with one startup warning naming the source. One information line logs the service name, limit, window (1 s) and source.
+
+**Algorithm.** A sliding window counter over 1 s windows, evaluated atomically by a Lua script that reads Redis `TIME` (pod clocks do not matter). Going over the limit starts a 30 s cooldown for that subject on that service. The Redis check is bounded to 50 ms and wrapped in a circuit breaker; on a timeout, a Redis error or an open breaker the request is allowed (fail-open) without rate-limit headers.
+
+**HTTP responses.** Allowed requests get:
+
+```
+RateLimit-Policy: "user";q=<limit>;w=1
+RateLimit: "user";r=<remaining>;t=<seconds-to-reset>
+```
+
+(`"client"` for client subjects; format from `draft-ietf-httpapi-ratelimit-headers`). A rejected request does not reach the endpoint and gets:
+
+```
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/problem+json
+Retry-After: 30
+RateLimit: "user";r=0;t=<seconds-left-in-cooldown>
+
+{"type":"https://httpstatuses.com/429","title":"Rate Limit Exceeded","status":429,
+ "detail":"Rate limit exceeded. Retry after 30 seconds.","instance":"<trace id>"}
+```
+
+Rejections are written directly and are not logged. `BlocksRateLimitException` thrown by service code still maps to 429 through `GlobalExceptionHandlerMiddleware`, unchanged.
+
+**gRPC responses.** A rejected gRPC call (`Content-Type: application/grpc*`) ends with `grpc-status: 8` (`RESOURCE_EXHAUSTED`), `grpc-message: Rate limit exceeded` and `retry-after: 30`.
+
+**Client guidance.** Honor `Retry-After`: wait 30 s before retrying a 429. Retrying during the cooldown does not extend it, but every such retry is rejected.
+
+**`HttpService` and downstream 429.** A 429 no longer counts toward `HttpService`'s circuit breaker. It is retried only when it has a `Retry-After` (seconds or HTTP-date) shorter than the time left in the request timeout; otherwise the 429 is returned to the caller at once. With Genesis's own `Retry-After: 30` and the default 30 s timeout, an internal 429 is returned without retrying. 5xx, timeout and connection-failure handling is unchanged.
 
 ## Repository layout
 

@@ -18,6 +18,8 @@
     <!-- Copy-local so coverlet can resolve the shared-framework assembly when instrumenting Blocks.Genesis. -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <PackageReference Include="JunitXml.TestLogger" Version="8.0.0" />
+    <!-- In-process host for the rate-limit end-to-end tests (runs the real ConfigureApiBranchMiddleware). -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.7" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="Moq" Version="4.20.70" />
     <PackageReference Include="xunit" Version="2.5.3" />
