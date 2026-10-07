@@ -25,6 +25,28 @@ public class DelegationGrantStoreTests
             oauthToken: "token",
             originalTenantId: tenantId);
 
+    private static BlocksContext ImpersonatingContext(
+        string targetTenantId = "project-tenant",
+        string rootTenantId = "console-tenant",
+        string sessionId = "session-1")
+        => BlocksContext.Create(
+            tenantId: targetTenantId,
+            roles: ["admin"],
+            userId: "user-1",
+            isAuthenticated: true,
+            requestUri: "https://unit.test",
+            organizationId: "org-1",
+            expireOn: DateTime.UtcNow.AddHours(1),
+            email: "user@unit.test",
+            permissions: ["p1"],
+            userName: "user",
+            phoneNumber: "+10000000000",
+            displayName: "User",
+            oauthToken: "token",
+            originalTenantId: rootTenantId,
+            impersonated: true,
+            impersonationSessionId: sessionId);
+
     private static (DelegationGrantStore Store, Mock<IDatabase> Database, Mock<ICacheClient> Cache) CreateStore()
     {
         var database = new Mock<IDatabase>();
@@ -269,5 +291,113 @@ public class DelegationGrantStoreTests
         Assert.Contains("\"OrganizationId\"", json, StringComparison.Ordinal);
         Assert.Contains("\"TokenVersion\"", json, StringComparison.Ordinal);
         Assert.Contains("\"SecurityStamp\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldRecordTheImpersonationSession_WhenTheCallerIsImpersonating()
+    {
+        var (store, database, _) = CreateStore();
+        RedisValue captured = default;
+
+        database
+            .Setup(db => db.StringSetAsync(
+                It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(),
+                It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()))
+            .Callback((RedisKey _, RedisValue value, TimeSpan? __, bool ___, When ____, CommandFlags _____) => captured = value)
+            .ReturnsAsync(true);
+
+        await store.CreateAsync(ImpersonatingContext(), tokenVersion: "3", securityStamp: "stamp-9");
+
+        var record = JsonSerializer.Deserialize<DelegationGrantRecord>(captured.ToString())!;
+        Assert.Equal("session-1", record.ImpersonationSessionId);
+        Assert.True(record.IsImpersonated);
+
+        // The tenant on the grant is the one being worked in; the root tenant rides along only so
+        // the session can be found, and IAM re-checks it against the session record.
+        Assert.Equal("project-tenant", record.TenantId);
+        Assert.Equal("console-tenant", record.OriginalTenantId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldLeaveTheSessionEmpty_WhenTheCallerIsNotImpersonating()
+    {
+        var (store, database, _) = CreateStore();
+        RedisValue captured = default;
+
+        database
+            .Setup(db => db.StringSetAsync(
+                It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(),
+                It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()))
+            .Callback((RedisKey _, RedisValue value, TimeSpan? __, bool ___, When ____, CommandFlags _____) => captured = value)
+            .ReturnsAsync(true);
+
+        await store.CreateAsync(AuthenticatedContext(), tokenVersion: "3", securityStamp: "stamp-9");
+
+        var record = JsonSerializer.Deserialize<DelegationGrantRecord>(captured.ToString())!;
+        Assert.Equal(string.Empty, record.ImpersonationSessionId);
+        Assert.Equal(string.Empty, record.OriginalTenantId);
+        Assert.False(record.IsImpersonated);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldIgnoreAStraySessionId_WhenTheContextIsNotImpersonating()
+    {
+        // A session id with Impersonated false is not an impersonation. Trusting the id alone
+        // would let a stale context hand IAM a live session to resolve against.
+        var context = BlocksContext.Create(
+            tenantId: "tenant-1",
+            roles: ["admin"],
+            userId: "user-1",
+            isAuthenticated: true,
+            requestUri: "https://unit.test",
+            organizationId: "org-1",
+            expireOn: DateTime.UtcNow.AddHours(1),
+            email: "user@unit.test",
+            permissions: ["p1"],
+            userName: "user",
+            phoneNumber: "+10000000000",
+            displayName: "User",
+            oauthToken: "token",
+            originalTenantId: "tenant-1",
+            impersonated: false,
+            impersonationSessionId: "session-stale");
+
+        var (store, database, _) = CreateStore();
+        RedisValue captured = default;
+
+        database
+            .Setup(db => db.StringSetAsync(
+                It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(),
+                It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()))
+            .Callback((RedisKey _, RedisValue value, TimeSpan? __, bool ___, When ____, CommandFlags _____) => captured = value)
+            .ReturnsAsync(true);
+
+        await store.CreateAsync(context, tokenVersion: "3", securityStamp: "stamp-9");
+
+        var record = JsonSerializer.Deserialize<DelegationGrantRecord>(captured.ToString())!;
+        Assert.Equal(string.Empty, record.ImpersonationSessionId);
+        Assert.Equal(string.Empty, record.OriginalTenantId);
+    }
+
+    [Fact]
+    public async Task GetAsync_ShouldReadAGrantWrittenBeforeTheFieldExisted()
+    {
+        // Every grant already in Redis when this ships has no ImpersonationSessionId. It must
+        // deserialize and redeem exactly as it did before.
+        var (store, _, cache) = CreateStore();
+        const string legacy =
+            """{"TenantId":"tenant-1","UserId":"user-1","OrganizationId":"org-1","TokenVersion":"3","SecurityStamp":"stamp-9"}""";
+
+        cache
+            .Setup(c => c.GetStringValueAsync(It.IsAny<string>()))
+            .ReturnsAsync(legacy);
+
+        var record = await store.GetAsync(DelegationGrantStore.NewGrantId());
+
+        Assert.NotNull(record);
+        Assert.Equal(string.Empty, record!.ImpersonationSessionId);
+        Assert.Equal(string.Empty, record.OriginalTenantId);
+        Assert.False(record.IsImpersonated);
+        Assert.Equal("user-1", record.UserId);
     }
 }
