@@ -111,7 +111,7 @@ public class DelegationGrantFactoryTests : IDisposable
 
         store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
         {
-            TenantId = "tenant-1", UserId = "user-1", TokenVersion = "1", SecurityStamp = "s"
+            TenantId = "tenant-1", UserId = "user-1", OrganizationId = "org-1", TokenVersion = "1", SecurityStamp = "s"
         });
         store
             .Setup(s => s.CreateAsync(It.IsAny<BlocksContext>(), It.IsAny<string>(), It.IsAny<string>(), TimeSpan.FromHours(9)))
@@ -143,6 +143,27 @@ public class DelegationGrantFactoryTests : IDisposable
         store.Verify(s => s.CreateAsync(It.IsAny<BlocksContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan?>()), Times.Never);
     }
 
+    [Theory]
+    [InlineData("user-other", "org-1")]
+    [InlineData("user-1", "org-other")]
+    public async Task CreateForSendAsync_ShouldNotChain_WhenTheHeldGrantNamesAnotherUserOrOrganization(string heldUserId, string heldOrgId)
+    {
+        // The worker's context came from the message SecurityContext; it must agree with the held grant.
+        var (factory, store) = CreateFactory();
+        var heldGrant = DelegationTestDoubles.SampleGrantId('9');
+
+        store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
+        {
+            TenantId = "tenant-1", UserId = heldUserId, OrganizationId = heldOrgId, TokenVersion = "1", SecurityStamp = "s"
+        });
+
+        BlocksContext.SetContext(Context(authenticated: true));
+        DelegatedTokenContext.Set(heldGrant);
+
+        Assert.Null(await factory.CreateForSendAsync());
+        store.Verify(s => s.CreateAsync(It.IsAny<BlocksContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan?>()), Times.Never);
+    }
+
     [Fact]
     public async Task CreateForSendAsync_ShouldReturnNull_WhenTheStoreThrows()
     {
@@ -152,13 +173,143 @@ public class DelegationGrantFactoryTests : IDisposable
 
         store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
         {
-            TenantId = "tenant-1", UserId = "user-1", TokenVersion = "1", SecurityStamp = "s"
+            TenantId = "tenant-1", UserId = "user-1", OrganizationId = "org-1", TokenVersion = "1", SecurityStamp = "s"
         });
         store
             .Setup(s => s.CreateAsync(It.IsAny<BlocksContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan?>()))
             .ThrowsAsync(new TimeoutException("redis down"));
 
         BlocksContext.SetContext(Context(authenticated: true));
+        DelegatedTokenContext.Set(heldGrant);
+
+        Assert.Null(await factory.CreateForSendAsync());
+    }
+
+    private static BlocksContext ClientContext(string clientId = "client-1", string tenantId = "tenant-1")
+        => BlocksContext.Create(
+            tenantId: tenantId, roles: ["service"], userId: string.Empty, isAuthenticated: true,
+            requestUri: "https://unit.test", organizationId: "org-1", expireOn: DateTime.UtcNow.AddHours(1),
+            email: null, permissions: null, userName: null, phoneNumber: null, displayName: null,
+            oauthToken: null, originalTenantId: tenantId, clientId: clientId);
+
+    private static void SetHttpUser(params System.Security.Claims.Claim[] claims)
+    {
+        var httpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+        {
+            User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "Bearer"))
+        };
+        BlocksHttpContextAccessor.Instance = new Microsoft.AspNetCore.Http.HttpContextAccessor { HttpContext = httpContext };
+    }
+
+    [Fact]
+    public async Task CreateForSendAsync_ShouldCreateAClientGrant_ForAClientCredentialsToken()
+    {
+        var (factory, store) = CreateFactory();
+        var newGrant = DelegationTestDoubles.SampleGrantId('1');
+        var originalAccessor = BlocksHttpContextAccessor.Instance;
+
+        try
+        {
+            SetHttpUser(new System.Security.Claims.Claim(BlocksContext.CLIENT_ID_CLAIM, "client-1"));
+            store.Setup(s => s.CreateForClientAsync("tenant-1", "client-1", "org-1", It.IsAny<TimeSpan?>())).ReturnsAsync(newGrant);
+            BlocksContext.SetContext(ClientContext());
+
+            Assert.Equal(newGrant, await factory.CreateForSendAsync());
+            store.Verify(s => s.CreateAsync(It.IsAny<BlocksContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan?>()), Times.Never);
+        }
+        finally
+        {
+            BlocksHttpContextAccessor.Instance = originalAccessor;
+        }
+    }
+
+    [Fact]
+    public async Task CreateForSendAsync_ShouldChainAClientGrant_ForWorkerOriginatedSends()
+    {
+        var (factory, store) = CreateFactory();
+        var heldGrant = DelegationTestDoubles.SampleGrantId('2');
+        var newGrant = DelegationTestDoubles.SampleGrantId('3');
+
+        store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
+        {
+            TenantId = "tenant-1", ClientId = "client-1", OrganizationId = "org-held"
+        });
+        store.Setup(s => s.CreateForClientAsync("tenant-1", "client-1", "org-held", It.IsAny<TimeSpan?>())).ReturnsAsync(newGrant);
+
+        BlocksContext.SetContext(ClientContext());
+        DelegatedTokenContext.Set(heldGrant);
+
+        Assert.Equal(newGrant, await factory.CreateForSendAsync());
+    }
+
+    [Fact]
+    public async Task CreateForSendAsync_ShouldNotCreateAClientGrant_FromMessageContextAlone()
+    {
+        // In a worker the client id on BlocksContext came from the message SecurityContext. Without
+        // a held client grant to vouch for it, nothing is written.
+        var (factory, store) = CreateFactory();
+        BlocksContext.SetContext(ClientContext());
+        DelegatedTokenContext.Clear();
+
+        Assert.Null(await factory.CreateForSendAsync());
+        store.Verify(s => s.CreateForClientAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<TimeSpan?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateForSendAsync_ShouldNotChain_WhenTheHeldClientGrantNamesAnotherClient()
+    {
+        var (factory, store) = CreateFactory();
+        var heldGrant = DelegationTestDoubles.SampleGrantId('4');
+
+        store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
+        {
+            TenantId = "tenant-1", ClientId = "client-other"
+        });
+
+        BlocksContext.SetContext(ClientContext(clientId: "client-1"));
+        DelegatedTokenContext.Set(heldGrant);
+
+        Assert.Null(await factory.CreateForSendAsync());
+        store.Verify(s => s.CreateForClientAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<TimeSpan?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateForSendAsync_ShouldNotChainAUserGrant_FromAHeldClientGrant()
+    {
+        var (factory, store) = CreateFactory();
+        var heldGrant = DelegationTestDoubles.SampleGrantId('5');
+
+        store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
+        {
+            TenantId = "tenant-1", ClientId = "client-1"
+        });
+
+        BlocksContext.SetContext(Context(authenticated: true));
+        DelegatedTokenContext.Set(heldGrant);
+
+        Assert.Null(await factory.CreateForSendAsync());
+        store.Verify(s => s.CreateAsync(It.IsAny<BlocksContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan?>()), Times.Never);
+    }
+
+    /// <summary>A store written against the old interface: no CreateForClientAsync override.</summary>
+    private sealed class LegacyStore : IDelegationGrantStore
+    {
+        public DelegationGrantRecord? Held { get; init; }
+        public Task<string> CreateAsync(BlocksContext ctx, string tokenVersion, string securityStamp, TimeSpan? ttl = null)
+            => Task.FromResult(DelegationTestDoubles.SampleGrantId('7'));
+        public Task DeleteAsync(string id) => Task.CompletedTask;
+        public Task<DelegationGrantRecord?> GetAsync(string id) => Task.FromResult(Held);
+    }
+
+    [Fact]
+    public async Task CreateForSendAsync_ShouldSendWithoutAGrant_WhenALegacyStoreDoesNotSupportClientGrants()
+    {
+        var heldGrant = DelegationTestDoubles.SampleGrantId('6');
+        var factory = new DelegationGrantFactory(
+            new LegacyStore { Held = new DelegationGrantRecord { TenantId = "tenant-1", ClientId = "client-1" } },
+            new Mock<ILogger<DelegationGrantFactory>>().Object);
+
+        BlocksContext.SetContext(ClientContext());
         DelegatedTokenContext.Set(heldGrant);
 
         Assert.Null(await factory.CreateForSendAsync());

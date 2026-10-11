@@ -41,9 +41,37 @@ public sealed class DelegationGrantStore : IDelegationGrantStore
             UserId = ctx.UserId,
             OrganizationId = ctx.OrganizationId ?? string.Empty,
             TokenVersion = tokenVersion ?? string.Empty,
-            SecurityStamp = securityStamp ?? string.Empty
+            SecurityStamp = securityStamp ?? string.Empty,
+
+            // Carried for both callers that reach here — a function run and a sent message — so
+            // neither has to know what impersonation is. The session, not this record, is what IAM
+            // then trusts for the user's real tenant.
+            ImpersonationSessionId = ctx.Impersonated ? ctx.ImpersonationSessionId ?? string.Empty : string.Empty,
+            OriginalTenantId = ctx.Impersonated ? ctx.OriginalTenantId ?? string.Empty : string.Empty
         };
 
+        return await WriteAsync(record, ttl).ConfigureAwait(false);
+    }
+
+    public async Task<string> CreateForClientAsync(string tenantId, string clientId, string? organizationId, TimeSpan? ttl = null)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId))
+        {
+            throw new InvalidOperationException("A client delegation grant requires both a tenant and a client id.");
+        }
+
+        var record = new DelegationGrantRecord
+        {
+            TenantId = tenantId,
+            ClientId = clientId,
+            OrganizationId = organizationId ?? string.Empty
+        };
+
+        return await WriteAsync(record, ttl).ConfigureAwait(false);
+    }
+
+    private async Task<string> WriteAsync(DelegationGrantRecord record, TimeSpan? ttl)
+    {
         var id = NewGrantId();
         var lifetime = NormalizeTtl(ttl);
 

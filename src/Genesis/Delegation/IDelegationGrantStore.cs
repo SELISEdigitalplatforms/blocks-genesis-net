@@ -15,12 +15,29 @@ public interface IDelegationGrantStore
     /// <param name="ttl">Absolute lifetime. Defaults to <see cref="DelegationConstants.DefaultGrantTtl"/>.</param>
     Task<string> CreateAsync(BlocksContext ctx, string tokenVersion, string securityStamp, TimeSpan? ttl = null);
 
+    /// <summary>
+    /// Persists a grant for an OAuth client authenticated with <c>client_credentials</c> and returns
+    /// its opaque id. Client tokens carry no <c>token_version</c>/<c>security_stamp</c>; IAM instead
+    /// re-checks that the client still exists and is active at every redemption.
+    /// </summary>
+    /// <param name="tenantId">The tenant the client belongs to.</param>
+    /// <param name="clientId">The <c>client_id</c> claim of the validated client token.</param>
+    /// <param name="organizationId">The client's organization, if any.</param>
+    /// <param name="ttl">Absolute lifetime. Defaults to <see cref="DelegationConstants.DefaultGrantTtl"/>.</param>
+    /// <remarks>
+    /// Has a default body so existing third-party implementations keep compiling. A store that does
+    /// not override it throws; the factory catches that and sends without a grant, as before.
+    /// </remarks>
+    Task<string> CreateForClientAsync(string tenantId, string clientId, string? organizationId, TimeSpan? ttl = null)
+        => throw new NotSupportedException($"{GetType().Name} does not support client delegation grants.");
+
     /// <summary>Best-effort removal after a successful settle. Never called before the ACK.</summary>
     Task DeleteAsync(string id);
 
     /// <summary>
     /// Reads a grant record. Used only for chained delegation: a worker-originated send carries
-    /// <c>TokenVersion</c> and <c>SecurityStamp</c> forward from the grant it is already holding.
+    /// the subject (<c>TokenVersion</c>/<c>SecurityStamp</c>, or <c>ClientId</c>) forward from the
+    /// grant it is already holding.
     /// </summary>
     Task<DelegationGrantRecord?> GetAsync(string id);
 }
