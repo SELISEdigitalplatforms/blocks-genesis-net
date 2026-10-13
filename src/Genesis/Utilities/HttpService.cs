@@ -92,11 +92,7 @@ public class HttpService : IHttpService
             // Use per-request timeout if specified, otherwise use the default pipeline
             var response = spec.TimeoutSeconds.HasValue
                 ? await ExecuteWithCustomTimeout(spec, cancellationToken)
-                : await _pipeline.ExecuteAsync(async token =>
-                {
-                    using var request = CreateHttpRequest(spec);
-                    return await client.SendAsync(request, token).ConfigureAwait(false);
-                }, cancellationToken).ConfigureAwait(false);
+                : await ExecutePipelineAsync(_pipeline, client, spec, cancellationToken).ConfigureAwait(false);
 
             requestActivity?.SetTag("http.response.status_code", (int)response.StatusCode);
             requestActivity?.SetTag("http.response.size", response.Content.Headers.ContentLength ?? 0);
@@ -153,11 +149,37 @@ public class HttpService : IHttpService
         // Create a custom pipeline with the override timeout
         var customPipeline = BuildPipeline(TimeSpan.FromSeconds(spec.TimeoutSeconds!.Value));
 
-        return await customPipeline.ExecuteAsync(async token =>
+        return await ExecutePipelineAsync(customPipeline, client, spec, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs one request through the pipeline, recording its start so the retry strategy can tell
+    /// how much of the request timeout is left when a 429 asks the caller to wait.
+    /// </summary>
+    private static async Task<HttpResponseMessage> ExecutePipelineAsync(
+        ResiliencePipeline<HttpResponseMessage> pipeline,
+        HttpClient client,
+        HttpRequestSpec spec,
+        CancellationToken cancellationToken)
+    {
+        var context = ResilienceContextPool.Shared.Get(cancellationToken);
+        context.Properties.Set(StartTimestampKey, Stopwatch.GetTimestamp());
+
+        try
         {
-            using var request = CreateHttpRequest(spec);
-            return await client.SendAsync(request, token).ConfigureAwait(false);
-        }, cancellationToken).ConfigureAwait(false);
+            return await pipeline.ExecuteAsync(
+                static async (ctx, state) =>
+                {
+                    using var request = CreateHttpRequest(state.Spec);
+                    return await state.Client.SendAsync(request, ctx.CancellationToken).ConfigureAwait(false);
+                },
+                context,
+                (Client: client, Spec: spec)).ConfigureAwait(false);
+        }
+        finally
+        {
+            ResilienceContextPool.Shared.Return(context);
+        }
     }
 
     private ResiliencePipeline<HttpResponseMessage> BuildPipeline(TimeSpan timeout)
@@ -170,7 +192,8 @@ public class HttpService : IHttpService
             Delay = TimeSpan.FromSeconds(opts.RetryDelaySeconds),
             BackoffType = DelayBackoffType.Exponential,
             UseJitter = true,
-            ShouldHandle = TransientFailurePredicate(),
+            ShouldHandle = args => ValueTask.FromResult(ShouldRetry(args.Outcome, args.Context, timeout)),
+            DelayGenerator = args => ValueTask.FromResult(GetTooManyRequestsDelay(args.Outcome)),
             OnRetry = args =>
             {
                 HttpServiceLog.HttpRetry(_logger, args.AttemptNumber + 1, args.RetryDelay);
@@ -187,7 +210,7 @@ public class HttpService : IHttpService
             SamplingDuration = TimeSpan.FromSeconds(opts.CircuitBreakerSamplingDurationSeconds),
             BreakDuration = TimeSpan.FromSeconds(opts.CircuitBreakerBreakDurationSeconds),
             MinimumThroughput = opts.CircuitBreakerMinimumThroughput,
-            ShouldHandle = TransientFailurePredicate(),
+            ShouldHandle = CircuitBreakerPredicate(),
             OnOpened = _ =>
             {
                 HttpServiceLog.CircuitOpened(_logger);
@@ -207,13 +230,93 @@ public class HttpService : IHttpService
             .Build();
     }
 
-    private static PredicateBuilder<HttpResponseMessage> TransientFailurePredicate() =>
+    private static readonly ResiliencePropertyKey<long> StartTimestampKey = new("Blocks.HttpService.StartTimestamp");
+
+    /// <summary>
+    /// Failures that count toward the circuit breaker. A 429 is the callee protecting itself from
+    /// one caller, not a sign the callee is down, so it is not counted.
+    /// </summary>
+    internal static PredicateBuilder<HttpResponseMessage> CircuitBreakerPredicate() =>
         new PredicateBuilder<HttpResponseMessage>()
             .Handle<HttpRequestException>()
             .Handle<TimeoutRejectedException>()
-            .HandleResult(response =>
-                response.StatusCode == HttpStatusCode.TooManyRequests ||
-                (int)response.StatusCode >= 500);
+            .HandleResult(response => (int)response.StatusCode >= 500);
+
+    /// <summary>
+    /// Retry on exceptions, timeouts and 5xx as before. Retry a 429 only when it carries a
+    /// <c>Retry-After</c> shorter than the time left in the request timeout; otherwise return it.
+    /// </summary>
+    internal static bool ShouldRetry(Outcome<HttpResponseMessage> outcome, ResilienceContext context, TimeSpan timeout)
+    {
+        if (outcome.Exception is not null)
+        {
+            return outcome.Exception is HttpRequestException or TimeoutRejectedException;
+        }
+
+        var response = outcome.Result;
+        if (response is null)
+        {
+            return false;
+        }
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            var retryAfter = GetRetryAfter(response, DateTimeOffset.UtcNow);
+            return retryAfter.HasValue && retryAfter.Value < GetRemaining(context, timeout);
+        }
+
+        return (int)response.StatusCode >= 500;
+    }
+
+    /// <summary>
+    /// The wait before retrying a 429 is its <c>Retry-After</c>. Null keeps the default
+    /// exponential backoff with jitter for every other failure.
+    /// </summary>
+    internal static TimeSpan? GetTooManyRequestsDelay(Outcome<HttpResponseMessage> outcome)
+    {
+        var response = outcome.Result;
+        if (response is null || response.StatusCode != HttpStatusCode.TooManyRequests)
+        {
+            return null;
+        }
+
+        return GetRetryAfter(response, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Reads <c>Retry-After</c> as delta-seconds or an HTTP-date. Null when absent.
+    /// </summary>
+    internal static TimeSpan? GetRetryAfter(HttpResponseMessage response, DateTimeOffset now)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter is null)
+        {
+            return null;
+        }
+
+        if (retryAfter.Delta.HasValue)
+        {
+            return retryAfter.Delta.Value < TimeSpan.Zero ? TimeSpan.Zero : retryAfter.Delta.Value;
+        }
+
+        if (retryAfter.Date.HasValue)
+        {
+            var delay = retryAfter.Date.Value - now;
+            return delay < TimeSpan.Zero ? TimeSpan.Zero : delay;
+        }
+
+        return null;
+    }
+
+    private static TimeSpan GetRemaining(ResilienceContext context, TimeSpan timeout)
+    {
+        if (!context.Properties.TryGetValue(StartTimestampKey, out var start))
+        {
+            return timeout;
+        }
+
+        return timeout - Stopwatch.GetElapsedTime(start);
+    }
 
     private static HttpRequestMessage CreateHttpRequest(HttpRequestSpec spec)
     {

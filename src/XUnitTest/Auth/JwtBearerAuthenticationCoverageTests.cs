@@ -409,7 +409,172 @@ public class JwtBearerAuthenticationCoverageTests
         Assert.Null((string?)getTenant.Invoke(null, [httpContext]));
     }
 
+
+    [Fact]
+    public async Task OnAuthenticationFailed_ShouldSoftFail_WhenRequestServicesDisposed()
+    {
+        var events = BuildJwtEvents();
+        var services = new ServiceCollection();
+        services.AddSingleton(new Mock<ITenants>().Object);
+        services.AddSingleton(new Mock<IHttpClientFactory>().Object);
+        var provider = services.BuildServiceProvider();
+        provider.Dispose();
+
+        var httpContext = new DefaultHttpContext { RequestServices = provider };
+        var context = new AuthenticationFailedContext(
+            httpContext,
+            new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
+            new JwtBearerOptions())
+        {
+            Exception = new InvalidOperationException("primary validation failed")
+        };
+
+        var ex = await Record.ExceptionAsync(() => events.OnAuthenticationFailed(context));
+        Assert.Null(ex);
+        Assert.IsNotType<ObjectDisposedException>(ex);
+    }
+
+    [Fact]
+    public async Task OnAuthenticationFailed_ShouldSoftFail_WhenRequestServicesNull()
+    {
+        var events = BuildJwtEvents();
+        var httpContext = new DefaultHttpContext(); // RequestServices unset
+        var context = new AuthenticationFailedContext(
+            httpContext,
+            new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
+            new JwtBearerOptions())
+        {
+            Exception = new SecurityTokenInvalidSignatureException("bad sig")
+        };
+
+        var ex = await Record.ExceptionAsync(() => events.OnAuthenticationFailed(context));
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public async Task OnAuthenticationFailed_ShouldSkipFallback_ForExpiredToken_WithoutRequiringServices()
+    {
+        var events = BuildJwtEvents();
+        var httpContext = new DefaultHttpContext(); // no services — expired path must not resolve
+        var context = new AuthenticationFailedContext(
+            httpContext,
+            new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
+            new JwtBearerOptions())
+        {
+            Exception = new SecurityTokenExpiredException("expired")
+        };
+
+        var ex = await Record.ExceptionAsync(() => events.OnAuthenticationFailed(context));
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void ResolveTenants_ShouldNotSurfaceObjectDisposedException_WhenProviderDisposed()
+    {
+        var method = GetPrivateStaticMethod("ResolveTenants");
+        var services = new ServiceCollection();
+        services.AddSingleton(new Mock<ITenants>().Object);
+        var provider = services.BuildServiceProvider();
+        provider.Dispose();
+
+        var httpContext = new DefaultHttpContext { RequestServices = provider };
+        var wrapped = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, [httpContext]));
+        Assert.IsType<InvalidOperationException>(wrapped.InnerException);
+        Assert.IsType<ObjectDisposedException>(wrapped.InnerException!.InnerException);
+    }
+
+    [Fact]
+    public void ResolveHttpClientFactory_ShouldNotSurfaceObjectDisposedException_WhenProviderDisposed()
+    {
+        var method = GetPrivateStaticMethod("ResolveHttpClientFactory");
+        var services = new ServiceCollection();
+        services.AddSingleton(new Mock<IHttpClientFactory>().Object);
+        var provider = services.BuildServiceProvider();
+        provider.Dispose();
+
+        var httpContext = new DefaultHttpContext { RequestServices = provider };
+        var wrapped = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, [httpContext]));
+        Assert.IsType<InvalidOperationException>(wrapped.InnerException);
+        Assert.IsType<ObjectDisposedException>(wrapped.InnerException!.InnerException);
+    }
+
+    [Fact]
+    public void TryResolveServicesForAuthFailure_ShouldReturnFalse_WhenDisposed()
+    {
+        var method = GetPrivateStaticMethod("TryResolveServicesForAuthFailure");
+        var services = new ServiceCollection();
+        services.AddSingleton(new Mock<ITenants>().Object);
+        services.AddSingleton(new Mock<IHttpClientFactory>().Object);
+        var provider = services.BuildServiceProvider();
+        provider.Dispose();
+
+        var httpContext = new DefaultHttpContext { RequestServices = provider };
+        var args = new object?[] { httpContext, null, null };
+        var ok = (bool)method.Invoke(null, args)!;
+        Assert.False(ok);
+        Assert.Null(args[1]);
+        Assert.Null(args[2]);
+    }
+
+    [Fact]
+    public void TryResolveServicesForAuthFailure_ShouldThrow_WhenAliveButITenantsMissing()
+    {
+        var method = GetPrivateStaticMethod("TryResolveServicesForAuthFailure");
+        var services = new ServiceCollection();
+        services.AddSingleton(new Mock<IHttpClientFactory>().Object);
+        var httpContext = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
+        var args = new object?[] { httpContext, null, null };
+
+        var wrapped = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, args));
+        Assert.IsType<InvalidOperationException>(wrapped.InnerException);
+        Assert.Contains("ITenants", wrapped.InnerException!.Message);
+    }
+
+
+    [Fact]
+    public void ResolveCacheDatabase_ShouldNotSurfaceObjectDisposedException_WhenProviderDisposed()
+    {
+        var method = GetPrivateStaticMethod("ResolveCacheDatabase");
+        var cacheClient = new Mock<ICacheClient>();
+        cacheClient.Setup(c => c.CacheDatabase()).Returns(new Mock<IDatabase>().Object);
+        var services = new ServiceCollection();
+        services.AddSingleton(cacheClient.Object);
+        var provider = services.BuildServiceProvider();
+        provider.Dispose();
+
+        var httpContext = new DefaultHttpContext { RequestServices = provider };
+        var wrapped = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, [httpContext]));
+        Assert.IsType<InvalidOperationException>(wrapped.InnerException);
+        Assert.IsType<ObjectDisposedException>(wrapped.InnerException!.InnerException);
+    }
+
+    [Fact]
+    public async Task OnAuthenticationFailed_ShouldSoftFail_WhenFallbackThrowsObjectDisposedException()
+    {
+        var tenants = new Mock<ITenants>();
+        tenants.Setup(t => t.GetTenantByID(It.IsAny<string>()))
+            .Throws(new ObjectDisposedException(nameof(IServiceProvider)));
+
+        var events = BuildJwtEvents();
+        var httpContext = CreateHttpContext(tenants.Object, new Mock<IDatabase>().Object, new Mock<IHttpClientFactory>().Object);
+        httpContext.Items["blocks.auth.accessToken"] = "token-x";
+        httpContext.Items["blocks.auth.tenantId"] = "tenant-disposed-mid";
+
+        var context = new AuthenticationFailedContext(
+            httpContext,
+            new AuthenticationScheme("Bearer", null, typeof(JwtBearerHandler)),
+            new JwtBearerOptions())
+        {
+            Exception = new InvalidOperationException("primary failed")
+        };
+
+        var ex = await Record.ExceptionAsync(() => events.OnAuthenticationFailed(context));
+        Assert.Null(ex);
+    }
+
     // ---- helpers ----
+
+
 
     private static JsonElement ParseThirdPartyContextHeader(HttpContext httpContext)
     {

@@ -148,6 +148,14 @@ public static class ApplicationConfigurations
 
         services.AddSingleton<IHttpService, HttpService>();
 
+        // Per-service, per-subject rate limit on authorized and protected endpoints. The limit is
+        // resolved once (env var, then vault, then default) when the pipeline is built.
+        services.AddUserRateLimiting(sp =>
+        {
+            var configuredName = sp.GetService<IBlocksSecret>()?.ServiceName;
+            return string.IsNullOrWhiteSpace(configuredName) ? _serviceName : configuredName;
+        });
+
         // Delegated access must be registered before the message client: the client depends on
         // IDelegationGrantFactory to stamp the DelegationGrant header at send time.
         services.AddBlocksDelegation();
@@ -358,6 +366,10 @@ public static class ApplicationConfigurations
 
         app.UseAuthentication();
         app.UseAuthorization();
+
+        // Resolve the limit now so the startup log line is written once, at pipeline build.
+        _ = app.ApplicationServices.GetService<UserRateLimitSettings>();
+        app.UseMiddleware<UserRateLimitMiddleware>();
 
         app.UseMiddleware<OnboardingApiAccessMiddleware>((object)tenantPrefixes);
 

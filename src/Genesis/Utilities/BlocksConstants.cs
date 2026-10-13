@@ -30,6 +30,36 @@ public static class BlocksConstants
     internal const string KeyVault = "KeyVault";
     internal const string ProtectedResourceName = "ProtectedResourceName";
 
+    /// <summary>
+    /// Seconds a subject is blocked after going over its rate limit. Sent as <c>Retry-After</c>.
+    /// </summary>
+    public const int RateLimitRetryAfterSeconds = 30;
+
+    /// <summary>
+    /// Requests per second allowed per subject when neither the environment nor the vault sets a valid limit.
+    /// </summary>
+    public const int DefaultUserRateLimitPerSecond = 100;
+
+    /// <summary>
+    /// Length of one rate-limit window, in seconds.
+    /// </summary>
+    public const int RateLimitWindowSeconds = 1;
+
+    /// <summary>
+    /// Upper bound for one Redis rate-limit check. Past this the request is allowed.
+    /// </summary>
+    public const int RateLimitRedisTimeoutMilliseconds = 50;
+
+    /// <summary>
+    /// Environment variable that overrides the per-subject limit for one service.
+    /// </summary>
+    public const string UserRateLimitEnvironmentVariable = "UserRateLimitPerSecond";
+
+    /// <summary>
+    /// Prefix of every rate-limit Redis key: <c>ratelimit:{service}:{tenant}:{type}:{id}</c>.
+    /// </summary>
+    public const string RateLimitKeyPrefix = "ratelimit";
+
 }
 
 
