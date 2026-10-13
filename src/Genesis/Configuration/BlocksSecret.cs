@@ -30,6 +30,7 @@ public sealed class BlocksSecret : IBlocksSecret
     public string LmtBlobStorageConnectionString { get ; set ; } = string.Empty;
     public string ProdVaultUrl { get ; set ; } = string.Empty;
     public string AllowedCorsOrigins { get; set; } = string.Empty;
+    public int UserRateLimitPerSecond { get; set; }
 
     public static async Task<IBlocksSecret> ProcessBlocksSecret(VaultType vaultType = VaultType.Azure)
     {
@@ -46,6 +47,14 @@ public sealed class BlocksSecret : IBlocksSecret
             if (isExist && !string.IsNullOrWhiteSpace(retrievedValue))
             {
                 object convertedValue = ConvertValue(retrievedValue, property.PropertyType);
+
+                // A value that cannot be converted (for example "abc" for an int) keeps the
+                // property default instead of failing startup.
+                if (!property.PropertyType.IsInstanceOfType(convertedValue))
+                {
+                    Log.Warning("Secret {PropertyName} has a value that cannot be converted to {PropertyType}; the default is kept.", propertyName, property.PropertyType.Name);
+                    continue;
+                }
 
                 UpdateProperty(blocksSecret, propertyName, convertedValue);
             }

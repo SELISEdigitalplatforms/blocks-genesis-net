@@ -171,4 +171,27 @@ public class BlocksSecretTests
             Environment.SetEnvironmentVariable("BlocksSecret__MessageConnectionString", previousMessage);
         }
     }
+
+    [Theory]
+    [InlineData("25", 25)]
+    [InlineData("abc", 0)]
+    [InlineData("-5", -5)]
+    public async Task ProcessBlocksSecret_ShouldLoadUserRateLimit_AndKeepDefaultWhenNotNumeric(string raw, int expected)
+    {
+        const string key = "BlocksSecret__UserRateLimitPerSecond";
+        var previous = Environment.GetEnvironmentVariable(key);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(key, raw);
+
+            var secret = await BlocksSecret.ProcessBlocksSecret(VaultType.OnPrem);
+
+            Assert.Equal(expected, secret.UserRateLimitPerSecond);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(key, previous);
+        }
+    }
 }

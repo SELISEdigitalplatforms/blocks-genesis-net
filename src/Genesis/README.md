@@ -134,7 +134,19 @@ MaxFailedBatches=100
 
 ## Middleware pipeline (API)
 
-`HSTS -> CORS -> Health endpoints (/ping, /health/live, /health/ready) -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> Antiforgery -> Controllers`
+`HSTS -> CORS -> Health endpoints (/ping, /health/live, /health/ready) -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> UserRateLimit -> Antiforgery -> Controllers`
+
+## Rate limiting
+
+Authorized and protected endpoints are rate limited per service and per authenticated subject (`user_id`, or `client_id` for `client_credentials` tokens), with counts shared through Redis under `ratelimit:{ServiceName}:{TenantId}:{user|client}:{id}`. Public endpoints are never limited. **Services can now return `429 Too Many Requests`** (gRPC: `RESOURCE_EXHAUSTED`).
+
+- Limit (requests per second), resolved once at startup: `UserRateLimitPerSecond` env var, then the `UserRateLimitPerSecond` vault secret (`BlocksSecret__UserRateLimitPerSecond` on-prem), then `100`.
+- Going over the limit blocks the subject for 30 s: `429`, `Retry-After: 30`, Problem Details body `"title":"Rate Limit Exceeded"`. Clients should wait for `Retry-After` before retrying.
+- Allowed responses carry `RateLimit-Policy: "user";q=<limit>;w=1` and `RateLimit: "user";r=<remaining>;t=<reset>`.
+- If Redis is slow (over 50 ms) or down, requests are allowed.
+- `HttpService` no longer opens its circuit breaker on a downstream 429; it retries a 429 only when `Retry-After` fits in the request timeout.
+
+See the repository README for the full contract.
 
 ## Local development
 

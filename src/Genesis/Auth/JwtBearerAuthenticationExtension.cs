@@ -169,42 +169,123 @@ public static class JwtBearerAuthenticationExtension
     private static async Task HandleAuthenticationFailedAsync(AuthenticationFailedContext context)
     {
         BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
-        var tenants = ResolveTenants(context.HttpContext);
-        var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
         var ex = context.Exception;
 
+        // Expired tokens never use fallback; skip service resolution so a disposed
+        // request scope cannot turn an expected auth failure into a 500.
         if (ex is SecurityTokenExpiredException)
         {
             SecurityLog("token_expired", "Fallback skipped for expired token.");
             return;
         }
 
+        if (!TryResolveServicesForAuthFailure(context.HttpContext, out var tenants, out var httpClientFactory))
+        {
+            SecurityLog(
+                "authentication_failed",
+                "Fallback skipped: request services disposed or unavailable.",
+                detail: new { reason = "request_services_disposed" },
+                isWarning: true);
+            return;
+        }
+
         SecurityLog("authentication_failed", "Primary token validation failed, attempting fallback.", ex);
-        await TryFallbackAsync(
-            context,
-            tenants,
-            GetRequestAccessToken(context.HttpContext),
-            GetRequestTenantId(context.HttpContext),
-            httpClientFactory,
-            ex);
+        try
+        {
+            await TryFallbackAsync(
+                context,
+                tenants,
+                GetRequestAccessToken(context.HttpContext),
+                GetRequestTenantId(context.HttpContext),
+                httpClientFactory,
+                ex);
+        }
+        catch (ObjectDisposedException ode)
+        {
+            // Request scope can be torn down while fallback is in flight (aborted client).
+            SecurityLog(
+                "authentication_failed",
+                "Fallback aborted: request services disposed during fallback.",
+                ode,
+                detail: new { reason = "request_services_disposed" },
+                isWarning: true);
+        }
+    }
+
+    /// <summary>
+    /// Resolves services needed by the auth-failure fallback path.
+    /// Returns false when the request <see cref="IServiceProvider"/> is missing or disposed
+    /// so callers can soft-fail authentication instead of throwing ObjectDisposedException.
+    /// When the provider is alive but a required service is unregistered, preserves the
+    /// existing <see cref="InvalidOperationException"/> (assumption A4).
+    /// </summary>
+    private static bool TryResolveServicesForAuthFailure(
+        HttpContext httpContext,
+        out ITenants tenants,
+        out IHttpClientFactory httpClientFactory)
+    {
+        tenants = null!;
+        httpClientFactory = null!;
+
+        var services = httpContext.RequestServices;
+        if (services is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            tenants = services.GetService<ITenants>()
+                ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
+            httpClientFactory = services.GetService<IHttpClientFactory>()
+                ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            tenants = null!;
+            httpClientFactory = null!;
+            return false;
+        }
     }
 
     private static ITenants ResolveTenants(HttpContext context)
     {
-        return context.RequestServices?.GetService<ITenants>()
-            ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
+        try
+        {
+            return context.RequestServices?.GetService<ITenants>()
+                ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("ITenants service could not be resolved from the request services.", ex);
+        }
     }
 
     private static IDatabase ResolveCacheDatabase(HttpContext context)
     {
-        return context.RequestServices?.GetService<ICacheClient>()?.CacheDatabase()
-            ?? throw new InvalidOperationException("The cache database could not be resolved from the request services.");
+        try
+        {
+            return context.RequestServices?.GetService<ICacheClient>()?.CacheDatabase()
+                ?? throw new InvalidOperationException("The cache database could not be resolved from the request services.");
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("The cache database could not be resolved from the request services.", ex);
+        }
     }
 
     private static IHttpClientFactory ResolveHttpClientFactory(HttpContext context)
     {
-        return context.RequestServices?.GetService<IHttpClientFactory>()
-            ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
+        try
+        {
+            return context.RequestServices?.GetService<IHttpClientFactory>()
+                ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.", ex);
+        }
     }
 
     private static async Task ConfigureTokenValidationAsync(
