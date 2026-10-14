@@ -19,6 +19,14 @@ public class SchemaDefinition : GraphQlBaseEntity
     public SchemaAccessLevel EditAccessLevel { get; set; } = SchemaAccessLevel.User;
     public SchemaAccessLevel DeleteAccessLevel { get; set; } = SchemaAccessLevel.User;
 
+    /// <summary>
+    /// True for a platform service's own entity registered here so DataAccessPolicys can apply to it
+    /// (seeded, not created through the schema designer). The data gateway builds no GraphQL type for it.
+    /// Not stored when false, so existing documents are unchanged.
+    /// </summary>
+    [BsonIgnoreIfDefault]
+    public bool IsSystemEntity { get; set; }
+
     public string GetSchemaNameForProject()
     {
         return SchemaName;
