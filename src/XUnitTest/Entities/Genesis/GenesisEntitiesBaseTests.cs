@@ -20,13 +20,15 @@ public class GenesisEntitiesBaseTests
     }
 
     [Fact]
-    public void BaseEntity_HasExactlyTodays8Fields()
+    public void BaseEntity_HasExactlyTodays12Fields()
     {
         var props = typeof(BaseEntity).GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => $"{p.Name}:{p.PropertyType.Name}");
         Assert.Equal(
+            // Create/Read/Update/Delete added 2026-10-14 (owner decision): per-record access lists, null by default.
             ["ItemId:String", "CreatedDate:DateTime", "LastUpdatedDate:DateTime", "CreatedBy:String", "Language:String",
-             "LastUpdatedBy:String", "OrganizationId:String", "Tags:List`1"],
+             "LastUpdatedBy:String", "OrganizationId:String", "Tags:List`1",
+             "Create:OperationAccess", "Read:OperationAccess", "Update:OperationAccess", "Delete:OperationAccess"],
             props);
         Assert.NotNull(typeof(BaseEntity).GetCustomAttribute<MongoDB.Bson.Serialization.Attributes.BsonIgnoreExtraElementsAttribute>());
 
@@ -35,6 +37,10 @@ public class GenesisEntitiesBaseTests
         Assert.Equal("default", e.OrganizationId);
         Assert.Empty(e.Tags);
         Assert.Null(e.CreatedBy);
+        Assert.Null(e.Create);
+        Assert.Null(e.Read);
+        Assert.Null(e.Update);
+        Assert.Null(e.Delete);
     }
 
     [Fact]
