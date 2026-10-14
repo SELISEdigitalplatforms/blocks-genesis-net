@@ -51,7 +51,13 @@ public sealed class Tenants : ITenants, IDisposable
 
         // Try to get tenant from the in-memory cache
         if (_tenantCache.TryGetValue(tenantId, out var tenant))
-            return tenant;
+        {
+            if (!tenant.IsDisabled)
+                return tenant;
+
+            // Never serve a disabled tenant; drop it and fall through to the database.
+            _tenantCache.TryRemove(tenantId, out _);
+        }
 
         // Deduplicate concurrent DB lookups for the same tenant ID.
         var loader = _tenantLoadInProgress.GetOrAdd(
@@ -67,11 +73,10 @@ public sealed class Tenants : ITenants, IDisposable
             _tenantLoadInProgress.TryRemove(tenantId, out _);
         }
 
-        if (tenant != null)
+        if (TryCacheTenant(tenant))
         {
-            _tenantCache[tenant.TenantId] = tenant;
             // Ensure trace collection exists asynchronously without blocking
-            _ = EnsureTraceCollectionExistsAsync(tenant);
+            _ = EnsureTraceCollectionExistsAsync(tenant!);
         }
 
         return tenant;
@@ -110,7 +115,14 @@ public sealed class Tenants : ITenants, IDisposable
         // to fail anyway. Spend one database read to rule out a stale cache entry before
         // that happens, rate limited so a tenant that is genuinely unconfigured does not
         // read the database on every request.
-        return TryRevalidateTenant(tenantId)?.JwtTokenParameters ?? parameters;
+        var refreshed = TryRevalidateTenant(tenantId);
+        if (refreshed is not null)
+        {
+            return refreshed.JwtTokenParameters;
+        }
+
+        // The re-read may have found the tenant disabled or deleted and evicted it.
+        return _tenantCache.ContainsKey(tenantId) ? parameters : null;
     }
 
     /// <summary>
@@ -135,13 +147,29 @@ public sealed class Tenants : ITenants, IDisposable
             return null;
         }
 
-        var refreshed = GetTenantFromDb(tenantId);
-        if (refreshed is null)
+        Tenant? refreshed;
+        try
         {
+            refreshed = ReadTenantFromDb(tenantId);
+        }
+        catch (Exception ex)
+        {
+            // A failed read says nothing about the tenant; keep the cached copy.
+            _logger.LogError(ex, "Failed to re-read tenant from DB for ID: {TenantId}", tenantId);
             return null;
         }
 
-        _tenantCache[refreshed.TenantId] = refreshed;
+        if (refreshed is null)
+        {
+            // The database answered: the tenant is disabled or gone. Stop serving it.
+            _tenantCache.TryRemove(tenantId, out _);
+            _logger.LogInformation(
+                "Tenant evicted from cache on re-read because it is disabled or missing. TenantId: {TenantId}",
+                tenantId);
+            return null;
+        }
+
+        TryCacheTenant(refreshed);
 
         var pathNowPresent = !string.IsNullOrWhiteSpace(refreshed.JwtTokenParameters?.PublicCertificatePath);
 
@@ -250,7 +278,7 @@ public sealed class Tenants : ITenants, IDisposable
             }
 
             bool isNewTenant = !_tenantCache.ContainsKey(tenant.TenantId);
-            _tenantCache[tenant.TenantId] = tenant;
+            TryCacheTenant(tenant);
 
             if (isNewTenant)
             {
@@ -264,8 +292,23 @@ public sealed class Tenants : ITenants, IDisposable
         }
     }
 
+    /// <summary>
+    /// The only way a tenant enters the in-memory cache. A disabled tenant is never cached;
+    /// any copy already held for it is removed instead.
+    /// </summary>
+    private bool TryCacheTenant(Tenant? tenant)
+    {
+        if (tenant is null || string.IsNullOrWhiteSpace(tenant.TenantId)) return false;
 
+        if (tenant.IsDisabled)
+        {
+            _tenantCache.TryRemove(tenant.TenantId, out _);
+            return false;
+        }
 
+        _tenantCache[tenant.TenantId] = tenant;
+        return true;
+    }
 
     private Tenant? GetTenantFromDb(string tenantId)
     {
@@ -273,16 +316,25 @@ public sealed class Tenants : ITenants, IDisposable
 
         try
         {
-            return _database
-                .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
-                .Find(t => t.TenantId == tenantId && !t.IsDisabled)
-                .FirstOrDefault();
+            return ReadTenantFromDb(tenantId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to retrieve tenant from DB for ID: {TenantId}", tenantId);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads an enabled tenant. Returns null when it is missing or disabled; throws when the
+    /// database cannot be read, so callers can tell "not there" from "could not ask".
+    /// </summary>
+    private Tenant? ReadTenantFromDb(string tenantId)
+    {
+        return _database
+            .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
+            .Find(t => t.TenantId == tenantId && !t.IsDisabled)
+            .FirstOrDefault();
     }
 
     public void Dispose()
@@ -311,7 +363,7 @@ public sealed class Tenants : ITenants, IDisposable
 
         appName = BlocksContext.NormalizeDomain(appName);
 
-        var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => tenant.Applications.Any(a => string.Equals(BlocksContext.NormalizeDomain(a.Domain), appName, StringComparison.OrdinalIgnoreCase)));
+        var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => !tenant.IsDisabled && tenant.Applications.Any(a => string.Equals(BlocksContext.NormalizeDomain(a.Domain), appName, StringComparison.OrdinalIgnoreCase)));
 
         if (cachedTenant != null)
         {
@@ -326,18 +378,19 @@ public sealed class Tenants : ITenants, IDisposable
               "https://" + appName,
             };
 
-            var filter = builder.ElemMatch(x => x.Applications,app => domains.Contains(app.Domain));
+            var filter = builder.And(
+                builder.ElemMatch(x => x.Applications, app => domains.Contains(app.Domain)),
+                builder.Where(x => !x.IsDisabled));
 
             var tenant = _database
                 .GetCollection<Tenant>(BlocksConstants.TenantCollectionName)
                 .Find(filter)
                 .FirstOrDefault();
 
-            if (tenant != null)
+            if (TryCacheTenant(tenant))
             {
-                _tenantCache[tenant.TenantId] = tenant;
                 // Ensure trace collection exists asynchronously without blocking
-                _ = EnsureTraceCollectionExistsAsync(tenant);
+                _ = EnsureTraceCollectionExistsAsync(tenant!);
             }
 
             return tenant;
