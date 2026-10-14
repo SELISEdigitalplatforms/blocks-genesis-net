@@ -9,7 +9,7 @@ namespace Blocks.Genesis.DataAccess.Evaluation;
 /// evaluation code that used to live inside the gateway's query and mutation services; no rule is
 /// added or changed here, the resolver only gives that code one home and one caller contract.
 /// </summary>
-public interface IDataAccessPolicyResolver
+public interface IDataAccessPolicyResolutionService
 {
     /// <summary>
     /// The RLS gate for the operation. READ keeps the query service's gate (schema read level, every

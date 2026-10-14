@@ -11,7 +11,7 @@ public static class DataAccessServiceCollectionExtensions
     /// <para>
     /// <see cref="IDataAccessResolver"/> resolves by schema name, reading <c>SchemaDefinitions</c>,
     /// <c>DataAccessPolicys</c> and <c>DataValidations</c> from the caller's tenant database through
-    /// <see cref="IDbContextProvider"/>. <see cref="IDataAccessPolicyResolver"/> evaluates an already loaded schema.
+    /// <see cref="IDbContextProvider"/>. <see cref="IDataAccessPolicyResolutionService"/> evaluates an already loaded schema.
     /// </para>
     /// <para>
     /// The caller comes from <see cref="IAccessPrincipalAccessor"/>. If the host registers none, the default
@@ -22,7 +22,7 @@ public static class DataAccessServiceCollectionExtensions
     public static IServiceCollection AddBlocksDataAccess(this IServiceCollection services)
     {
         services.AddSingleton<IAccessPolicySource, SchemaPolicySource>();
-        services.AddSingleton<IDataAccessPolicyResolver, DataAccessPolicyResolver>();
+        services.AddSingleton<IDataAccessPolicyResolutionService, DataAccessPolicyResolutionService>();
         services.AddSingleton<IDataAccessResolver, DataAccessResolver>();
         services.TryAddSingleton<IAccessPrincipalAccessor, BlocksContextAccessPrincipalAccessor>();
         return services;
