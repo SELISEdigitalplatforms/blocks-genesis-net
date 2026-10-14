@@ -17,6 +17,8 @@ packages/
 # Build results
 [Dd]ebug/
 [Rr]elease/
+!src/Genesis/Entities/Release/
+!src/XUnitTest/Entities/Release/
 x64/
 x86/
 AnyCPU/
