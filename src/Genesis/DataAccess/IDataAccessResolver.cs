@@ -7,23 +7,23 @@ namespace Blocks.Genesis.DataAccess;
 /// <summary>
 /// Resolves a filter from a schema name alone: loads the schema definition, its access policies and
 /// its validations from the caller's tenant database, builds the <see cref="SchemaAccessRequest"/> for
-/// the current principal, and hands it to <see cref="IDataAccessPolicyResolver"/>.
+/// the current principal, and hands it to <see cref="IDataAccessPolicyResolutionService"/>.
 /// </summary>
 public interface IDataAccessResolver
 {
-    /// <summary>Load, then <see cref="IDataAccessPolicyResolver.Check"/> and <see cref="IDataAccessPolicyResolver.BuildReadFilter"/>. Throws <see cref="KeyNotFoundException"/> when the schema does not exist.</summary>
+    /// <summary>Load, then <see cref="IDataAccessPolicyResolutionService.Check"/> and <see cref="IDataAccessPolicyResolutionService.BuildReadFilter"/>. Throws <see cref="KeyNotFoundException"/> when the schema does not exist.</summary>
     Task<ResolvedFilter> ResolveReadFilterAsync(string schemaName, BsonDocument userFilter, CancellationToken cancellationToken = default);
 
-    /// <summary>Load, then <see cref="IDataAccessPolicyResolver.Check"/> and <see cref="IDataAccessPolicyResolver.ApplyMutationFilter"/> for WRITE, EDIT or DELETE. <see cref="ResolvedFilter.Filter"/> is null when denied.</summary>
+    /// <summary>Load, then <see cref="IDataAccessPolicyResolutionService.Check"/> and <see cref="IDataAccessPolicyResolutionService.ApplyMutationFilter"/> for WRITE, EDIT or DELETE. <see cref="ResolvedFilter.Filter"/> is null when denied.</summary>
     Task<ResolvedFilter> ResolveMutationFilterAsync(string schemaName, PolicyOperation operation, BsonDocument baseFilter, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Everything a query needs: READ gate, final filter, projection for <paramref name="requestedFields"/>
-    /// (null = every field), and a row mask. The caller runs the find and calls <see cref="ResolvedRead.Mask"/> per row.
+    /// (null = every field), and the column read policy. The caller runs the find and calls <see cref="ResolvedRead.ApplyReadPolicy"/> per row.
     /// </summary>
     Task<ResolvedRead> ResolveReadAsync(string schemaName, BsonDocument userFilter, IReadOnlyList<string>? requestedFields, CancellationToken cancellationToken = default);
 
-    /// <summary>READ gate plus the projection and row mask alone, for callers that build the filter themselves.</summary>
+    /// <summary>READ gate plus the projection and the column read policy alone, for callers that build the filter themselves.</summary>
     Task<ResolvedProjection> ResolveProjectionAsync(string schemaName, IReadOnlyList<string>? requestedFields, CancellationToken cancellationToken = default);
 
     /// <summary>Gate for <paramref name="operation"/> (WRITE or EDIT) plus column restriction of <paramref name="input"/>, which is modified in place.</summary>

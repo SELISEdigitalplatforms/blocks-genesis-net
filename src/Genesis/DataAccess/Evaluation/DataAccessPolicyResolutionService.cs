@@ -5,15 +5,15 @@ using MongoDB.Bson;
 namespace Blocks.Genesis.DataAccess.Evaluation;
 
 /// <summary>
-/// Composes the relocated helpers behind <see cref="IDataAccessPolicyResolver"/>. Stateless, so it
+/// Composes the relocated helpers behind <see cref="IDataAccessPolicyResolutionService"/>. Stateless, so it
 /// is registered as a singleton. The method bodies are the gateway's former private methods, with
 /// the ambient request reads replaced by the request's principal.
 /// </summary>
-public sealed class DataAccessPolicyResolver : IDataAccessPolicyResolver
+public sealed class DataAccessPolicyResolutionService : IDataAccessPolicyResolutionService
 {
     private readonly IAccessPolicySource _policySource;
 
-    public DataAccessPolicyResolver(IAccessPolicySource policySource)
+    public DataAccessPolicyResolutionService(IAccessPolicySource policySource)
     {
         _policySource = policySource;
     }

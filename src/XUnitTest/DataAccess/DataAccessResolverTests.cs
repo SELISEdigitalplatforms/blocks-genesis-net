@@ -29,7 +29,7 @@ public sealed class DataAccessResolverTests : IDisposable
         contextProvider.Setup(p => p.GetDatabase("tenant-1")).Returns(_db);
         var principals = new Mock<IAccessPrincipalAccessor>();
         principals.Setup(p => p.Current).Returns(() => _principal);
-        _resolver = new DataAccessResolver(contextProvider.Object, new DataAccessPolicyResolver(new SchemaPolicySource()), principals.Object);
+        _resolver = new DataAccessResolver(contextProvider.Object, new DataAccessPolicyResolutionService(new SchemaPolicySource()), principals.Object);
     }
 
     public void Dispose() => _client.DropDatabase(_db.DatabaseNamespace.DatabaseName);
@@ -89,7 +89,7 @@ public sealed class DataAccessResolverTests : IDisposable
         Assert.Equal(new BsonDocument("_id", "p1").ToJson(), read.Filter!.ToJson());
         Assert.True(read.Projection!.Contains("Name"));
         var row = new Dictionary<string, object> { ["_id"] = "p1", ["Name"] = "Pen" };
-        Assert.Same(row, read.Mask(row));
+        Assert.Same(row, read.ApplyReadPolicy(row));
         Assert.Equal("Pen", row["Name"]);
     }
 
@@ -107,7 +107,7 @@ public sealed class DataAccessResolverTests : IDisposable
         Assert.False(read.IsAccessGranted);
         Assert.Null(read.Filter);
         Assert.Null(read.Projection);
-        Assert.Throws<InvalidOperationException>(() => read.Mask([]));
+        Assert.Throws<InvalidOperationException>(() => read.ApplyReadPolicy([]));
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed class DataAccessResolverTests : IDisposable
 
         Assert.True(read.IsAccessGranted);
         var row = new Dictionary<string, object> { ["_id"] = "1", ["Status"] = "paid", ["CreatedBy"] = "user-1" };
-        read.Mask(row);
+        read.ApplyReadPolicy(row);
         Assert.Equal("paid", row["Status"]);
         Assert.Equal("user-1", row["CreatedBy"]);
     }

@@ -28,7 +28,7 @@ public class DataAccessRegistrationTests
         using var provider = Build();
 
         Assert.NotNull(provider.GetRequiredService<IDataAccessResolver>());
-        Assert.NotNull(provider.GetRequiredService<IDataAccessPolicyResolver>());
+        Assert.NotNull(provider.GetRequiredService<IDataAccessPolicyResolutionService>());
         var accessor = provider.GetRequiredService<IAccessPrincipalAccessor>();
         Assert.IsType<BlocksContextAccessPrincipalAccessor>(accessor);
         Assert.False(accessor.Current.IsRootTenant);

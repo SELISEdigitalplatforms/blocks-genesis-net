@@ -14,10 +14,10 @@ namespace Blocks.Genesis.DataAccess;
 public sealed class DataAccessResolver : IDataAccessResolver
 {
     private readonly IDbContextProvider _dbContextProvider;
-    private readonly IDataAccessPolicyResolver _resolver;
+    private readonly IDataAccessPolicyResolutionService _resolver;
     private readonly IAccessPrincipalAccessor _principals;
 
-    public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolver resolver, IAccessPrincipalAccessor principals)
+    public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals)
     {
         _dbContextProvider = dbContextProvider;
         _resolver = resolver;

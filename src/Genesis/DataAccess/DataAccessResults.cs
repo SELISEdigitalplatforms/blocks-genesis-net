@@ -5,7 +5,7 @@ using MongoDB.Bson;
 namespace Blocks.Genesis.DataAccess;
 
 /// <summary>
-/// A read resolved from a schema name: the final filter, the projection to request, and <see cref="Mask"/>
+/// A read resolved from a schema name: the final filter, the projection to request, and <see cref="ApplyReadPolicy"/>
 /// to apply to every returned row. <see cref="Filter"/> and <see cref="Projection"/> are null when denied.
 /// </summary>
 public sealed class ResolvedRead
@@ -26,9 +26,9 @@ public sealed class ResolvedRead
     public BsonDocument? Filter { get; }
     public BsonDocument? Projection { get; }
 
-    /// <summary>Applies column-level masking to one row (modified in place and returned). Throws when access was denied.</summary>
-    public Dictionary<string, object> Mask(Dictionary<string, object> row) =>
-        _mask is null ? throw new InvalidOperationException("Access was denied; there is nothing to mask.") : _mask(row);
+    /// <summary>Applies the column-level read policy to one returned row: fields the caller may not see are set to null and fields fetched only to evaluate rules are removed. The row is modified in place and returned. Throws when access was denied.</summary>
+    public Dictionary<string, object> ApplyReadPolicy(Dictionary<string, object> row) =>
+        _mask is null ? throw new InvalidOperationException("Access was denied; there is no read policy to apply.") : _mask(row);
 }
 
 /// <summary>A projection resolved on its own: same as <see cref="ResolvedRead"/> without the filter.</summary>
@@ -48,9 +48,9 @@ public sealed class ResolvedProjection
     public bool IsAccessGranted => Evaluation.IsAccessGranted;
     public BsonDocument? Projection { get; }
 
-    /// <summary>Applies column-level masking to one row (modified in place and returned). Throws when access was denied.</summary>
-    public Dictionary<string, object> Mask(Dictionary<string, object> row) =>
-        _mask is null ? throw new InvalidOperationException("Access was denied; there is nothing to mask.") : _mask(row);
+    /// <summary>Applies the column-level read policy to one returned row: fields the caller may not see are set to null and fields fetched only to evaluate rules are removed. The row is modified in place and returned. Throws when access was denied.</summary>
+    public Dictionary<string, object> ApplyReadPolicy(Dictionary<string, object> row) =>
+        _mask is null ? throw new InvalidOperationException("Access was denied; there is no read policy to apply.") : _mask(row);
 }
 
 /// <summary>

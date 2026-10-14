@@ -10,9 +10,9 @@ namespace XUnitTest.DataAccess;
 /// including two quirks kept on purpose: the READ gate honours ALL policies while the mutation gate ignores
 /// them, and the root tenant bypasses everything.
 /// </summary>
-public class DataAccessPolicyResolverTests
+public class DataAccessPolicyResolutionServiceTests
 {
-    private static readonly IDataAccessPolicyResolver Resolver = new DataAccessPolicyResolver(new SchemaPolicySource());
+    private static readonly IDataAccessPolicyResolutionService Resolver = new DataAccessPolicyResolutionService(new SchemaPolicySource());
 
     private static bool Granted(SchemaDefinitionExtended schema, PolicyOperation op, Blocks.Genesis.DataAccess.AccessPrincipal principal) =>
         Resolver.Check(new SchemaAccessRequest(principal, schema, op)).IsAccessGranted;
