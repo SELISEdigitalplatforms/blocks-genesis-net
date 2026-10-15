@@ -185,7 +185,7 @@ internal static class EntityCatalog
     /// <summary>Owner of each class (folder) and group: A = inherits BaseEntity, B = keeps its own id member and fields (no base).</summary>
     public sealed record Row(string Class, string Owner, char Group, bool ValueType);
 
-    /// <summary>The package catalog (genesis SPEC1 6.4): 65 collection entities + 4 value types.</summary>
+    /// <summary>The package catalog (genesis SPEC1 6.4): 67 collection entities + 4 value types.</summary>
     public static IReadOnlyList<Row> Rows { get; } =
     [
         new("User", "iam", 'B', false),
@@ -212,7 +212,9 @@ internal static class EntityCatalog
         new("MfaConfiguration", "iam", 'A', true),
         new("TenantConfiguration", "iam", 'A', true),
         new("EmailTemplate", "os", 'A', false),
+        new("IntegrationRequest", "os", 'A', false),
         new("IntegrationSetup", "os", 'A', false),
+        new("IntegrationTemplate", "os", 'A', false),
         new("ThirdPartyJWTClaims", "os", 'A', false),
         new("MailServerConfiguration", "os", 'A', false),
         new("ResourceLimit", "os", 'A', false),

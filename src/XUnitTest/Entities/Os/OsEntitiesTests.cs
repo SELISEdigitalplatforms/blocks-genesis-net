@@ -15,7 +15,10 @@ public class OsEntitiesTests
         // Filled-sample hashes of every BaseEntity class changed on purpose 2026-10-14 (owner decision): BaseEntity gained
         // nullable Create/Read/Update/Delete access lists ([BsonIgnoreIfNull]); default and all-null bytes are unchanged.
         ["Blocks.Genesis.Entities.Os.EmailTemplate"] = "4615E5D5CC01F2BE1F0C84D58579C442 2352F950FED339064A050EC0A4D7511A 41699AF28DCC146FAE8754849D89FF4F",
+        // IntegrationRequest and IntegrationTemplate: hashes of the blocks-os service classes as moved from the dev working tree, 2026-10-15.
+        ["Blocks.Genesis.Entities.Os.IntegrationRequest"] = "7586EC925992892D6186B4DF7C500EB6 3C668F1E8C610723F9F2D9D01F94D61B CDFEC7DF2D6F0EDC2E0D540A4FC8E8FC",
         ["Blocks.Genesis.Entities.Os.IntegrationSetup"] = "0F15C211144A321B9C6CB1AF055AF253 0C731DE406BD25D9A66858E7BCEB6EC9 BB96FE7FAC6BEF4BBF00A2A58067DB6E",
+        ["Blocks.Genesis.Entities.Os.IntegrationTemplate"] = "89990FABAA57B5620D2A2D79A7DE6F54 157810C3CD79264E104FA0BB1F8D62BD F3FEE82C32F4B5DD9E4436B56C0DE8AA",
         ["Blocks.Genesis.Entities.Os.MailServerConfiguration"] = "A6142C4FB5EFFBE1840B9A8CCD5C3D3F 4E64E05BA499E02F95363440D78CF196 C8D207DADE23B86DB7DD0F279726DD96",
         ["Blocks.Genesis.Entities.Os.MigrationTracker"] = "6815B920AE0725C6F18708A3696C81B5 E3E9F6A6EACFA76A9B05982CFC743CAF 9E531C68F38C4AA4121FE61F41914A50",
         ["Blocks.Genesis.Entities.Os.NotificationConfiguration"] = "4659089BB35C91D99561915EC58A88BD 6355951BD68EF9849EFEB17220062E3E E12738A6D2ECAE5397612DA0678E0760",
