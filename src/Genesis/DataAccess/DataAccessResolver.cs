@@ -16,9 +16,11 @@ public sealed class DataAccessResolver : IDataAccessResolver
     private readonly IDbContextProvider _dbContextProvider;
     private readonly IDataAccessPolicyResolutionService _resolver;
     private readonly IAccessPrincipalAccessor _principals;
+    private readonly bool _systemEntitiesOnly;
 
-    public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals)
+    public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals, DataAccessOptions? options = null)
     {
+        _systemEntitiesOnly = options?.SystemEntitiesOnly ?? false;
         _dbContextProvider = dbContextProvider;
         _resolver = resolver;
         _principals = principals;
@@ -123,9 +125,15 @@ public sealed class DataAccessResolver : IDataAccessResolver
             ? _dbContextProvider.GetDatabase() ?? throw new InvalidOperationException("Database context provider returned null database.")
             : _dbContextProvider.GetDatabase(tenantId);
 
-        var definition = await Collection<SchemaDefinition>(database)
-            .Find(d => d.SchemaName == schemaName && !d.IsDeleted)
-            .FirstOrDefaultAsync(cancellationToken);
+        // Services must never pick up a tenant's own schema that happens to share a system entity's name.
+        // Policies and validations below are linked by SchemaId (the chosen schema's ItemId), never by name.
+        var definition = _systemEntitiesOnly
+            ? await Collection<SchemaDefinition>(database)
+                .Find(d => d.SchemaName == schemaName && !d.IsDeleted && d.IsSystemEntity)
+                .FirstOrDefaultAsync(cancellationToken)
+            : await Collection<SchemaDefinition>(database)
+                .Find(d => d.SchemaName == schemaName && !d.IsDeleted)
+                .FirstOrDefaultAsync(cancellationToken);
         if (definition is null)
             return null;
 

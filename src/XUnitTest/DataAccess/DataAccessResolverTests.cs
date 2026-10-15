@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Blocks.Genesis;
 using Blocks.Genesis.DataAccess;
 using Blocks.Genesis.DataAccess.Evaluation;
@@ -246,5 +247,81 @@ public sealed class DataAccessResolverTests : IDisposable
             schema.Policies.Where(p => p.PolicyType == PolicyType.CLS && p.Operation == PolicyOperation.READ).SelectMany(p => p.FieldNames).OrderBy(n => n, StringComparer.Ordinal));
         Assert.Equal("val-1", schema.Fields.Single(f => f.Name == "Status").ValidationRule!.ItemId);
         Assert.Null(await _resolver.LoadSchemaAsync("Nope", _principal));
+    }
+}
+
+[Trait("Category", "Integration")]
+public sealed class DataAccessResolverSystemOnlyTests : IDisposable
+{
+    private readonly MongoClient _client = new("mongodb://127.0.0.1:27017");
+    private readonly IMongoDatabase _db;
+    private readonly Mock<IDbContextProvider> _provider = new();
+    private readonly Mock<IAccessPrincipalAccessor> _principals = new();
+
+    public DataAccessResolverSystemOnlyTests()
+    {
+        _db = _client.GetDatabase("dataaccess_" + Guid.NewGuid().ToString("N"));
+        _provider.Setup(p => p.GetDatabase("tenant-1")).Returns(_db);
+        _principals.Setup(p => p.Current).Returns(User());
+    }
+
+    public void Dispose() => _client.DropDatabase(_db.DatabaseNamespace.DatabaseName);
+
+    private DataAccessResolver Resolver(bool systemOnly) =>
+        new(_provider.Object, new DataAccessPolicyResolutionService(new SchemaPolicySource()), _principals.Object,
+            new DataAccessOptions { SystemEntitiesOnly = systemOnly });
+
+    private async Task SeedAsync(string id, bool system, string policyId)
+    {
+        await _db.GetCollection<SchemaDefinition>("SchemaDefinitions").InsertOneAsync(
+            new SchemaDefinition { ItemId = id, SchemaName = "User", IsSystemEntity = system });
+        var policy = OwnerPolicy(PolicyOperation.READ);
+        policy.ItemId = policyId;
+        policy.SchemaId = id;
+        await _db.GetCollection<DataAccessPolicy>("DataAccessPolicys").InsertOneAsync(policy);
+    }
+
+    [Fact]
+    public async Task SameNameTenantSchema_IsIgnored_SystemSchemaAndItsPoliciesLoad()
+    {
+        await SeedAsync("tenant-user", false, "pol-tenant");
+        await SeedAsync("system-user", true, "pol-system");
+
+        var schema = await Resolver(true).LoadSchemaAsync("User", User());
+
+        Assert.NotNull(schema);
+        Assert.Equal("system-user", schema!.ItemId);
+        Assert.Equal(["pol-system"], schema.Policies.Select(p => p.ItemId));
+    }
+
+    [Fact]
+    public async Task OnlyNonSystemSchema_ResolvesAsMissing()
+    {
+        await SeedAsync("tenant-user", false, "pol-tenant");
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            Resolver(true).ResolveReadFilterAsync("User", new BsonDocument()));
+    }
+
+    [Fact]
+    public async Task OptionOff_LoadsTenantSchema_AsBefore()
+    {
+        await SeedAsync("tenant-user", false, "pol-tenant");
+
+        var schema = await Resolver(false).LoadSchemaAsync("User", User());
+
+        Assert.Equal("tenant-user", schema!.ItemId);
+    }
+}
+
+public sealed class DataAccessOptionsRegistrationTests
+{
+    [Fact]
+    public void AddBlocksDataAccess_DefaultsToSystemOnly_AndCanBeTurnedOff()
+    {
+        var def = new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddBlocksDataAccess();
+        Assert.True(def.BuildServiceProvider().GetRequiredService<DataAccessOptions>().SystemEntitiesOnly);
+        var off = new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddBlocksDataAccess(o => o.SystemEntitiesOnly = false);
+        Assert.False(off.BuildServiceProvider().GetRequiredService<DataAccessOptions>().SystemEntitiesOnly);
     }
 }

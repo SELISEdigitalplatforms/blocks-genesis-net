@@ -4,6 +4,17 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Blocks.Genesis.DataAccess;
 
+/// <summary>Options for <see cref="DataAccessServiceCollectionExtensions.AddBlocksDataAccess"/>.</summary>
+public sealed class DataAccessOptions
+{
+    /// <summary>
+    /// When true (default for the registration path) the by-name resolver loads only schemas with
+    /// <c>IsSystemEntity == true</c>; a tenant's own same-name schema counts as missing (KeyNotFoundException).
+    /// Set false for hosts that serve tenant schemas.
+    /// </summary>
+    public bool SystemEntitiesOnly { get; set; } = true;
+}
+
 public static class DataAccessServiceCollectionExtensions
 {
     /// <summary>
@@ -19,8 +30,11 @@ public static class DataAccessServiceCollectionExtensions
     /// the policies unless the host says so with its own accessor.
     /// </para>
     /// </summary>
-    public static IServiceCollection AddBlocksDataAccess(this IServiceCollection services)
+    public static IServiceCollection AddBlocksDataAccess(this IServiceCollection services, Action<DataAccessOptions>? configure = null)
     {
+        var options = new DataAccessOptions();
+        configure?.Invoke(options);
+        services.AddSingleton(options);
         services.AddSingleton<IAccessPolicySource, SchemaPolicySource>();
         services.AddSingleton<IDataAccessPolicyResolutionService, DataAccessPolicyResolutionService>();
         services.AddSingleton<IDataAccessResolver, DataAccessResolver>();
