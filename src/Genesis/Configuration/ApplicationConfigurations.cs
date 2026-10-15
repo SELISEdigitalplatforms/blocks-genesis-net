@@ -135,6 +135,7 @@ public static class ApplicationConfigurations
             .WithTracing(tracingBuilder =>
             {
                 tracingBuilder
+                    .AddSource(_serviceName, HttpService.ProtocolActivitySourceName)
                     .SetSampler(new AlwaysOnSampler())
                     .AddAspNetCoreInstrumentation()
                     .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));

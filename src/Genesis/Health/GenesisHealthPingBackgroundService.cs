@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
@@ -17,6 +18,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     private readonly IDbContextProvider _dbContextProvider;
     private readonly IDatabase _cacheDb;
     private readonly HttpClient _httpClient;
+    private readonly ActivitySource? _activitySource;
 
     private readonly string _serviceName;
     private readonly string _connectionString;
@@ -40,13 +42,23 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
 
     private volatile BlocksServicesHealthConfiguration? _currentConfig;
 
+    // Preserve the original constructor for already compiled package consumers.
     public GenesisHealthPingBackgroundService(
         ILogger<GenesisHealthPingBackgroundService> logger,
         IDbContextProvider dbContextProvider,
         ICacheClient cacheClient,
         IBlocksSecret blocksSecret)
+        : this(logger, dbContextProvider, cacheClient, blocksSecret, null) { }
+
+    public GenesisHealthPingBackgroundService(
+        ILogger<GenesisHealthPingBackgroundService> logger,
+        IDbContextProvider dbContextProvider,
+        ICacheClient cacheClient,
+        IBlocksSecret blocksSecret,
+        ActivitySource? activitySource)
     {
         _logger = logger;
+        _activitySource = activitySource;
         _dbContextProvider = dbContextProvider;
         _cacheDb = cacheClient.CacheDatabase();
 
@@ -252,7 +264,8 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     {
         try
         {
-            var response = await _httpClient.GetAsync(config.Endpoint, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Get, config.Endpoint);
+            using var response = await HttpService.SendProtocolAsync(_httpClient, request, _activitySource, ct);
 
             if (response.IsSuccessStatusCode)
             {

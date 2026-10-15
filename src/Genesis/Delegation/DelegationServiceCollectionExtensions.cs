@@ -13,8 +13,8 @@ namespace Blocks.Genesis;
 /// that bypasses tracing.
 /// </para>
 /// <para>
-/// The exchange itself uses a separate named client, so redeeming a grant never re-enters
-/// <c>HttpService</c> and can never recurse into redeeming a grant.
+/// The exchange and discovery use HttpService's raw protocol transport with a separate named
+/// client, preserving tracing without acquiring another delegated token or retrying a signed nonce.
 /// </para>
 /// </summary>
 public static class DelegationServiceCollectionExtensions
