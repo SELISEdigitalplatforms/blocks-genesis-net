@@ -11,9 +11,9 @@ namespace XUnitTest.Entities.Genesis;
 public class GenesisEntitiesBaseTests
 {
     [Fact]
-    public void Catalog_Has65CollectionEntities_And4ValueTypes()
+    public void Catalog_Has67CollectionEntities_And4ValueTypes()
     {
-        Assert.Equal(65, EntityCatalog.Rows.Count(r => !r.ValueType));
+        Assert.Equal(67, EntityCatalog.Rows.Count(r => !r.ValueType));
         Assert.Equal(4, EntityCatalog.Rows.Count(r => r.ValueType));
         Assert.Equal(15, EntityCatalog.Rows.Count(r => r.Group == 'B'));
         Assert.Equal(EntityCatalog.Rows.Count, EntityCatalog.Rows.Select(r => r.Class).Distinct().Count());
