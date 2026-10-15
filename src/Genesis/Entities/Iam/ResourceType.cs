@@ -5,8 +5,10 @@ namespace Blocks.Genesis.Entities.Iam;
 /// <summary>
 /// Classification of the asset a permission or role guards. The value
 /// drives policy evaluation: an Endpoint permission is checked by the API
-/// gateway, a FrontendAction by the SPA, and DataProtection by the
-/// encryption-at-rest layer.
+/// gateway and a FrontendAction by the SPA.
+/// The former DataProtection value (3) was removed on 2026-10-15; the number is
+/// not reused. Old stored rows holding 3 still deserialize (int enum) but are
+/// no longer a defined value.
 /// </summary>
 public enum ResourceType
 {
@@ -17,8 +19,5 @@ public enum ResourceType
     Endpoint,
 
     /// <summary>UI action or menu item rendered by the frontend. Protected by the SPA's permission gate.</summary>
-    FrontendAction,
-
-    /// <summary>Field- or record-level data protection rule (encryption, masking, row-level access).</summary>
-    DataProtection
+    FrontendAction
 }
