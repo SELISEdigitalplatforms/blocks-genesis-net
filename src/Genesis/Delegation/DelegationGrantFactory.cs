@@ -84,7 +84,13 @@ public sealed class DelegationGrantFactory : IDelegationGrantFactory
 
         if (string.IsNullOrWhiteSpace(tokenVersion) && string.IsNullOrWhiteSpace(securityStamp))
         {
-            (tokenVersion, securityStamp) = await ReadFromHeldGrantAsync(context).ConfigureAwait(false);
+            var held = await ReadHeldUserGrantAsync(context).ConfigureAwait(false);
+            tokenVersion = held?.TokenVersion;
+            securityStamp = held?.SecurityStamp;
+            if (held is not null && held.IsImpersonated)
+            {
+                context = WithImpersonationFrom(context, held);
+            }
         }
 
         if (string.IsNullOrWhiteSpace(tokenVersion) || string.IsNullOrWhiteSpace(securityStamp))
@@ -196,20 +202,50 @@ public sealed class DelegationGrantFactory : IDelegationGrantFactory
     /// <c>SecurityContext</c>. The new grant is written from that context, so it must name the same
     /// user and organization as the held grant, or a tampered message could redirect the chain.
     /// </summary>
-    private async Task<(string? TokenVersion, string? SecurityStamp)> ReadFromHeldGrantAsync(BlocksContext context)
+    private async Task<DelegationGrantRecord?> ReadHeldUserGrantAsync(BlocksContext context)
     {
         var record = await ReadHeldGrantAsync(context.TenantId).ConfigureAwait(false);
-        if (record is null || record.IsClientGrant) return (null, null);
+        if (record is null || record.IsClientGrant) return null;
 
         if (!string.Equals(record.UserId, context.UserId, StringComparison.Ordinal)
             || !string.Equals(record.OrganizationId ?? string.Empty, context.OrganizationId ?? string.Empty, StringComparison.Ordinal))
         {
             DelegationGrantFactoryLog.HeldGrantUserMismatch(_logger);
-            return (null, null);
+            return null;
         }
 
-        return (record.TokenVersion, record.SecurityStamp);
+        return record;
     }
+
+    /// <summary>
+    /// A chained grant keeps the impersonation of the grant it chains from. The message
+    /// <c>SecurityContext</c> does not carry <c>ImpersonationSessionId</c> (deliberately), so without
+    /// this a worker's next send wrote a plain user grant for the impersonating user, and IAM then
+    /// looked that user up in the target tenant and refused it. The session and root tenant are
+    /// taken from the held grant in Redis, never from the message: IAM still checks that the
+    /// session is active and belongs to that root tenant on every redemption.
+    /// </summary>
+    private static BlocksContext WithImpersonationFrom(BlocksContext context, DelegationGrantRecord held)
+        => BlocksContext.Create(
+            tenantId: context.TenantId,
+            roles: context.Roles,
+            userId: context.UserId,
+            isAuthenticated: context.IsAuthenticated,
+            requestUri: context.RequestUri,
+            organizationId: context.OrganizationId,
+            expireOn: context.ExpireOn,
+            email: context.Email,
+            permissions: context.Permissions,
+            userName: context.UserName,
+            phoneNumber: context.PhoneNumber,
+            displayName: context.DisplayName,
+            oauthToken: context.OAuthToken,
+            originalTenantId: held.OriginalTenantId,
+            applicationDomain: context.ApplicationDomain,
+            impersonated: true,
+            impersonationSessionId: held.ImpersonationSessionId,
+            clientId: context.ClientId,
+            sessionId: context.SessionId);
 
     private async Task<DelegationGrantRecord?> ReadHeldGrantAsync(string tenantId)
     {
