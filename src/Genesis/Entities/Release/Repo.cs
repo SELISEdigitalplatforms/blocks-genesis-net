@@ -2,10 +2,12 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Release;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class Repo : BaseEntity
 {
     public string SourceRepoId { get; set; }
@@ -13,13 +15,16 @@ public class Repo : BaseEntity
     public string BlocksUserId { get; set; }
     public string ProjectId { get; set; }
     public string ProjectName { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string RepoName { get; set; }
     public string RepoUrl { get; set; }
     public string DefaultDeploymentUrl { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string CustomDeploymentUrl { get; set; }
     // The exact `namespace` param sent to Tekton at deploy time. Null/absent means no live deployment.
     // Never recomputed - it is the only value the delete path is allowed to act on.
     public string DeployedNamespace { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string Branch { get; set; }
     public string Commit { get; set; }
     public DateTime? LastDeploymentDate { get; set; }

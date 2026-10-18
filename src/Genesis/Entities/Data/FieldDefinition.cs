@@ -24,6 +24,10 @@ public class FieldDefinition //: FieldAccessInformation
     public SchemaAccessLevel WriteAccessLevel { get; set; } = SchemaAccessLevel.Inherited;
     public SchemaAccessLevel EditAccessLevel { get; set; } = SchemaAccessLevel.Inherited;
     public SchemaAccessLevel DeleteAccessLevel { get; set; } = SchemaAccessLevel.Inherited;
+
+    /// <summary>Filled in on insert when the property isn't sent. Not written while null, so existing documents are unchanged.</summary>
+    [BsonIgnoreIfNull]
+    public FieldDefaultValue? DefaultValue { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

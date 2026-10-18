@@ -35,6 +35,18 @@ public interface IDataAccessResolver
     /// <summary>EDIT gate, final filter from <paramref name="baseFilter"/>, and column restriction of <paramref name="input"/>.</summary>
     Task<ResolvedUpdate> ResolveUpdateAsync(string schemaName, BsonDocument baseFilter, IDictionary<string, object?> input, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Validation rules and default values for a write. On insert (<paramref name="isInsert"/>), defaults
+    /// fill properties that are missing or null in <paramref name="document"/>; then the schema's active
+    /// rules are checked, Reference rules against the same database. For an update, pass only the changed
+    /// fields: only those are checked. <paramref name="storedRecord"/> is the record being updated, which
+    /// a rule's variable (e.g. <c>{{Schema.StartDate}}</c>) reads when the property isn't in the document.
+    /// System schemas only get what the <see cref="Rules.SystemSchemaRules"/> allow-list opens; with
+    /// nothing configured the document comes back unchanged. Throws <see cref="KeyNotFoundException"/>
+    /// when the schema does not exist.
+    /// </summary>
+    Task<ResolvedWrite> ResolveWriteAsync(string schemaName, BsonDocument document, bool isInsert, BsonDocument? storedRecord = null, CancellationToken cancellationToken = default);
+
     /// <summary>DELETE gate and final filter from <paramref name="baseFilter"/>.</summary>
     Task<ResolvedFilter> ResolveDeleteAsync(string schemaName, BsonDocument baseFilter, CancellationToken cancellationToken = default);
 }

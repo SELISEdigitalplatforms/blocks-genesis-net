@@ -2,14 +2,18 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Iam;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class SignupLinkConfiguration : BaseEntity
 {
     public string TenantId { get; set; } = string.Empty;
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string Name { get; set; } = string.Empty;
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? Description { get; set; }
     public List<string> DefaultRoles { get; set; } = new();
     public List<string> DefaultPermissions { get; set; } = new();
@@ -51,7 +55,9 @@ public class SignupLinkConfiguration : BaseEntity
     /// </summary>
     public bool RequireExistingUserPassword { get; set; } = true;
 
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int DefaultLifetimeMinutes { get; set; } = 1440;
+    [AllowRules(Validation = RuleAccess.Warned, Default = RuleAccess.Warned)]
     public int? DefaultMaxRedemptions { get; set; }
     public bool IsActive { get; set; } = true;
 }
