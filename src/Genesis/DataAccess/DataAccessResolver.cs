@@ -1,5 +1,9 @@
+using System.Collections.Concurrent;
 using Blocks.Genesis.DataAccess.Evaluation;
+using Blocks.Genesis.DataAccess.Rules;
 using Blocks.Genesis.Entities.Data;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
@@ -18,12 +22,25 @@ public sealed class DataAccessResolver : IDataAccessResolver
     private readonly IAccessPrincipalAccessor _principals;
     private readonly bool _systemEntitiesOnly;
 
-    public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals, DataAccessOptions? options = null)
+    public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals, DataAccessOptions? options = null,
+        ILogger<DataAccessResolver>? logger = null)
     {
         _systemEntitiesOnly = options?.SystemEntitiesOnly ?? false;
         _dbContextProvider = dbContextProvider;
         _resolver = resolver;
         _principals = principals;
+        _logger = logger ?? NullLogger<DataAccessResolver>.Instance;
+    }
+
+    private readonly ILogger<DataAccessResolver> _logger;
+
+    /// <summary>Rules and defaults the allow-list ignored, each logged once per process.</summary>
+    private static readonly ConcurrentDictionary<string, byte> IgnoredLogged = new(StringComparer.Ordinal);
+
+    private void LogIgnored(string what)
+    {
+        if (IgnoredLogged.TryAdd(what, 0))
+            _logger.LogWarning("Ignored {RuleOrDefault}: the system schema allow-list does not open this property.", what);
     }
 
     /// <inheritdoc />
@@ -105,6 +122,68 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// <inheritdoc />
     public Task<ResolvedFilter> ResolveDeleteAsync(string schemaName, BsonDocument baseFilter, CancellationToken cancellationToken = default) =>
         ResolveMutationFilterAsync(schemaName, PolicyOperation.DELETE, baseFilter, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<ResolvedWrite> ResolveWriteAsync(string schemaName, BsonDocument document, bool isInsert, BsonDocument? storedRecord = null, CancellationToken cancellationToken = default)
+    {
+        var principal = _principals.Current;
+        var schema = await LoadSchemaAsync(schemaName, principal, cancellationToken)
+            ?? throw new KeyNotFoundException($"Schema '{schemaName}' was not found for tenant '{principal.TenantId}'.");
+
+        var result = new DataValidationResult();
+        if (!WriteRules.KeepAllowedOnly(schema, LogIgnored))
+            return new ResolvedWrite(document, result, DefaultsApplied: false);
+
+        var record = WriteRules.ToRecord(document);
+        var defaultsApplied = false;
+        if (isInsert && FieldDefaultsApplier.HasDefaults(schema.Fields))
+        {
+            var defaults = FieldDefaultsApplier.Compute(record, schema.SchemaName, schema.Fields, principal, DateTime.UtcNow);
+            FieldDefaultsApplier.Apply(record, defaults);
+            defaultsApplied = WriteRules.ApplyDefaults(document, defaults) > 0;
+        }
+
+        result.Errors.AddRange(record.Validate(schema, storedRecord is null ? null : WriteRules.ToRecord(storedRecord)).Errors);
+        await CheckReferencesAsync(schema, record, principal, result, cancellationToken);
+        return new ResolvedWrite(document, result, defaultsApplied);
+    }
+
+    /// <summary>Reference rules: each value (each item, for a list) must exist in the target schema's collection.</summary>
+    private async Task CheckReferencesAsync(SchemaDefinitionExtended schema, Dictionary<string, object?> record, AccessPrincipal principal, DataValidationResult result, CancellationToken cancellationToken)
+    {
+        var targetNames = WriteRules.ReferencedSchemaNames(schema.Fields);
+        if (targetNames.Count == 0)
+            return;
+
+        var schemas = new List<SchemaDefinitionExtended> { schema };
+        foreach (var name in targetNames.Where(n => n != schema.SchemaName))
+        {
+            if (await LoadSchemaAsync(name, principal, cancellationToken) is { } target)
+                schemas.Add(target);
+        }
+
+        var targets = ReferenceTargets.Build(schemas, strict: false, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        var values = ReferenceValueCollector.Collect([record], schema, targets);
+        if (values.Count == 0)
+            return;
+
+        var database = Database(principal);
+        foreach (var group in values.GroupBy(v => (v.Target.CollectionName, v.Target.DbFieldName)))
+        {
+            var requested = group.Select(v => BsonValue.Create(v.Value)).Distinct().ToList();
+            var collection = database.GetCollection<BsonDocument>(group.Key.CollectionName);
+            var found = await collection.DistinctAsync<BsonValue>(group.Key.DbFieldName, Builders<BsonDocument>.Filter.In(group.Key.DbFieldName, requested), cancellationToken: cancellationToken);
+            var present = (await found.ToListAsync(cancellationToken)).Select(WriteRules.ReferenceKey).ToHashSet(StringComparer.Ordinal);
+
+            foreach (var value in group.Where(v => !present.Contains(WriteRules.ReferenceKey(BsonValue.Create(v.Value)))))
+                result.AddError(value.Path, WriteRules.ReferenceNotFoundMessage(schema.SchemaName, value), nameof(ValidationType.Reference));
+        }
+    }
+
+    private IMongoDatabase Database(AccessPrincipal principal) =>
+        string.IsNullOrWhiteSpace(principal.TenantId)
+            ? _dbContextProvider.GetDatabase() ?? throw new InvalidOperationException("Database context provider returned null database.")
+            : _dbContextProvider.GetDatabase(principal.TenantId);
 
     private async Task<SchemaAccessRequest> PrepareRequestAsync(string schemaName, PolicyOperation operation, CancellationToken cancellationToken)
     {

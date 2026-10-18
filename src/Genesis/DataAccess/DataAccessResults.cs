@@ -85,3 +85,13 @@ public sealed record ResolvedFilter(
 {
     public bool IsAccessGranted => Evaluation.IsAccessGranted;
 }
+
+/// <summary>
+/// A write checked against the schema's validation rules, with defaults filled in on insert.
+/// <see cref="Document"/> is the caller's document, changed in place. <see cref="Validation"/> lists every
+/// broken rule; nothing should be written when it isn't valid.
+/// </summary>
+public sealed record ResolvedWrite(BsonDocument Document, Rules.DataValidationResult Validation, bool DefaultsApplied)
+{
+    public bool IsValid => Validation.IsValid;
+}

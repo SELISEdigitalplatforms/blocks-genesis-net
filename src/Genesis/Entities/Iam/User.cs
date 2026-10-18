@@ -2,24 +2,34 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Iam;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class User
 {
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? Salutation { get; set; }
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? FirstName { get; set; }
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? LastName { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string? Email { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string? UserName { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string? PhoneNumber { get; set; }
     public Dictionary<string, List<string>> Roles { get; set; } = new();
     public Dictionary<string, List<string>> Permissions { get; set; } = new();
     public bool Active { get; set; }
     public bool IsVerified { get; set; }
     public UserVerifiedType VerifiedType { get; set; } = UserVerifiedType.None;
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? ProfileImageUrl { get; set; }
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? ProfileImageId { get; set; }
     public string? Platform { get; set; }
     public UserCreationType UserCreationType { get; set; } = UserCreationType.None;
@@ -63,6 +73,7 @@ public class User
     public List<ExternalIdentity> ExternalIdentities { get; set; } = new List<ExternalIdentity>();
     public List<string> OrganizationIds { get; set; } = [];
     [BsonSerializer(typeof(AttributeBagSerializer))]
+    [AllowRules(Validation = RuleAccess.Warned)]
     public Dictionary<string, object> Attributes { get; set; } = new Dictionary<string, object>(); // For any additional info that doesn't fit into existing properties
 
     #region BaseEntity
@@ -72,8 +83,10 @@ public class User
     public DateTime CreatedDate { get; set; }
     public DateTime LastUpdatedDate { get; set; }
     public string? CreatedBy { get; set; }
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? Language { get; set; }
     public string? LastUpdatedBy { get; set; }
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Warned)]
     public List<string> Tags { get; set; } = new List<string>();
 
     #endregion

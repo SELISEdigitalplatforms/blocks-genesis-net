@@ -1,10 +1,12 @@
 // Moved from blocks-iam server/Iam.DomainService/Shared/Entities/Permission.cs (feature/collection-cut working tree, 2026-10-13).
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Iam;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class Permission : BuiltInPermission
 {
     public List<string> Roles { get; set; } = new List<string>();
