@@ -14,8 +14,12 @@ public class DataEntitiesTests
     {
         // Filled-sample hashes of every BaseEntity class changed on purpose 2026-10-14 (owner decision): BaseEntity gained
         // nullable Create/Read/Update/Delete access lists ([BsonIgnoreIfNull]); default and all-null bytes are unchanged.
+        // DataValidation and ValidationRule filled-sample hashes changed 2026-10-18 (owner decision): ValidationType gained
+        // Reference, and the filled sample uses an enum's last value, so Type is now "Reference" instead of "Range";
+        // ValidationRule also gained EvaluationVersion ([BsonIgnoreIfDefault], not written while 0).
+        // Stored documents do not change; default and all-null bytes are unchanged.
 ["Blocks.Genesis.Entities.Data.DataAccessPolicy"] = "6D44828E6980CD11AAC4FDDE65BE1E81 6A695E651DB981256B0E177E35852C82 0E73D66ADCC5906B571E56644D99B420",
-        ["Blocks.Genesis.Entities.Data.DataValidation"] = "1EC0F15C31B1C2227EF2EF9F823DECED DFB7A9CCDA9E6088D308428A545D1816 A794FC235E46D909A021A27310985753",
+        ["Blocks.Genesis.Entities.Data.DataValidation"] = "9F98721546DE7E5BA4484DF220A64AF8 DFB7A9CCDA9E6088D308428A545D1816 A794FC235E46D909A021A27310985753",
         ["Blocks.Genesis.Entities.Data.DirectoryOptions"] = "EE16F317F1AA907A659C7A547CA30606 6C6B04A509549608DF6ED1571C09AAE6 6C6B04A509549608DF6ED1571C09AAE6",
         ["Blocks.Genesis.Entities.Data.FieldDefinition"] = "B001629F61DE1B6D99D7600ED920FE11 FECF3B7A163A5E3A666156C6EE357EBB B508DDF439696D5918EACF18DF04B6B7",
         ["Blocks.Genesis.Entities.Data.File"] = "6ACA36CD4A83E05532381B23F55FAFCC E19C2D8BB8A91C9F7D370E1961A320DC F344A0A366D6ADD44EDBD8EAF580506A",
@@ -40,7 +44,7 @@ public class DataEntitiesTests
         ["Blocks.Genesis.Entities.Data.SchemaPublishState"] = "24BA88AD6FC4F4757C477DE7442063E1 E43A501BC314F74CA65A562EA88DB865 ACAE91E1BFF76FE025F95D75A46CBE23",
         ["Blocks.Genesis.Entities.Data.StorageConfiguration"] = "DE272370E1AD68DBEBD7B92A1E7624EC 9DAD29AED145D1822D2B307158CAB7BB 061A848E4BB93A76E8768449890E9AAF",
         ["Blocks.Genesis.Entities.Data.Structure"] = "A90CF6459B1FB73D7161B523EB08105F EDDD120AC2690E72E02133125F589458 1501A18A1B14C70A101426BDCF826ECC",
-        ["Blocks.Genesis.Entities.Data.ValidationRule"] = "1F9381ABF4AE57013608C73A820D28C2 B0875FBB77CB7FFEFD00B2A6F9903403 B0875FBB77CB7FFEFD00B2A6F9903403",
+        ["Blocks.Genesis.Entities.Data.ValidationRule"] = "CBD8978F1D6FB664EF097DDCC3D67F1E B0875FBB77CB7FFEFD00B2A6F9903403 B0875FBB77CB7FFEFD00B2A6F9903403",
     };
 
     public static TheoryData<string> DocumentClasses() => EntityAssertions.DocumentClassesOf("Data");
@@ -73,5 +77,35 @@ public class DataEntitiesTests
         // The risk behind the read-only pre-check before the os/logic switch (C9).
         doc["UploadCompletionRequiredFor"] = new BsonArray { "NotAModifier" };
         Assert.ThrowsAny<FormatException>(() => BsonSerializer.Deserialize<Blocks.Genesis.Entities.Data.StorageConfiguration>(doc));
+    }
+
+    [Fact]
+    public void ValidationRule_Reference_StoredAsItsNameAndAppendedLast()
+    {
+        // Appended, so the numbers the gateway API sends for the older types do not move.
+        Assert.Equal(12, (int)Blocks.Genesis.Entities.Data.ValidationType.Reference);
+
+        var validation = new Blocks.Genesis.Entities.Data.DataValidation
+        {
+            ItemId = "v1",
+            Validations = [new() { Type = Blocks.Genesis.Entities.Data.ValidationType.Reference, Value = "Department", SecondaryValue = "ItemId" }],
+        };
+        var doc = validation.ToBsonDocument();
+        Assert.Equal("Reference", doc["Validations"][0]["Type"].AsString);
+
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Data.DataValidation>(doc);
+        Assert.Equal(Blocks.Genesis.Entities.Data.ValidationType.Reference, read.Validations[0].Type);
+        Assert.Equal("Department", read.Validations[0].Value);
+    }
+
+    [Fact]
+    public void ValidationRule_EvaluationVersion_NotWrittenWhileZero_SoExistingRulesAreUnchanged()
+    {
+        var legacy = new Blocks.Genesis.Entities.Data.ValidationRule { Type = Blocks.Genesis.Entities.Data.ValidationType.MaxLength, Value = 50 };
+        Assert.False(legacy.ToBsonDocument().Contains("EvaluationVersion"));
+
+        var current = new Blocks.Genesis.Entities.Data.ValidationRule { Type = Blocks.Genesis.Entities.Data.ValidationType.MaxLength, Value = 50, EvaluationVersion = 1 };
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Data.ValidationRule>(current.ToBsonDocument());
+        Assert.Equal(1, read.EvaluationVersion);
     }
 }
