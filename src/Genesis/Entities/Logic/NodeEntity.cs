@@ -29,6 +29,6 @@ public class Position
 [MongoDB.Bson.Serialization.Attributes.BsonIgnoreExtraElements] // added: owner 2026-10-13, all package classes ignore unknown fields
 public class Handle
 {
-    public List<string> Sources = new();
-    public List<string> Targets = new();
+    public List<Dictionary<string, string>> Sources { get; set; } = new();
+    public List<Dictionary<string, string>> Targets { get; set; } = new();
 }
