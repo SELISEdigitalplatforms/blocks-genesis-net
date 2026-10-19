@@ -2,6 +2,7 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Os;
 
@@ -14,10 +15,12 @@ namespace Blocks.Genesis.Entities.Os;
 /// credential and is read from there when shown.
 /// </remarks>
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class IntegrationSetup : BaseEntity
 {
     public string TemplateKey { get; set; } = string.Empty;
 
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string TemplateDisplayName { get; set; } = string.Empty;
 
     public string RoleId { get; set; } = string.Empty;
@@ -27,9 +30,11 @@ public class IntegrationSetup : BaseEntity
     /// <summary>The IAM client credential id, which is also the client id.</summary>
     public string ClientCredentialId { get; set; } = string.Empty;
 
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string ConnectionName { get; set; } = string.Empty;
     public string Source { get; set; } = "manual";
     public string Status { get; set; } = "active";
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string? SiteUrl { get; set; }
     public bool NeverDelivered { get; set; }
     public string? RevokedBy { get; set; }

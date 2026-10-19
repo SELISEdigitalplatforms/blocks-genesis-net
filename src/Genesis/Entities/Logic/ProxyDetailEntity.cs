@@ -3,6 +3,7 @@
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Logic;
 
@@ -13,21 +14,25 @@ namespace Blocks.Genesis.Entities.Logic;
 /// <see cref="ProxyVersionEntity"/>.
 /// </summary>
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Normal)]
 public sealed class ProxyDetailEntity : BaseEntity
 {
     /// <summary>Owning tenant id.</summary>
     public required string TenantId { get; set; }
 
     /// <summary>Friendly name shown in the console. 1..80 chars after trim.</summary>
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public required string Name { get; set; }
 
     /// <summary>
     /// Immutable, unique-per-tenant identifier derived once from <see cref="Name"/> at create time.
     /// Never recomputed by Update or Revert.
     /// </summary>
+    [AllowRules(Validation = RuleAccess.Warned)]
     public required string Slug { get; set; }
 
     /// <summary>Absolute <c>https://</c> URL of the upstream endpoint. Never exposed unmasked in list views.</summary>
+    [AllowRules(Validation = RuleAccess.Warned)]
     public required string Upstream { get; set; }
 
     /// <summary>1..5 of GET, POST, PUT, PATCH, DELETE. De-duplicated, first-occurrence order. Stored in Mongo as string names.</summary>
@@ -115,6 +120,7 @@ public sealed class ProxyDetailEntity : BaseEntity
     /// (<c>Proxy:RateLimits:PublicPerMinute</c>, 600), a token proxy no limit. Counted per proxy, never
     /// per IP. Workflow steps and Test calls never count.
     /// </summary>
+    [AllowRules(Validation = RuleAccess.Warned, Default = RuleAccess.Warned)]
     public int? RequestsPerMinute { get; set; }
 
     /// <summary>

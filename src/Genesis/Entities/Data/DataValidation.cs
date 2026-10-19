@@ -34,7 +34,7 @@ public class DataValidation : GraphQlBaseEntity
 public class ValidationRule
 {
     /// <summary>
-    /// Type of validation (NotEmpty, Regex, MinLength, MaxLength, Range, Equal, NotEqual, GreaterThan, LessThan, GreaterThanOrEqual, LessThanOrEqual)
+    /// Type of validation (NotEmpty, Regex, MinLength, MaxLength, LengthRange, Equal, NotEqual, GreaterThan, LessThan, GreaterThanOrEqual, LessThanOrEqual, Range, Reference)
     /// </summary>
     [BsonRepresentation(MongoDB.Bson.BsonType.String)]
     public ValidationType Type { get; set; }
@@ -58,4 +58,12 @@ public class ValidationRule
     /// Whether this validation is active
     /// </summary>
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// How the rule is evaluated. 0 (every rule saved before this field existed): a rule on a list
+    /// property checks the list as a whole, exactly as before. 1: a list property is checked item by item.
+    /// Not written while 0, so existing documents are unchanged.
+    /// </summary>
+    [BsonIgnoreIfDefault]
+    public int EvaluationVersion { get; set; }
 }

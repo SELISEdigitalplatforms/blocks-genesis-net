@@ -2,15 +2,18 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Iam;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class IdentityProvider : BaseEntity
 {
     public required string Provider { get; set; } // e.g., google, microsoft, apple, okta, auth0, blocks-idp
     public required string ProviderType { get; set; } // social, enterprise, custom, internal
     public string? Protocol { get; set; } = "oidc"; // e.g., oidc, oauth2, saml, ldap
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? DisplayName { get; set; }
     public bool IsActive { get; set; }
     public required string ClientId { get; set; }
@@ -29,6 +32,7 @@ public class IdentityProvider : BaseEntity
     public required string TokenEndpointAuthMethod { get; set; }
     public List<string> InitialRoles { get; set; } = [];
     public List<string> InitialPermissions { get; set; } = [];
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? Icon { get; set; }
     
     // Apple-specific properties

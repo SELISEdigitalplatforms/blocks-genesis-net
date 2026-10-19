@@ -2,10 +2,12 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Iam;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public sealed class IdentityConfiguration
 {
     public const int DefaultAccessTokenValidForNumberMinutes = 7;
@@ -27,14 +29,23 @@ public sealed class IdentityConfiguration
     [BsonId]
     public ObjectId ItemId { get; set; }
     public List<string> AllowedGrantTypes { get; set; } = new List<string>();
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int AccessTokenValidForNumberMinutes { get; init; } = DefaultAccessTokenValidForNumberMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int RefreshTokenValidForNumberMinutes { get; set; } = DefaultRefreshTokenValidForNumberMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int AbsoluteRefreshTokenValidForNumberMinutes { get; set; } = DefaultAbsoluteRefreshTokenValidForNumberMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int RememberMeRefreshTokenValidForNumberMinutes { get; init; } = DefaultRememberMeRefreshTokenValidForNumberMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int RememberMeAbsoluteRefreshTokenValidForNumberMinutes { get; init; } = DefaultRememberMeAbsoluteRefreshTokenValidForNumberMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int GetNumberOfWrongAttemptsToLockTheAccount { get; set; } = DefaultGetNumberOfWrongAttemptsToLockTheAccount;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int AccountLockDurationInMinutes { get; set; } = DefaultAccountLockDurationInMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int TokenRotationGracePeriodMinutes { get; set; } = DefaultTokenRotationGracePeriodMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int MaxTokenRotationAttempts { get; set; } = DefaultMaxTokenRotationAttempts;
 
     public string PublicCertificatePath { get; set; }
@@ -44,12 +55,15 @@ public sealed class IdentityConfiguration
     public bool IsOidcEnabled { get; set; } = false;
     public string AccountActionBaseUrl { get; set; }
     public bool UseAccountActionBaseUrlAsDefault { get; set; } = true;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int ActivationUrlLifetimeInMinutes { get; set; } = DefaultActivationUrlLifetimeInMinutes;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int RecoverAccountUrlLifetimeInMinutes { get; set; } = DefaultRecoverAccountUrlLifetimeInMinutes;
     public bool LogoutOnPasswordChange { get; set; } = true;
     public string? PasswordStrengthCheckerRegex { get; set; }
 
     /// <summary>Short plain-text explanation of the password rule. Empty means no message written.</summary>
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string PasswordStrengthCheckerMessage { get; set; } = string.Empty;
 
     /// <summary>
@@ -58,7 +72,9 @@ public sealed class IdentityConfiguration
     /// true, this is the sole authority for password strength enforcement for the tenant --
     /// any stored <see cref="PasswordStrengthCheckerRegex"/> is not additionally applied.
     /// </summary>
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int PasswordPolicyMinLength { get; set; } = DefaultPasswordPolicyMinLength;
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int PasswordPolicyMaxLength { get; set; } = DefaultPasswordPolicyMaxLength;
     public bool PasswordPolicyRequireUppercase { get; set; } = false;
     public bool PasswordPolicyRequireLowercase { get; set; } = false;
@@ -70,6 +86,7 @@ public sealed class IdentityConfiguration
     /// flags don't capture (e.g. "avoid your username"). Never independently enforced --
     /// display only. Empty means "no message written".
     /// </summary>
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string PasswordPolicyMessage { get; set; } = string.Empty;
 
     /// <summary>

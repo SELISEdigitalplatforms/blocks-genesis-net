@@ -2,6 +2,7 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Logic;
 
@@ -16,10 +17,13 @@ namespace Blocks.Genesis.Entities.Logic;
 /// </para>
 /// </summary>
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Normal)]
 public class FunctionEntity : BaseEntity
 {
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string Name { get; set; } = string.Empty;
 
+    [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? Description { get; set; }
     public FunctionStatus Status { get; set; } = FunctionStatus.Draft;
 

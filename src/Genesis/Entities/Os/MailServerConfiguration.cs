@@ -2,17 +2,22 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Os;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class MailServerConfiguration : BaseEntity
 {
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string Name { get; set; }
     public string Host { get; set; }
     public int Port { get; set; }
     public bool EnableSSL { get; set; }
+    [AllowRules(Validation = RuleAccess.Allowed)]
     public string SenderName { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string SenderAddress { get; set; }
     public string SenderUserName { get; set; }
     public string AccountPassword { get; set; }
@@ -43,6 +48,7 @@ public class MailServerConfiguration : BaseEntity
     /// </summary>
     public string? ClientSecretReference { get; set; }
 
+    [AllowRules(Validation = RuleAccess.Warned)]
     public string? MailboxAddress { get; set; }
 }
 

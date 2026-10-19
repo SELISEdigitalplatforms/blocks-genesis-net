@@ -2,14 +2,17 @@
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Os;
 
 [BsonIgnoreExtraElements]
+[SystemSchemaRules(RuleLevel.Warned)]
 public class ResourceLimit : BaseEntity
 {
     public string Resource { get; set; }
     public string ResourceType { get; set; }
+    [AllowRules(Validation = RuleAccess.Warned)]
     public int Limit { get; set; }
     public int Usage { get; set; }
     public DateTime Lifetime { get; set; }

@@ -19,6 +19,7 @@ public class FieldDefinitionResponse
     public SchemaAccessLevel EditAccessLevel { get; set; }
     public SchemaAccessLevel DeleteAccessLevel { get; set; }
     public DataValidation? ValidationRule { get; set; } = null;
+    public FieldDefaultValue? DefaultValue { get; set; }
 
     public int TotalValidationRules => ValidationRule?.Validations.Count ?? 0;
     public int TotalReadPolicies { get; set; }

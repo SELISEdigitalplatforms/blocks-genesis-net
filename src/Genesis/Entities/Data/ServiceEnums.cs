@@ -138,5 +138,9 @@ public enum ValidationType
     LessThan,
     GreaterThanOrEqual,
     LessThanOrEqual,
-    Range
+    Range,
+
+    // The value (or each element of a primitive array) must exist in another Entity schema's data.
+    // Value = target SchemaName, SecondaryValue = target field name (ItemId when empty).
+    Reference
 }
