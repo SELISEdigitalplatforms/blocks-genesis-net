@@ -10,7 +10,7 @@ namespace XUnitTest.Entities;
 /// <summary>Checks shared by the per-service entity tests (genesis SPEC1 section 12).</summary>
 internal static class EntityAssertions
 {
-    /// <summary>Every package class of one owner folder (Iam, Os, Logic, Data, Release) that is stored as a BSON document.</summary>
+    /// <summary>Every package class of one owner folder (Iam, Os, Logic, Data, Release, Monitor) that is stored as a BSON document.</summary>
     public static TheoryData<string> DocumentClassesOf(string folder)
     {
         var data = new TheoryData<string>();
@@ -19,7 +19,7 @@ internal static class EntityAssertions
         return data;
     }
 
-    /// <summary>The catalog rows (collection entities + KV value types) of one owner (iam, os, logic, data, release, genesis).</summary>
+    /// <summary>The catalog rows (collection entities + KV value types) of one owner (iam, os, logic, data, release, monitor, genesis).</summary>
     public static TheoryData<string> CatalogClassesOf(string owner)
     {
         var data = new TheoryData<string>();

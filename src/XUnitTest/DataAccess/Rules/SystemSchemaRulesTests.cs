@@ -13,11 +13,11 @@ public class SystemSchemaRulesTests
     [
         "User", "Role", "Permission", "Organization", "IdentityConfiguration", "IdentityProvider", "SignupLinkConfiguration",
         "BlocksClientConfig", "EmailTemplate", "MailServerConfiguration", "IntegrationSetup", "ResourceLimit",
-        "WorkflowEntity", "FunctionEntity", "ProxyDetailEntity", "Schedule", "Repo",
+        "WorkflowEntity", "FunctionEntity", "ProxyDetailEntity", "Schedule", "Repo", "MonitorConfiguration",
     ];
 
     [Fact]
-    public void ExactlyTheSeventeenAllowedSchemas_ResolveByClassName()
+    public void ExactlyTheEighteenAllowedSchemas_ResolveByClassName()
     {
         Assert.Equal(Allowed.Order(), SystemSchemaRules.SchemaNames.Order());
         Assert.All(Allowed, name => Assert.Equal(name, SystemSchemaRules.For(name)!.SchemaName));
@@ -39,6 +39,8 @@ public class SystemSchemaRulesTests
     [InlineData("Secret")]
     [InlineData("WorkflowExecutionEntity")]
     [InlineData("Build")]
+    [InlineData("MonitorIncident")]
+    [InlineData("MonitorPingLog")]
     [InlineData("NoSuchSchema")]
     public void ExcludedOrUnknownSchemas_HaveNoRules(string name)
     {
@@ -75,12 +77,39 @@ public class SystemSchemaRulesTests
         Assert.DoesNotContain("Read", role.Fields.Keys);          // the object itself: rules sit on its lists
     }
 
+    [Fact]
+    public void MonitorConfiguration_OpensCheckSettings_WarnsOnHeadersAndPayload_BlocksStateAndLinks()
+    {
+        var monitor = SystemSchemaRules.For("MonitorConfiguration")!;
+
+        Assert.Equal(RuleLevel.Normal, monitor.Level);
+        foreach (var both in new[] { "ExpectedContent", "MonitorType", "ProtocolType", "HttpMethodType", "AuthorizationType", "MonitorSourceType" })
+        {
+            Assert.Equal((RuleAccess.Allowed, RuleAccess.Allowed), (monitor.ValidationFor(both), monitor.DefaultFor(both)));
+        }
+        foreach (var validationOnly in new[] { "Name", "Url", "IntervalInSeconds", "TimeoutInSeconds", "GracePeriodInSeconds", "SuccessHttpResponseCodes", "Regions", "Emails" })
+        {
+            Assert.Equal((RuleAccess.Allowed, RuleAccess.Blocked), (monitor.ValidationFor(validationOnly), monitor.DefaultFor(validationOnly)));
+        }
+        foreach (var warned in new[] { "CustomHttpHeaders", "CustomPayload" })
+        {
+            Assert.Equal((RuleAccess.Warned, RuleAccess.Blocked), (monitor.ValidationFor(warned), monitor.DefaultFor(warned)));
+        }
+        foreach (var blocked in new[] { "TenantId", "ExternalServiceId", "ExternalServiceName", "RepoId", "RepoName", "MonitorConfigurationType",
+                     "MonitorSourcetypes", "LastIncidentAt", "LastCheckedAt", "IsActive", "CurrentStatus", "IncidentSummaries.StartTime", "ItemId", "OrganizationId" })
+        {
+            Assert.Equal((RuleAccess.Blocked, RuleAccess.Blocked), (monitor.ValidationFor(blocked), monitor.DefaultFor(blocked)));
+        }
+    }
+
     [Theory]
     [InlineData("Role", "Description", true)]           // string, never null on a typed entity
     [InlineData("ResourceLimit", "Limit", true)]        // int
     [InlineData("User", "FirstName", false)]            // string?
     [InlineData("Schedule", "StartDate", false)]        // DateTime?
     [InlineData("Role", "Read.Roles", false)]           // the parent object can be null
+    [InlineData("MonitorConfiguration", "Name", true)]   // string, never null on a typed entity
+    [InlineData("MonitorConfiguration", "MonitorType", false)] // nullable enum
     public void DefaultHasNoEffect_FollowsThePropertyType(string schema, string path, bool expected)
     {
         Assert.Equal(expected, SystemSchemaRules.For(schema)!.Fields[path].DefaultHasNoEffect);
