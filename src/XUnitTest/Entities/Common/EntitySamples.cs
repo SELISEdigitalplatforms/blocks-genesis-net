@@ -180,12 +180,12 @@ internal static class EntitySamples
 internal static class EntityCatalog
 {
     public static readonly Assembly Package = typeof(BaseEntity).Assembly;
-    private static readonly string[] Owners = ["Iam", "Os", "Logic", "Data", "Release"];
+    private static readonly string[] Owners = ["Iam", "Os", "Logic", "Data", "Release", "Monitor"];
 
     /// <summary>Owner of each class (folder) and group: A = inherits BaseEntity, B = keeps its own id member and fields (no base).</summary>
     public sealed record Row(string Class, string Owner, char Group, bool ValueType);
 
-    /// <summary>The package catalog (genesis SPEC1 6.4): 67 collection entities + 4 value types.</summary>
+    /// <summary>The package catalog (genesis SPEC1 6.4): 70 collection entities + 4 value types.</summary>
     public static IReadOnlyList<Row> Rows { get; } =
     [
         new("User", "iam", 'B', false),
@@ -258,6 +258,9 @@ internal static class EntityCatalog
         new("Repo", "release", 'A', false),
         new("RepositoryWebhook", "release", 'A', false),
         new("DependencyTrackProjects", "release", 'A', true),
+        new("MonitorConfiguration", "monitor", 'A', false),
+        new("MonitorIncident", "monitor", 'A', false),
+        new("MonitorPingLog", "monitor", 'B', false),
         new("KeyValueEntry", "genesis", 'A', false),
     ];
 
@@ -265,7 +268,7 @@ internal static class EntityCatalog
         ? Package.GetType($"Blocks.Genesis.{row.Class}", throwOnError: true)!
         : Package.GetType($"Blocks.Genesis.Entities.{Cap(row.Owner)}.{row.Class}", throwOnError: true)!;
 
-    /// <summary>Every class in the 5 owner namespaces that the Mongo driver serializes as a document.</summary>
+    /// <summary>Every class in the 6 owner namespaces that the Mongo driver serializes as a document.</summary>
     public static IEnumerable<Type> DocumentClasses() => Package.GetTypes()
         .Where(t => t.IsClass && !t.IsAbstract && !(t.IsAbstract && t.IsSealed) && t.IsPublic
                     && t.Namespace != null && Owners.Any(o => t.Namespace == $"Blocks.Genesis.Entities.{o}")
@@ -274,5 +277,5 @@ internal static class EntityCatalog
     public static IEnumerable<Type> Enums() => Package.GetTypes()
         .Where(t => t.IsEnum && t.Namespace != null && Owners.Any(o => t.Namespace == $"Blocks.Genesis.Entities.{o}"));
 
-    private static string Cap(string s) => s switch { "iam" => "Iam", "os" => "Os", "logic" => "Logic", "data" => "Data", "release" => "Release", _ => s };
+    private static string Cap(string s) => s switch { "iam" => "Iam", "os" => "Os", "logic" => "Logic", "data" => "Data", "release" => "Release", "monitor" => "Monitor", _ => s };
 }
