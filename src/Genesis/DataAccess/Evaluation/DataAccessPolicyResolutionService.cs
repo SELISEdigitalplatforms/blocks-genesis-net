@@ -119,7 +119,7 @@ public sealed class DataAccessPolicyResolutionService : IDataAccessPolicyResolut
             request.Schema,
             projection.ClsReadPolicies,
             projection.EvaluationOnlyFieldPaths,
-            (policy, rowData) => QueryPolicyRuleEvaluator.RowSatisfiesPolicy(principal, policy, rowData));
+            QueryPolicyRuleEvaluator.OncePerRuleGroup(principal));
     }
 
     /// <inheritdoc />
