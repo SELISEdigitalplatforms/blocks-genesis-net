@@ -20,6 +20,38 @@ public static class QueryPolicyRuleEvaluator
     }
 
     /// <summary>
+    /// A <see cref="RowSatisfiesPolicy"/> that evaluates each rule group once for a row. Every
+    /// field that inherits its access gets its own copy of each row-level policy, and the copies
+    /// share the source policy's rule group, so a schema with many such fields would otherwise
+    /// evaluate the same rules once per field for every row. The answer depends only on the
+    /// principal, the rule group and the row, so it is reused for the row and recomputed when
+    /// another row is passed.
+    /// </summary>
+    public static Func<DataAccessPolicy, IDictionary<string, object>, bool> OncePerRuleGroup(AccessPrincipal principal)
+    {
+        IDictionary<string, object>? currentRow = null;
+        var results = new Dictionary<PolicyRuleGroup, bool>(ReferenceEqualityComparer.Instance);
+
+        return (policy, rowData) =>
+        {
+            if (policy.RuleGroup == null) return false;
+
+            if (!ReferenceEquals(currentRow, rowData))
+            {
+                results.Clear();
+                currentRow = rowData;
+            }
+
+            if (!results.TryGetValue(policy.RuleGroup, out var satisfied))
+            {
+                satisfied = EvaluateRuleGroupForRow(principal, policy.RuleGroup, rowData);
+                results[policy.RuleGroup] = satisfied;
+            }
+            return satisfied;
+        };
+    }
+
+    /// <summary>
     /// Evaluates a rule group against row data (AND/OR of rules and nested groups).
     /// </summary>
     public static bool EvaluateRuleGroupForRow(AccessPrincipal principal, PolicyRuleGroup group, IDictionary<string, object> rowData)
