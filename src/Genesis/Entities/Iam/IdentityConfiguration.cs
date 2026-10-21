@@ -30,7 +30,12 @@ public sealed class IdentityConfiguration
     public ObjectId ItemId { get; set; }
     public List<string> AllowedGrantTypes { get; set; } = new List<string>();
     [AllowRules(Validation = RuleAccess.Warned)]
-    public int AccessTokenValidForNumberMinutes { get; init; } = DefaultAccessTokenValidForNumberMinutes;
+    public int AccessTokenValidForNumberMinutes
+    {
+        get => _accessTokenValidForNumberMinutes;
+        init => _accessTokenValidForNumberMinutes = value;
+    }
+    private int _accessTokenValidForNumberMinutes = DefaultAccessTokenValidForNumberMinutes;
     [AllowRules(Validation = RuleAccess.Warned)]
     public int RefreshTokenValidForNumberMinutes { get; set; } = DefaultRefreshTokenValidForNumberMinutes;
     [AllowRules(Validation = RuleAccess.Warned)]
@@ -96,4 +101,35 @@ public sealed class IdentityConfiguration
     /// this, so it has no effect while <see cref="IsOidcEnabled"/> is false.
     /// </summary>
     public bool CollectPasswordOnActivation { get; set; } = DefaultCollectPasswordOnActivation;
+
+    /// <summary>
+    /// Returns a copy of this configuration with the given token lifetimes (minutes). A null value keeps
+    /// this configuration's value. The copy is shallow: every other setting, including list instances,
+    /// is shared with this configuration, so callers must not mutate the copy's lists. This instance is
+    /// never changed.
+    /// </summary>
+    public IdentityConfiguration WithTokenLifetimes(
+        int? accessTokenMinutes,
+        int? refreshTokenMinutes,
+        int? absoluteRefreshTokenMinutes)
+    {
+        var copy = (IdentityConfiguration)MemberwiseClone();
+
+        if (accessTokenMinutes.HasValue)
+        {
+            copy._accessTokenValidForNumberMinutes = accessTokenMinutes.Value;
+        }
+
+        if (refreshTokenMinutes.HasValue)
+        {
+            copy.RefreshTokenValidForNumberMinutes = refreshTokenMinutes.Value;
+        }
+
+        if (absoluteRefreshTokenMinutes.HasValue)
+        {
+            copy.AbsoluteRefreshTokenValidForNumberMinutes = absoluteRefreshTokenMinutes.Value;
+        }
+
+        return copy;
+    }
 }
