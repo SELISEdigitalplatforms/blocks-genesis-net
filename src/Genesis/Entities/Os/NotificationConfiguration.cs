@@ -1,5 +1,7 @@
 // Moved from blocks-os server/Configuration.DomainService/Notification/Entities/NotificationConfiguration.cs (feature/collection-cut working tree, 2026-10-13).
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
+// 2026-10-21: optional built-in fields. Each is left out of the stored document while it has its default value,
+// so records written before this change, and custom configs, keep exactly the same bytes.
 using Blocks.Genesis;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -13,4 +15,71 @@ public class NotificationConfiguration : BaseEntity
     public NotificationReceiverTypes NotificationType { get; set; }
     public string NotifyMethod { get; set; }
     public bool EnablePersistence { get; set; }
+
+    /// <summary>Platform-defined config. Only the root tenant creates, changes or removes it; it is copied to every tenant.</summary>
+    [BsonIgnoreIfDefault]
+    public bool IsBuiltIn { get; set; }
+
+    /// <summary>Set by a tenant to stop this notification. Built-in <see cref="NotificationKind.Job"/> and
+    /// <see cref="NotificationKind.Progress"/> configs cannot be disabled (see <see cref="CanBeDisabled"/>).</summary>
+    [BsonIgnoreIfDefault]
+    public bool IsDisabled { get; set; }
+
+    /// <summary>What the notification tells, in one or two sentences.</summary>
+    [BsonIgnoreIfNull]
+    public string? Description { get; set; }
+
+    [BsonIgnoreIfDefault]
+    public NotificationImportance Importance { get; set; }
+
+    [BsonIgnoreIfDefault]
+    public NotificationKind Kind { get; set; }
+
+    /// <summary>The Blocks service that sends it, for example <c>blocks-data</c>.</summary>
+    [BsonIgnoreIfNull]
+    public string? SourceService { get; set; }
+
+    /// <summary>How an app built on Blocks should use it.</summary>
+    [BsonIgnoreIfNull]
+    public string? ConsumerAppRecommendation { get; set; }
+
+    /// <summary>What applies when an app uses Blocks without the Blocks portal.</summary>
+    [BsonIgnoreIfNull]
+    public string? ConsumerAppNote { get; set; }
+
+    /// <summary>
+    /// False for a built-in job result or progress stream: a page waits for it, so switching it off would leave
+    /// that page waiting. Custom configs and built-in alerts can always be disabled.
+    /// </summary>
+    public bool CanBeDisabled() => !IsBuiltIn || (Kind != NotificationKind.Job && Kind != NotificationKind.Progress);
+}
+
+/// <summary>How much a notification matters to the person who receives it.</summary>
+public enum NotificationImportance
+{
+    None = 0,
+    Low = 1,
+    Medium = 2,
+    High = 3,
+}
+
+/// <summary>What a notification is for.</summary>
+public enum NotificationKind
+{
+    None = 0,
+
+    /// <summary>Result of a background job a user waits for.</summary>
+    Job = 1,
+
+    /// <summary>Live progress stream of a running operation.</summary>
+    Progress = 2,
+
+    /// <summary>A failure nobody would otherwise see.</summary>
+    Alert = 3,
+
+    /// <summary>A change to an account, credential or secret.</summary>
+    Security = 4,
+
+    /// <summary>Someone changed what a user can do.</summary>
+    Access = 5,
 }
