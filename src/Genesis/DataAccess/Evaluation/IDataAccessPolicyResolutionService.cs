@@ -36,6 +36,23 @@ public interface IDataAccessPolicyResolutionService
     /// <summary>Removes the input paths CLS does not allow for this caller. The input is modified in place.</summary>
     InputRestriction RestrictInput(SchemaAccessRequest request, IDictionary<string, object?> input);
 
+    /// <summary>
+    /// The row rule on a written row (insert: the new row against the WRITE row filter; update: the stored row and
+    /// the resulting row against the EDIT row filter). <paramref name="rls"/> is the result of <see cref="Check"/> for
+    /// the same request. Granted when the operation's level is not Custom, for the root tenant, and when the policy
+    /// needs no data filter. A row outside the filter, or a filter that cannot be checked in memory, is a denial with
+    /// code <see cref="PolicyErrorCodes.Forbidden"/>.
+    /// </summary>
+    PolicyEvaluationResult CheckRow(SchemaAccessRequest request, PolicyEvaluationResult rls, BsonDocument row);
+
+    /// <summary>
+    /// The column rules on written paths, refusing instead of stripping: denied when any path may not be written,
+    /// with those paths in <see cref="PolicyEvaluationResult.ExcludedFields"/> and named in the message. Column rules
+    /// that read a schema field are checked against <paramref name="dataRow"/> (the stored row on EDIT, the new row on
+    /// WRITE); without a row they pass on their token part alone. Paths the schema does not define are not checked here.
+    /// </summary>
+    PolicyEvaluationResult CheckInput(SchemaAccessRequest request, IEnumerable<string> paths, BsonDocument? dataRow);
+
     /// <summary>The operations whose RLS gate passes for this caller on this schema.</summary>
     IReadOnlyCollection<PolicyOperation> ListAllowed(AccessPrincipal principal, SchemaDefinitionExtended schema);
 }

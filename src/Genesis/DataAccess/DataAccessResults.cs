@@ -95,3 +95,18 @@ public sealed record ResolvedWrite(BsonDocument Document, Rules.DataValidationRe
 {
     public bool IsValid => Validation.IsValid;
 }
+
+/// <summary>
+/// A written row checked against the row and column rules (insert, replace or update). Denied with code
+/// <see cref="PolicyErrorCodes.Forbidden"/>; <see cref="DeniedFields"/> lists the fields a column rule refused.
+/// </summary>
+public sealed record ResolvedRowCheck(PolicyEvaluationResult Evaluation)
+{
+    public bool IsAccessGranted => Evaluation.IsAccessGranted;
+
+    /// <summary>The fields the caller may not write; empty when the row rule refused or access was granted.</summary>
+    public IReadOnlyList<string> DeniedFields => IsAccessGranted ? [] : Evaluation.ExcludedFields;
+
+    /// <summary>Throws <see cref="BlocksForbiddenException"/> (code <c>FORBIDDEN</c>) when denied.</summary>
+    public void ThrowIfDenied() => Evaluation.ThrowIfDenied();
+}

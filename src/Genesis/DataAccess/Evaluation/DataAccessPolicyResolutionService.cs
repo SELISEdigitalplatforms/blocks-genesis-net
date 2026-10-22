@@ -133,6 +133,54 @@ public sealed class DataAccessPolicyResolutionService : IDataAccessPolicyResolut
     }
 
     /// <inheritdoc />
+    public PolicyEvaluationResult CheckRow(SchemaAccessRequest request, PolicyEvaluationResult rls, BsonDocument row)
+    {
+        ArgumentNullException.ThrowIfNull(rls);
+        ArgumentNullException.ThrowIfNull(row);
+        if (!rls.IsAccessGranted)
+            return rls;
+        if (ClsInputHelper.GetSchemaAccessLevelForOperation(request.Schema, request.Operation) != SchemaAccessLevel.Custom ||
+            request.Principal.IsRootTenant ||
+            !rls.RequiresDataFilter ||
+            rls.DataFilter.ElementCount == 0)
+            return rls;
+
+        try
+        {
+            return BsonFilterMatcher.Matches(row, rls.DataFilter)
+                ? rls
+                : PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
+        }
+        catch (NotSupportedException)
+        {
+            // Fail closed: a row rule we cannot check must not let the write through.
+            return PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
+        }
+    }
+
+    /// <inheritdoc />
+    public PolicyEvaluationResult CheckInput(SchemaAccessRequest request, IEnumerable<string> paths, BsonDocument? dataRow)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        List<string> denied;
+        try
+        {
+            denied = ClsInputHelper.FindDeniedPaths(request.Principal, request.Schema, request.Operation, paths, dataRow);
+        }
+        catch (NotSupportedException)
+        {
+            return PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
+        }
+
+        if (denied.Count == 0)
+            return new PolicyEvaluationResult { IsAccessGranted = true };
+
+        var verb = request.Operation == PolicyOperation.WRITE ? "write" : "edit";
+        var names = string.Join(", ", denied.Select(d => $"'{d}'"));
+        return PolicyEvaluationResult.Forbidden($"No policy grants {verb} access to field {names}.", denied);
+    }
+
+    /// <inheritdoc />
     public IReadOnlyCollection<PolicyOperation> ListAllowed(AccessPrincipal principal, SchemaDefinitionExtended schema)
     {
         PolicyOperation[] operations = [PolicyOperation.READ, PolicyOperation.WRITE, PolicyOperation.EDIT, PolicyOperation.DELETE];

@@ -138,8 +138,9 @@ public sealed class DataAccessResolverTests : IDisposable
         Assert.Equal(read.Projection!.ToJson(), projection.Projection!.ToJson());
     }
 
+#pragma warning disable CA1707, CA2007 // same naming and await style as the tests around them
     [Fact]
-    public async Task ResolveInsertAsync_RemovesUserOnlyFieldForAnonymousCaller()
+    public async Task ResolveInsertAsync_UserOnlyFieldForAnonymousCaller_IsRefusedNotRemoved()
     {
         await SeedProductAsync();
         _principal = AccessPrincipal.Anonymous with { TenantId = "tenant-1" };
@@ -147,12 +148,27 @@ public sealed class DataAccessResolverTests : IDisposable
 
         var resolved = await _resolver.ResolveInsertAsync("Product", input);
 
-        Assert.True(resolved.IsAccessGranted);
-        Assert.Same(input, resolved.Input);
-        Assert.Equal(["Email"], resolved.RemovedFields);
-        Assert.True(input.ContainsKey("Name"));
-        Assert.False(input.ContainsKey("Email"));
+        Assert.False(resolved.IsAccessGranted);
+        Assert.Null(resolved.Input);
+        Assert.Equal(PolicyErrorCodes.Forbidden, resolved.Evaluation.ErrorCode);
+        Assert.Contains("'Email'", resolved.Evaluation.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(["Email"], resolved.Evaluation.ExcludedFields);
+        Assert.True(input.ContainsKey("Email"));
     }
+
+    [Fact]
+    public async Task ResolveInsertAsync_UnknownRootField_IsStillRemoved()
+    {
+        await SeedProductAsync();
+        var input = new Dictionary<string, object?> { ["Name"] = "Pen", ["Nope"] = 1 };
+
+        var resolved = await _resolver.ResolveInsertAsync("Product", input);
+
+        Assert.True(resolved.IsAccessGranted);
+        Assert.Equal(["Nope"], resolved.RemovedFields);
+        Assert.False(input.ContainsKey("Nope"));
+    }
+#pragma warning restore CA1707, CA2007
 
     [Fact]
     public async Task ResolveInputAsync_SignedInCaller_KeepsEverything()

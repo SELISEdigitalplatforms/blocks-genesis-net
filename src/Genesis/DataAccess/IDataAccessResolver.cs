@@ -26,14 +26,44 @@ public interface IDataAccessResolver
     /// <summary>READ gate plus the projection and the column read policy alone, for callers that build the filter themselves.</summary>
     Task<ResolvedProjection> ResolveProjectionAsync(string schemaName, IReadOnlyList<string>? requestedFields, CancellationToken cancellationToken = default);
 
-    /// <summary>Gate for <paramref name="operation"/> (WRITE or EDIT) plus column restriction of <paramref name="input"/>, which is modified in place.</summary>
+    /// <summary>
+    /// Gate for <paramref name="operation"/> (WRITE or EDIT) plus the column rules on <paramref name="input"/>. Root fields
+    /// the schema does not define are removed in place (<see cref="ResolvedInput.RemovedFields"/>). A field a column rule
+    /// refuses denies the whole input (code <c>FORBIDDEN</c>, the field named in the message) instead of being removed.
+    /// On WRITE a non-empty input must also match the WRITE row filter; an empty input is the gate alone.
+    /// </summary>
     Task<ResolvedInput> ResolveInputAsync(string schemaName, PolicyOperation operation, IDictionary<string, object?> input, CancellationToken cancellationToken = default);
 
-    /// <summary>WRITE gate plus column restriction of <paramref name="input"/>. Inserts have no row filter.</summary>
+    /// <summary><see cref="ResolveInputAsync"/> for WRITE.</summary>
     Task<ResolvedInput> ResolveInsertAsync(string schemaName, IDictionary<string, object?> input, CancellationToken cancellationToken = default);
 
-    /// <summary>EDIT gate, final filter from <paramref name="baseFilter"/>, and column restriction of <paramref name="input"/>.</summary>
+    /// <summary>
+    /// EDIT gate, final filter from <paramref name="baseFilter"/> (only rows inside the EDIT row filter are updated), and
+    /// the column rules on <paramref name="input"/> (refused, not removed, as in <see cref="ResolveInputAsync"/>). Without the
+    /// stored row this cannot check the resulting row or column rules that read a field: use <see cref="CheckUpdateAsync"/>
+    /// or <see cref="CheckReplaceAsync"/> for that.
+    /// </summary>
     Task<ResolvedUpdate> ResolveUpdateAsync(string schemaName, BsonDocument baseFilter, IDictionary<string, object?> input, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The policy check for inserting <paramref name="row"/>: WRITE gate, column rules on every field (a rule that reads a
+    /// field is checked against the new row), and the new row must match the WRITE row filter.
+    /// </summary>
+    Task<ResolvedRowCheck> CheckInsertAsync(string schemaName, BsonDocument row, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The policy check for replacing <paramref name="storedRow"/> with <paramref name="newRow"/>: EDIT gate, the stored row
+    /// and the new row must both match the EDIT row filter, and the column rules on every changed field (a rule that reads a
+    /// field is checked against the stored row).
+    /// </summary>
+    Task<ResolvedRowCheck> CheckReplaceAsync(string schemaName, BsonDocument storedRow, BsonDocument newRow, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <see cref="CheckReplaceAsync"/> for a MongoDB update document (<c>$set</c>, <c>$unset</c>, <c>$inc</c>, <c>$currentDate</c>
+    /// are applied in memory; a replacement document is a replace). An operator that is not applied in memory is refused when
+    /// it touches a field the EDIT row filter reads.
+    /// </summary>
+    Task<ResolvedRowCheck> CheckUpdateAsync(string schemaName, BsonDocument storedRow, BsonDocument update, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Validation rules and default values for a write. On insert (<paramref name="isInsert"/>), defaults

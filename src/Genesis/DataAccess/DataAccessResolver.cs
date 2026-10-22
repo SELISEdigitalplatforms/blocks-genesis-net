@@ -98,8 +98,28 @@ public sealed class DataAccessResolver : IDataAccessResolver
         if (!rls.IsAccessGranted)
             return new ResolvedInput(rls, null, []);
 
-        var restriction = _resolver.RestrictInput(request, input);
-        return new ResolvedInput(rls, input, restriction.RemovedFieldNames);
+        var removed = DropUnknownRootFields(request, input);
+        var row = operation == PolicyOperation.WRITE ? InputDocument.From(input) : null;
+
+        // An empty insert input is the WRITE gate alone (the services ask it before building the entity).
+        if (row is { ElementCount: > 0 })
+        {
+            var rowCheck = _resolver.CheckRow(request, rls, row);
+            if (!rowCheck.IsAccessGranted)
+                return new ResolvedInput(rowCheck, null, []);
+        }
+
+        var columns = _resolver.CheckInput(request, ClsInputHelper.GetAllPathsFromInput(input, prefix: ""), row);
+        return columns.IsAccessGranted ? new ResolvedInput(rls, input, removed) : new ResolvedInput(columns, null, []);
+    }
+
+    /// <summary>Root fields the schema does not define are dropped, as before; fields a rule refuses are not dropped.</summary>
+    private static List<string> DropUnknownRootFields(SchemaAccessRequest request, IDictionary<string, object?> input)
+    {
+        if (request.Principal.IsRootTenant)
+            return [];
+        var unknown = ClsInputHelper.UnknownRootPaths(request.Schema, input.Keys);
+        return ClsInputHelper.RemoveExcludedPathsFromInput(input, unknown);
     }
 
     /// <inheritdoc />
@@ -114,9 +134,83 @@ public sealed class DataAccessResolver : IDataAccessResolver
         if (!rls.IsAccessGranted)
             return new ResolvedUpdate(rls, null, null, []);
 
+        var removed = DropUnknownRootFields(request, input);
+        var columns = _resolver.CheckInput(request, ClsInputHelper.GetAllPathsFromInput(input, prefix: ""), dataRow: null);
+        if (!columns.IsAccessGranted)
+            return new ResolvedUpdate(columns, null, null, []);
+
         var filter = _resolver.ApplyMutationFilter(request, baseFilter, rls);
-        var restriction = _resolver.RestrictInput(request, input);
-        return new ResolvedUpdate(rls, filter, input, restriction.RemovedFieldNames);
+        return new ResolvedUpdate(rls, filter, input, removed);
+    }
+
+    /// <inheritdoc />
+    public async Task<ResolvedRowCheck> CheckInsertAsync(string schemaName, BsonDocument row, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.WRITE, cancellationToken).ConfigureAwait(false);
+        var rls = _resolver.Check(request);
+        if (!rls.IsAccessGranted)
+            return new ResolvedRowCheck(rls);
+
+        // The row rule first: a row outside it would otherwise fail every inherited column rule and name every field.
+        var rowCheck = _resolver.CheckRow(request, rls, row);
+        if (!rowCheck.IsAccessGranted)
+            return new ResolvedRowCheck(rowCheck);
+
+        var columns = _resolver.CheckInput(request, RowChanges.AllPaths(row), row);
+        return new ResolvedRowCheck(columns.IsAccessGranted ? rls : columns);
+    }
+
+    /// <inheritdoc />
+    public Task<ResolvedRowCheck> CheckReplaceAsync(string schemaName, BsonDocument storedRow, BsonDocument newRow, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(storedRow);
+        ArgumentNullException.ThrowIfNull(newRow);
+        return CheckEditAsync(schemaName, storedRow, new RowUpdateResult(newRow, RowChanges.ChangedPaths(storedRow, newRow), []), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<ResolvedRowCheck> CheckUpdateAsync(string schemaName, BsonDocument storedRow, BsonDocument update, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(storedRow);
+        ArgumentNullException.ThrowIfNull(update);
+        return CheckEditAsync(schemaName, storedRow, RowChanges.ApplyUpdate(storedRow, update), cancellationToken);
+    }
+
+    private async Task<ResolvedRowCheck> CheckEditAsync(string schemaName, BsonDocument storedRow, RowUpdateResult update, CancellationToken cancellationToken)
+    {
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.EDIT, cancellationToken).ConfigureAwait(false);
+        var rls = _resolver.Check(request);
+        if (!rls.IsAccessGranted)
+            return new ResolvedRowCheck(rls);
+
+        var stored = _resolver.CheckRow(request, rls, storedRow);
+        if (!stored.IsAccessGranted)
+            return new ResolvedRowCheck(stored);
+
+        if (TouchesRowRule(request, rls, update.UncheckablePaths))
+            return new ResolvedRowCheck(PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess));
+
+        var result = _resolver.CheckRow(request, rls, update.Row);
+        if (!result.IsAccessGranted)
+            return new ResolvedRowCheck(result);
+
+        var columns = _resolver.CheckInput(request, update.ChangedPaths, storedRow);
+        return new ResolvedRowCheck(columns.IsAccessGranted ? rls : columns);
+    }
+
+    /// <summary>True when an update changes, in a way not computed in memory, a field the row rule reads.</summary>
+    private static bool TouchesRowRule(SchemaAccessRequest request, PolicyEvaluationResult rls, IReadOnlyList<string> uncheckablePaths)
+    {
+        if (uncheckablePaths.Count == 0 || request.Principal.IsRootTenant || !rls.RequiresDataFilter ||
+            ClsInputHelper.GetSchemaAccessLevelForOperation(request.Schema, request.Operation) != SchemaAccessLevel.Custom)
+            return false;
+
+        var referenced = BsonFilterMatcher.ReferencedPaths(rls.DataFilter);
+        return uncheckablePaths
+            .Select(p => string.Join('.', p.Split('.').TakeWhile(s => !s.StartsWith('$') && !int.TryParse(s, out _))))
+            .Any(p => p.Length == 0 || referenced.Any(r => r == p ||
+                r.StartsWith(p + ".", StringComparison.Ordinal) || p.StartsWith(r + ".", StringComparison.Ordinal)));
     }
 
     /// <inheritdoc />

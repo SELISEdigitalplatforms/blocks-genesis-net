@@ -1,5 +1,6 @@
 using Blocks.Genesis.DataAccess;
 using Blocks.Genesis.Entities.Data;
+using MongoDB.Bson;
 
 namespace Blocks.Genesis.DataAccess.Evaluation;
 
@@ -195,5 +196,67 @@ public static class ClsInputHelper
                 result.ExcludedFields.Add(path);
         }
         return result;
+    }
+    /// <summary>
+    /// The written paths the caller may not write, for a write that is refused instead of stripped. Same levels as
+    /// <see cref="EvaluateClsPoliciesForInput"/> (Public, User, Custom with column policies), but a column rule that
+    /// reads a schema field is checked against <paramref name="dataRow"/>: the stored row on EDIT, the new row on WRITE.
+    /// Without a row such a rule passes on its token part alone, as before. Paths the schema does not define are not
+    /// returned here (see <see cref="UnknownRootPaths"/>).
+    /// </summary>
+    public static List<string> FindDeniedPaths(AccessPrincipal principal, SchemaDefinitionExtended schema, PolicyOperation operation, IEnumerable<string> fieldPaths, BsonDocument? dataRow)
+    {
+        var denied = new List<string>();
+        if (principal.IsRootTenant)
+            return denied;
+
+        var schemaAccessLevel = GetSchemaAccessLevelForOperation(schema, operation);
+        foreach (var path in fieldPaths.Distinct(StringComparer.Ordinal))
+        {
+            var fieldDef = GetFieldDefForPath(schema, path);
+            if (fieldDef is not null && !MayWriteField(principal, schema, operation, path, fieldDef, schemaAccessLevel, dataRow))
+                denied.Add(path);
+        }
+        return denied;
+    }
+
+    /// <summary>Root paths the schema does not define (never <c>_id</c>): the input APIs drop them, as before.</summary>
+    public static List<string> UnknownRootPaths(SchemaDefinitionExtended schema, IEnumerable<string> fieldPaths) =>
+        fieldPaths
+            .Where(p => p != PolicyConstants.DbEntityIdFieldName && !p.Contains('.') && GetFieldDefForPath(schema, p) is null)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    private static bool MayWriteField(AccessPrincipal principal, SchemaDefinitionExtended schema, PolicyOperation operation, string path,
+        FieldDefinitionResponse fieldDef, SchemaAccessLevel schemaAccessLevel, BsonDocument? dataRow)
+    {
+        var rawFieldLevel = operation == PolicyOperation.WRITE ? fieldDef.WriteAccessLevel : fieldDef.EditAccessLevel;
+        var fieldAccessLevel = rawFieldLevel == SchemaAccessLevel.Inherited ? schemaAccessLevel : rawFieldLevel;
+        return fieldAccessLevel switch
+        {
+            SchemaAccessLevel.User => principal.IsAuthenticated,
+            SchemaAccessLevel.Custom => ColumnPoliciesGrant(principal, schema, operation, path, dataRow),
+            _ => true
+        };
+    }
+
+    // Same choice of policies as ShouldExcludeFieldByCls: none covering the path = allowed; otherwise one must grant.
+    private static bool ColumnPoliciesGrant(AccessPrincipal principal, SchemaDefinitionExtended schema, PolicyOperation operation, string path, BsonDocument? dataRow)
+    {
+        var applicable = schema.Policies
+            .Where(p => (p.Operation == operation || p.Operation == PolicyOperation.ALL) && p.PolicyType == PolicyType.CLS && p.CoversPath(path))
+            .ToList();
+        if (applicable.Count == 0)
+            return true;
+
+        return applicable.Any(policy =>
+        {
+            var result = policy.EvaluatePolicy(principal);
+            if (!result.IsAccessGranted)
+                return false;
+            if (dataRow is null || !result.RequiresDataFilter || result.DataFilter.ElementCount == 0)
+                return true;
+            return BsonFilterMatcher.Matches(dataRow, result.DataFilter);
+        });
     }
 }
