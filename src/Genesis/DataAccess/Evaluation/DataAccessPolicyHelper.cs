@@ -1,6 +1,7 @@
 using Blocks.Genesis.DataAccess;
 using Blocks.Genesis.Entities.Data;
 using MongoDB.Bson;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Blocks.Genesis.DataAccess.Evaluation;
@@ -217,7 +218,22 @@ public static class DataAccessPolicyHelper
                 };
             }
 
-            if (ConvertToStringArray(compareValue) is not null &&
+            // In / Not in a typed list ("US,ZZ", or the rightOperands array): a plain $in / $nin, which matches a
+            // single-value field and any item of a list field, and can use an index.
+            if (rule.RightSource == ConditionSource.STATIC_VALUE &&
+                rule.Operator is PolicyOperator.IN or PolicyOperator.NOT_IN &&
+                StaticList(rule) is { } list)
+            {
+                return new PolicyEvaluationResult
+                {
+                    IsAccessGranted = true,
+                    DataFilter = new BsonDocument(rule.LeftOperand, new BsonDocument(
+                        rule.Operator == PolicyOperator.IN ? "$in" : "$nin", WithTypedAlternatives(list))),
+                    RequiresDataFilter = true
+                };
+            }
+
+            if (ConvertToStringArray(compareValue) is { } values &&
                 IsCollectionOperator(rule.Operator))
             {
                 return new PolicyEvaluationResult
@@ -225,13 +241,15 @@ public static class DataAccessPolicyHelper
                     IsAccessGranted = true,
                     DataFilter = BuildArrayComparisonFilter(
                         FieldArrayExpression(rule.LeftOperand),
-                        ConvertToBsonValue(compareValue),
+                        new BsonArray(values),
                         rule.Operator),
                     RequiresDataFilter = true
                 };
             }
 
-            var dataFilter = BuildConditionFilter(principal, rule.LeftOperand, rule.Operator, compareValue);
+            var dataFilter = rule.RightSource == ConditionSource.STATIC_VALUE
+                ? BuildStaticConditionFilter(principal, rule.LeftOperand, rule.Operator, compareValue)
+                : BuildConditionFilter(principal, rule.LeftOperand, rule.Operator, compareValue);
 
             return new PolicyEvaluationResult
             {
@@ -244,7 +262,7 @@ public static class DataAccessPolicyHelper
         // Case 3: Static vs Schema (reversed operands - normalize)
         if (rule.LeftSource == ConditionSource.STATIC_VALUE && rightIsSchema)
         {
-            var dataFilter = BuildConditionFilter(principal, rule.RightOperand,
+            var dataFilter = BuildStaticConditionFilter(principal, rule.RightOperand,
                 GetReversedOperator(rule.Operator), rule.StaticValue);
 
             return new PolicyEvaluationResult
@@ -806,6 +824,79 @@ public static class DataAccessPolicyHelper
             PolicyOperator.REGEX => new BsonDocument(fieldName, new BsonDocument("$regex", value?.ToString() ?? "")),
             _ => new BsonDocument()
         };
+    }
+
+    private static readonly Regex IsoDatePattern = new(@"^\d{4}-\d{2}-\d{2}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// <see cref="BuildConditionFilter"/> for a value typed in the policy editor. It arrives as text ("150"), and a
+    /// number or date field never matches text in MongoDB, so a comparison against text that reads as a number or
+    /// an ISO date matches either the typed value or the text: number, date and text fields all compare as written.
+    /// </summary>
+    private static BsonDocument BuildStaticConditionFilter(AccessPrincipal principal, string fieldName, PolicyOperator op, object? value)
+    {
+        var asText = BuildConditionFilter(principal, fieldName, op, value);
+        if (!IsScalarComparison(op) || TypedAlternative(value) is not { } typed)
+            return asText;
+
+        var asTyped = BuildConditionFilter(principal, fieldName, op, typed);
+        // Not equal must differ from both forms; every other comparison may hold for either.
+        return new BsonDocument(op == PolicyOperator.NOT_EQUAL ? "$and" : "$or", new BsonArray { asTyped, asText });
+    }
+
+    private static bool IsScalarComparison(PolicyOperator op) => op is
+        PolicyOperator.EQUAL or PolicyOperator.NOT_EQUAL or
+        PolicyOperator.GREATER_THAN or PolicyOperator.GREATER_THAN_OR_EQUAL or
+        PolicyOperator.LESS_THAN or PolicyOperator.LESS_THAN_OR_EQUAL;
+
+    /// <summary>The number or UTC date a typed static value reads as; null for other text, lists and token expressions.</summary>
+    private static object? TypedAlternative(object? value)
+    {
+        if (value is not string text || text.Contains(',') || ExpressionPattern.IsMatch(text))
+            return null;
+        text = text.Trim();
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number))
+            return number;
+        if (IsoDatePattern.IsMatch(text) &&
+            DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date))
+            return date;
+        return null;
+    }
+
+    /// <summary>
+    /// The values of an In / Not in rule against a typed list: the comma-delimited static value the editor sends,
+    /// a stored list, or <see cref="PolicyRule.RightOperands"/>. Null for a token expression, which keeps its own path.
+    /// </summary>
+    private static string[]? StaticList(PolicyRule rule)
+    {
+        if (rule.StaticValue is string text)
+        {
+            if (ExpressionPattern.IsMatch(text))
+                return null;
+            var parts = text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 0)
+                return parts;
+        }
+        else if (rule.StaticValue is not null && ConvertToStringArray(rule.StaticValue) is { Length: > 0 } stored)
+        {
+            return stored;
+        }
+
+        var operands = rule.RightOperands.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim()).ToArray();
+        return operands.Length > 0 ? operands : null;
+    }
+
+    /// <summary>Each value as text, plus its number or date when it reads as one (see <see cref="BuildStaticConditionFilter"/>).</summary>
+    private static BsonArray WithTypedAlternatives(string[] values)
+    {
+        var array = new BsonArray();
+        foreach (var value in values)
+        {
+            array.Add(new BsonString(value));
+            if (TypedAlternative(value) is { } typed)
+                array.Add(ConvertToBsonValue(typed));
+        }
+        return array;
     }
 
     /// <summary>
