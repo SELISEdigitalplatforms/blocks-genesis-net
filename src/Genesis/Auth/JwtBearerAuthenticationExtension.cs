@@ -156,6 +156,15 @@ public static class JwtBearerAuthenticationExtension
 
         if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
         {
+            // A session signed out in IAM is refused here, on its next request, instead of when its
+            // access token expires.
+            if (await IsSessionRevokedAsync(context.HttpContext, claimsIdentity).ConfigureAwait(true))
+            {
+                SecurityLog("session_revoked", "Access token refused: its session was signed out.");
+                context.Fail("session_revoked");
+                return;
+            }
+
             HandleTokenIssuer(
                 claimsIdentity,
                 context.Request.GetDisplayUrl(),
@@ -163,6 +172,28 @@ public static class JwtBearerAuthenticationExtension
 
             StoreBlocksContextInActivity(
                 BlocksContext.CreateFromClaimsIdentity(claimsIdentity));
+        }
+    }
+
+    // Fails open: a cache outage must not sign every user out, so a missing cache client or a failed
+    // lookup lets the token through and is logged.
+    private static async Task<bool> IsSessionRevokedAsync(HttpContext httpContext, ClaimsIdentity identity)
+    {
+        var sessionId = identity.FindFirst(BlocksContext.SESSION_ID_CLAIM)?.Value;
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return false;
+        }
+
+        try
+        {
+            var cache = httpContext.RequestServices?.GetService<ICacheClient>();
+            return cache != null && await RevokedSessions.IsRevokedAsync(cache, sessionId).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SecurityLog("session_revocation_check_failed", "Revoked-session lookup failed; token accepted.", ex, isWarning: true);
+            return false;
         }
     }
 
