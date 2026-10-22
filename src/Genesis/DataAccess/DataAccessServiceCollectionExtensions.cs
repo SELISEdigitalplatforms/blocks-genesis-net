@@ -13,6 +13,15 @@ public sealed class DataAccessOptions
     /// Set false for hosts that serve tenant schemas.
     /// </summary>
     public bool SystemEntitiesOnly { get; set; } = true;
+
+    /// <summary>The default for <see cref="RolePermissionCacheDuration"/>: 60 seconds.</summary>
+    public static readonly TimeSpan DefaultRolePermissionCacheDuration = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// How long role-bound permissions (the <c>Permissions</c> Auth value) are kept in memory per tenant,
+    /// organization and role set. A role or permission change reaches policy evaluation within this time.
+    /// </summary>
+    public TimeSpan RolePermissionCacheDuration { get; set; } = DefaultRolePermissionCacheDuration;
 }
 
 public static class DataAccessServiceCollectionExtensions
@@ -38,6 +47,7 @@ public static class DataAccessServiceCollectionExtensions
         services.AddSingleton<IAccessPolicySource, SchemaPolicySource>();
         services.AddSingleton<IDataAccessPolicyResolutionService, DataAccessPolicyResolutionService>();
         services.AddSingleton<IDataAccessResolver, DataAccessResolver>();
+        services.TryAddSingleton<IAccessPrincipalEnricher, AccessPrincipalEnricher>();
         services.TryAddSingleton<IAccessPrincipalAccessor, BlocksContextAccessPrincipalAccessor>();
         return services;
     }

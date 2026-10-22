@@ -25,6 +25,31 @@ public sealed record AccessPrincipal(
     /// </summary>
     public bool HasContext { get; init; }
 
+    /// <summary>
+    /// Permissions bound to the caller's roles in their organization, read from the tenant database per request
+    /// (<see cref="IAccessPrincipalEnricher"/>). Empty until enriched.
+    /// </summary>
+    public IReadOnlyList<string> RolePermissions { get; init; } = [];
+
+    /// <summary>
+    /// The caller's access attributes in their organization (<c>User.Attributes["access"][org][name]</c>), read
+    /// from the tenant database per request. Null until enriched; never taken from token claims.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>>? AccessAttributes { get; init; }
+
+    /// <summary>What the <c>Permissions</c> Auth value resolves to: token permissions plus role-bound permissions.</summary>
+    public IReadOnlyList<string> EffectivePermissions =>
+        RolePermissions.Count == 0
+            ? Permissions
+            : Permissions.Concat(RolePermissions).Distinct(StringComparer.Ordinal).ToArray();
+
+    /// <summary>The organization policies are evaluated for: a blank organization is <c>default</c>.</summary>
+    public string EffectiveOrganizationId =>
+        string.IsNullOrWhiteSpace(OrganizationId) ? DefaultOrganizationId : OrganizationId;
+
+    /// <summary>The tenant-wide organization.</summary>
+    public const string DefaultOrganizationId = "default";
+
     /// <summary>No BlocksContext at all: every token value is null, nothing is authenticated.</summary>
     public static AccessPrincipal Anonymous { get; } = new(null, null, null, null, [], [], false, false);
 

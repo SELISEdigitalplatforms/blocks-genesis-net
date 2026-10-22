@@ -12,7 +12,24 @@ namespace Blocks.Genesis.DataAccess.Evaluation;
 /// </summary>
 public static class DataAccessPolicyHelper
 {
-    private static readonly Regex ExpressionPattern = new(@"\{\{(\w+)\.(\w+)\}\}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    // {{Auth.UserId}}, {{token.Roles}}, and {{Auth.Attributes.<name>}} (one extra segment for access attributes).
+    private static readonly Regex ExpressionPattern = new(@"\{\{(\w+)\.(\w+(?:\.[\w-]+)?)\}\}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+
+    /// <summary>The Auth value name prefix for access attributes: <c>Attributes.&lt;name&gt;</c>.</summary>
+    public const string AttributesPrefix = "Attributes.";
+
+    /// <summary>The Auth value names a <c>{{Auth.X}}</c> / <c>{{token.X}}</c> expression inside <paramref name="text"/> refers to.</summary>
+    public static IEnumerable<string> AuthExpressionNames(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            yield break;
+        foreach (Match match in ExpressionPattern.Matches(text))
+        {
+            var context = match.Groups[1].Value;
+            if (string.Equals(context, "auth", StringComparison.OrdinalIgnoreCase) || string.Equals(context, "token", StringComparison.OrdinalIgnoreCase))
+                yield return match.Groups[2].Value;
+        }
+    }
 
     #region Policy Evaluation
 
@@ -548,20 +565,27 @@ public static class DataAccessPolicyHelper
             "email" => principal.UserName,
             "tenantid" or "tenant" => principal.TenantId,
             "roles" or "role" => principal.Roles,
-            "permissions" or "permission" => principal.Permissions,
+            "permissions" or "permission" => principal.EffectivePermissions,
             "organizationid" or "organization" => principal.OrganizationId,
             _ => GetCustomClaim(principal, propertyName)
         };
     }
 
     /// <summary>
-    /// Gets a custom claim from the principal.
-    /// Override this method if the principal gains custom claims.
+    /// Names that are not built in. <c>Attributes.&lt;name&gt;</c> is the caller's access attribute values for their
+    /// organization, as read from the database (<see cref="AccessPrincipal.AccessAttributes"/>), never from token
+    /// claims; a name the caller has no values for, and any other unknown name, is null.
     /// </summary>
-    private static object? GetCustomClaim(AccessPrincipal principal, string claimName)
+    private static string[]? GetCustomClaim(AccessPrincipal principal, string claimName)
     {
-        // Extend this if AccessPrincipal gains a Claims dictionary or similar
-        return null;
+        if (!claimName.StartsWith(AttributesPrefix, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var name = claimName[AttributesPrefix.Length..];
+        if (name.Length == 0 || principal.AccessAttributes is null)
+            return null;
+
+        return principal.AccessAttributes.TryGetValue(name, out var values) ? values.ToArray() : null;
     }
 
     #endregion

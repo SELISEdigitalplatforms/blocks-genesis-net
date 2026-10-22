@@ -21,15 +21,17 @@ public sealed class DataAccessResolver : IDataAccessResolver
     private readonly IDataAccessPolicyResolutionService _resolver;
     private readonly IAccessPrincipalAccessor _principals;
     private readonly bool _systemEntitiesOnly;
+    private readonly IAccessPrincipalEnricher _enricher;
 
     public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals, DataAccessOptions? options = null,
-        ILogger<DataAccessResolver>? logger = null)
+        ILogger<DataAccessResolver>? logger = null, IAccessPrincipalEnricher? enricher = null)
     {
         _systemEntitiesOnly = options?.SystemEntitiesOnly ?? false;
         _dbContextProvider = dbContextProvider;
         _resolver = resolver;
         _principals = principals;
         _logger = logger ?? NullLogger<DataAccessResolver>.Instance;
+        _enricher = enricher ?? new AccessPrincipalEnricher(dbContextProvider, options);
     }
 
     private readonly ILogger<DataAccessResolver> _logger;
@@ -284,6 +286,8 @@ public sealed class DataAccessResolver : IDataAccessResolver
         var principal = _principals.Current;
         var schema = await LoadSchemaAsync(schemaName, principal, cancellationToken)
             ?? throw new KeyNotFoundException($"Schema '{schemaName}' was not found for tenant '{principal.TenantId}'.");
+        // Role-bound permissions and access attributes come from the database, only when a policy reads them.
+        principal = await _enricher.EnrichAsync(principal, schema.Policies, cancellationToken).ConfigureAwait(false);
         return new SchemaAccessRequest(principal, schema, operation);
     }
 
