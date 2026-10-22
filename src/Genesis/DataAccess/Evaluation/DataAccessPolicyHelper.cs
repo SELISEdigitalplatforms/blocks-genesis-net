@@ -28,7 +28,7 @@ public static class DataAccessPolicyHelper
     {
         if (policies == null || policies.Count == 0)
         {
-            return new PolicyEvaluationResult { IsAccessGranted = false };
+            return PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
         }
 
         var applicablePolicies = policies
@@ -39,7 +39,7 @@ public static class DataAccessPolicyHelper
 
         if (applicablePolicies.Count == 0)
         {
-            return new PolicyEvaluationResult { IsAccessGranted = false };
+            return PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
         }
 
         var combinedFilters = new List<BsonDocument>();
@@ -77,11 +77,7 @@ public static class DataAccessPolicyHelper
                 // Deny policy - if conditions match, deny access
                 if (result.IsAccessGranted)
                 {
-                    return new PolicyEvaluationResult
-                    {
-                        IsAccessGranted = false,
-                        ErrorMessage = $"Access denied by policy: {policy.PolicyName}"
-                    };
+                    return PolicyEvaluationResult.Forbidden($"Access denied by policy: {policy.PolicyName}");
                 }
             }
 
@@ -91,11 +87,7 @@ public static class DataAccessPolicyHelper
         // If no allow policy granted access, deny
         if (!anyPolicyGranted)
         {
-            return new PolicyEvaluationResult
-            {
-                IsAccessGranted = false,
-                ErrorMessage = "No policy grants access to this resource."
-            };
+            return PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
         }
 
         if (grantsFullAccess)

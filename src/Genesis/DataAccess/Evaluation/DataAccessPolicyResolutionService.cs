@@ -34,7 +34,7 @@ public sealed class DataAccessPolicyResolutionService : IDataAccessPolicyResolut
 
         var rlsPolicies = _policySource.GetPolicies(schema).Where(p => p.PolicyType == PolicyType.RLS).ToList();
         if (rlsPolicies.Count == 0)
-            return new PolicyEvaluationResult { IsAccessGranted = false };
+            return PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
 
         return rlsPolicies.EvaluatePolicies(principal, operation, PolicyType.RLS);
     }
@@ -52,7 +52,7 @@ public sealed class DataAccessPolicyResolutionService : IDataAccessPolicyResolut
             .Where(p => p.PolicyType == PolicyType.RLS && p.Operation == operation)
             .ToList();
         if (rlsPolicies.Count == 0)
-            return new PolicyEvaluationResult { IsAccessGranted = false };
+            return PolicyEvaluationResult.Forbidden(PolicyErrorCodes.NoPolicyGrantsAccess);
 
         return rlsPolicies.EvaluatePolicies(principal, operation, PolicyType.RLS);
     }
