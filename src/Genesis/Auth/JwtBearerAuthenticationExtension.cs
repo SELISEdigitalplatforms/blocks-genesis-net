@@ -1137,12 +1137,7 @@ public static class JwtBearerAuthenticationExtension
                 tokenClaims = identity.Claims.Select(c => c.Type).Distinct().ToArray()
             });
 
-        var roleClaim = identity.FindAll(identity.RoleClaimType).Select(r => r.Value).ToArray();
-
-        if (roleClaim.Length == 0)
-        {
-            roleClaim = ExtractRolesFromClaim(identity, mapping.Roles);
-        }
+        var roleClaim = ExtractRolesFromClaim(identity, mapping.Roles);
 
         var subClaim = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
         var emailClaim = identity.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
@@ -1393,7 +1388,8 @@ public static class JwtBearerAuthenticationExtension
     /// <see cref="JwtSecurityTokenHandler"/> already flattens a JSON array claim into one
     /// <see cref="Claim"/> per element, so a namespaced Auth0 or Okta roles claim is read straight
     /// off the identity with no JSON parsing at all -- which is why this collects every matching
-    /// claim rather than the first. The legacy <c>claim.property</c> form (a claim holding a JSON
+    /// claim rather than the first. When the handler renamed the mapped claim through its inbound
+    /// claim map (for example <c>roles</c>), the renamed claim is read too. The legacy <c>claim.property</c> form (a claim holding a JSON
     /// object, as in Keycloak's <c>realm_access.roles</c>) remains the fallback.
     /// </para>
     /// <para>
@@ -1414,6 +1410,17 @@ public static class JwtBearerAuthenticationExtension
 
         if (literalRoles.Length > 0)
             return literalRoles;
+
+        if (JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.TryGetValue(rolesMapping, out var renamedClaimType))
+        {
+            var renamedRoles = identity.FindAll(renamedClaimType)
+                                       .Select(c => c.Value)
+                                       .Where(v => !string.IsNullOrWhiteSpace(v))
+                                       .ToArray();
+
+            if (renamedRoles.Length > 0)
+                return renamedRoles;
+        }
 
         var claimName = GetClaimObjectName(rolesMapping);
         var claimValue = identity.FindFirst(claimName)?.Value;
