@@ -81,7 +81,7 @@ public class GlobalExceptionHandlerMiddleware
         {
             Title = title,
             Status = statusCode,
-            Detail = exception.Message,
+            Detail = statusCode >= StatusCodes.Status500InternalServerError ? "An unexpected error occurred." : exception.Message,
             Instance = context.TraceIdentifier,
             Type = $"https://httpstatuses.com/{statusCode}"
         };
