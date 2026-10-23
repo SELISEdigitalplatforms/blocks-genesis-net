@@ -10,6 +10,7 @@ public class GlobalExceptionMapTests
     [Theory]
     [InlineData(typeof(BlocksAuthenticationException), StatusCodes.Status401Unauthorized)]
     [InlineData(typeof(BlocksNotFoundException), StatusCodes.Status404NotFound)]
+    [InlineData(typeof(BlocksForbiddenException), StatusCodes.Status403Forbidden)]
     [InlineData(typeof(BlocksRateLimitException), StatusCodes.Status429TooManyRequests)]
     [InlineData(typeof(OperationCanceledException), 499)]
     [InlineData(typeof(InvalidOperationException), StatusCodes.Status500InternalServerError)]

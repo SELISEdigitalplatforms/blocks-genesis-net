@@ -36,6 +36,7 @@ public class BlocksExceptionsTests
     {
         yield return [(Func<string, BlocksException>)(m => new BlocksAuthenticationException(m)), (Func<string, Exception, BlocksException>)((m, e) => new BlocksAuthenticationException(m, e))];
         yield return [(Func<string, BlocksException>)(m => new BlocksNotFoundException(m)), (Func<string, Exception, BlocksException>)((m, e) => new BlocksNotFoundException(m, e))];
+        yield return [(Func<string, BlocksException>)(m => new BlocksForbiddenException(m)), (Func<string, Exception, BlocksException>)((m, e) => new BlocksForbiddenException(m, e))];
         yield return [(Func<string, BlocksException>)(m => new BlocksRateLimitException(m)), (Func<string, Exception, BlocksException>)((m, e) => new BlocksRateLimitException(m, e))];
     }
 

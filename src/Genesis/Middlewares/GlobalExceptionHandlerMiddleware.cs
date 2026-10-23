@@ -91,6 +91,11 @@ public class GlobalExceptionHandlerMiddleware
             problem.Extensions["errors"] = errors;
         }
 
+        if (exception is BlocksForbiddenException forbidden)
+        {
+            problem.Extensions["code"] = forbidden.Code;
+        }
+
         await context.Response.WriteAsync(JsonSerializer.Serialize(problem), Encoding.UTF8);
     }
 
@@ -100,6 +105,7 @@ public class GlobalExceptionHandlerMiddleware
         {
             BlocksValidationException validation => (StatusCodes.Status400BadRequest, "Validation Failed", validation.Errors),
             BlocksAuthenticationException => (StatusCodes.Status401Unauthorized, "Authentication Failed", null),
+            BlocksForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden", null),
             BlocksNotFoundException => (StatusCodes.Status404NotFound, "Resource Not Found", null),
             BlocksRateLimitException => (StatusCodes.Status429TooManyRequests, "Rate Limit Exceeded", null),
             OperationCanceledException => (StatusCodes.Status499ClientClosedRequest, "Request Cancelled", null),

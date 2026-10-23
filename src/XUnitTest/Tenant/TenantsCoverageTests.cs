@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using Moq;
+using System.Collections.Concurrent;
 using System.Reflection;
 
 namespace XUnitTest.Tenant;
@@ -298,6 +299,134 @@ public class TenantsCoverageTests
         var exception = await Record.ExceptionAsync(() => InvokeEnsureTraceCollection(tenants, tenant));
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task GetTenantByID_ShouldNotCache_DisabledTenant()
+    {
+        var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
+        var client = new MongoClient(MongoConnectionString);
+        try
+        {
+            var tenant = MakeTenant("tenant-off");
+            tenant.IsDisabled = true;
+            await client.GetDatabase(databaseName).GetCollection<Blocks.Genesis.Tenant>("Tenants").InsertOneAsync(tenant);
+
+            using var tenants = CreateTenants(databaseName, out _, out _);
+
+            Assert.Null(tenants.GetTenantByID("tenant-off"));
+            Assert.Empty(GetCache(tenants));
+        }
+        finally
+        {
+            await client.DropDatabaseAsync(databaseName);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task GetTenantByID_ShouldEvictCachedCopy_WhenItIsDisabled()
+    {
+        var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
+        var client = new MongoClient(MongoConnectionString);
+        try
+        {
+            var stored = MakeTenant("tenant-flip");
+            stored.IsDisabled = true;
+            await client.GetDatabase(databaseName).GetCollection<Blocks.Genesis.Tenant>("Tenants").InsertOneAsync(stored);
+
+            using var tenants = CreateTenants(databaseName, out _, out _);
+            var cached = MakeTenant("tenant-flip");
+            cached.IsDisabled = true;
+            GetCache(tenants)["tenant-flip"] = cached;
+
+            Assert.Null(tenants.GetTenantByID("tenant-flip"));
+            Assert.Empty(GetCache(tenants));
+            Assert.Empty(tenants.GetTenantDatabaseConnectionStrings());
+        }
+        finally
+        {
+            await client.DropDatabaseAsync(databaseName);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task GetTenantByApplicationDomain_ShouldIgnore_DisabledTenant()
+    {
+        var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
+        var client = new MongoClient(MongoConnectionString);
+        try
+        {
+            var tenant = MakeTenant("tenant-off-domain");
+            tenant.IsDisabled = true;
+            tenant.Applications = [new Applications { Domain = "https://off-cov.local" }];
+            await client.GetDatabase(databaseName).GetCollection<Blocks.Genesis.Tenant>("Tenants").InsertOneAsync(tenant);
+
+            using var tenants = CreateTenants(databaseName, out _, out _);
+
+            Assert.Null(tenants.GetTenantByApplicationDomain("off-cov.local"));
+            Assert.Empty(GetCache(tenants));
+
+            // A disabled copy already in the cache is not served by domain either.
+            GetCache(tenants)["tenant-off-domain"] = tenant;
+            Assert.Null(tenants.GetTenantByApplicationDomain("off-cov.local"));
+        }
+        finally
+        {
+            await client.DropDatabaseAsync(databaseName);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task GetTenantTokenValidationParameter_ShouldEvict_WhenTenantDisabledSinceCached()
+    {
+        var databaseName = $"tenants-cov-{Guid.NewGuid():N}";
+        var client = new MongoClient(MongoConnectionString);
+        try
+        {
+            var stored = MakeTenant("tenant-revalidate");
+            stored.IsDisabled = true;
+            await client.GetDatabase(databaseName).GetCollection<Blocks.Genesis.Tenant>("Tenants").InsertOneAsync(stored);
+
+            using var tenants = CreateTenants(databaseName, out _, out _);
+
+            // Stale enabled copy without a certificate path forces a database re-read.
+            var stale = MakeTenant("tenant-revalidate");
+            stale.JwtTokenParameters.PublicCertificatePath = string.Empty;
+            GetCache(tenants)["tenant-revalidate"] = stale;
+
+            Assert.Null(tenants.GetTenantTokenValidationParameter("tenant-revalidate"));
+            Assert.Empty(GetCache(tenants));
+        }
+        finally
+        {
+            await client.DropDatabaseAsync(databaseName);
+        }
+    }
+
+    [Fact]
+    public void GetTenantTokenValidationParameter_ShouldKeepCachedTenant_WhenReReadFails()
+    {
+        using var tenants = CreateTenants($"tenants-cov-{Guid.NewGuid():N}", out _, out _, UnreachableConnectionString);
+
+        var cached = MakeTenant("tenant-keep");
+        cached.JwtTokenParameters.PublicCertificatePath = string.Empty;
+        GetCache(tenants)["tenant-keep"] = cached;
+
+        var parameters = tenants.GetTenantTokenValidationParameter("tenant-keep");
+
+        Assert.Same(cached.JwtTokenParameters, parameters);
+        Assert.True(GetCache(tenants).ContainsKey("tenant-keep"));
+    }
+
+    private static ConcurrentDictionary<string, Blocks.Genesis.Tenant> GetCache(Tenants tenants)
+    {
+        var field = typeof(Tenants).GetField("_tenantCache", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(field);
+        return (ConcurrentDictionary<string, Blocks.Genesis.Tenant>)field!.GetValue(tenants)!;
     }
 
     private static Tenants CreateTenants(
