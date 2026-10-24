@@ -43,7 +43,8 @@ public class GlobalExceptionHandlerMiddlewareTests
         Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
         Assert.Equal("application/problem+json", context.Response.ContentType);
         Assert.Contains("Internal Server Error", body);
-        Assert.Contains("boom", body);
+        Assert.DoesNotContain("boom", body);
+        Assert.Contains("An unexpected error occurred.", body);
         Assert.Contains(context.TraceIdentifier, body);
     }
 

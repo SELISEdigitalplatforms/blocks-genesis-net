@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 
@@ -12,6 +13,21 @@ public sealed class Tenants : ITenants, IDisposable
     public const string TenantCacheUpdateActionUpsert = "upsert";
     public const string TenantCacheUpdateActionRemove = "remove";
 
+    /// <summary>
+    /// Environment variable that sets how long a cached tenant is served before it is read
+    /// from the database again, in whole seconds. Missing or invalid values use
+    /// <see cref="DefaultCacheLifetime"/>.
+    /// </summary>
+    public const string CacheLifetimeEnvironmentVariable = "TenantCacheLifetimeSeconds";
+
+    /// <summary>Default lifetime of a cached tenant.</summary>
+    public static readonly TimeSpan DefaultCacheLifetime = TimeSpan.FromMinutes(5);
+
+    // After a failed reload the last good copy is served for this long (or the cache
+    // lifetime, if shorter) before the next attempt, so a database outage does not turn
+    // every request into a slow, failing read.
+    private static readonly TimeSpan ReloadFailureRetryDelay = TimeSpan.FromSeconds(30);
+
     private readonly ILogger<Tenants> _logger;
     private readonly IBlocksSecret _blocksSecret;
     private readonly ICacheClient _cacheClient;
@@ -19,8 +35,13 @@ public sealed class Tenants : ITenants, IDisposable
     private readonly string _tenantUpdateChannel = "tenant::updates";
     private bool _isSubscribed = false;
     private bool _disposed = false;
+    private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _cacheLifetime;
 
-    private readonly ConcurrentDictionary<string, Tenant> _tenantCache = [];
+    // Change events keep the cache current; the lifetime on every entry is the backstop
+    // for events that never arrive, so a disabled or changed tenant is picked up within
+    // one lifetime at the latest.
+    private readonly ConcurrentDictionary<string, TenantCacheEntry> _tenantCache = [];
     private readonly ConcurrentDictionary<string, Lazy<Tenant?>> _tenantLoadInProgress = [];
     private readonly ConcurrentDictionary<string, DateTime> _lastTokenParameterRevalidationUtc = [];
 
@@ -33,10 +54,22 @@ public sealed class Tenants : ITenants, IDisposable
     private static readonly TimeSpan TokenParameterRevalidationInterval = TimeSpan.FromMinutes(1);
 
     public Tenants(ILogger<Tenants> logger, IBlocksSecret blocksSecret, ICacheClient cacheClient)
+        : this(logger, blocksSecret, cacheClient, TimeProvider.System, Environment.GetEnvironmentVariable)
+    {
+    }
+
+    internal Tenants(
+        ILogger<Tenants> logger,
+        IBlocksSecret blocksSecret,
+        ICacheClient cacheClient,
+        TimeProvider timeProvider,
+        Func<string, string?> readEnvironment)
     {
         _logger = logger;
         _blocksSecret = blocksSecret;
         _cacheClient = cacheClient;
+        _timeProvider = timeProvider;
+        _cacheLifetime = ResolveCacheLifetime(readEnvironment(CacheLifetimeEnvironmentVariable), logger);
 
         _database = new MongoClient(_blocksSecret.DatabaseConnectionString).GetDatabase(_blocksSecret.RootDatabaseName);
 
@@ -49,44 +82,131 @@ public sealed class Tenants : ITenants, IDisposable
     {
         if (string.IsNullOrWhiteSpace(tenantId)) return null;
 
-        // Try to get tenant from the in-memory cache
-        if (_tenantCache.TryGetValue(tenantId, out var tenant))
+        if (_tenantCache.TryGetValue(tenantId, out var entry))
         {
-            if (!tenant.IsDisabled)
-                return tenant;
-
-            // Never serve a disabled tenant; drop it and fall through to the database.
-            _tenantCache.TryRemove(tenantId, out _);
+            if (entry.Tenant.IsDisabled)
+            {
+                // Never serve a disabled tenant; drop it and fall through to the database.
+                _tenantCache.TryRemove(tenantId, out _);
+            }
+            else if (IsFresh(entry))
+            {
+                return entry.Tenant;
+            }
         }
 
-        // Deduplicate concurrent DB lookups for the same tenant ID.
+        return LoadTenantOnce(tenantId);
+    }
+
+    /// <summary>
+    /// Loads a tenant from the database with at most one read in flight per tenant;
+    /// concurrent callers for the same tenant wait for that read and share its result.
+    /// </summary>
+    private Tenant? LoadTenantOnce(string tenantId)
+    {
         var loader = _tenantLoadInProgress.GetOrAdd(
             tenantId,
-            id => new Lazy<Tenant?>(() => GetTenantFromDb(id), LazyThreadSafetyMode.ExecutionAndPublication));
+            id => new Lazy<Tenant?>(() => LoadAndCacheTenant(id), LazyThreadSafetyMode.ExecutionAndPublication));
 
         try
         {
-            tenant = loader.Value;
+            return loader.Value;
         }
         finally
         {
-            _tenantLoadInProgress.TryRemove(tenantId, out _);
+            // Remove only this loader, never one a later caller has started since.
+            _tenantLoadInProgress.TryRemove(new KeyValuePair<string, Lazy<Tenant?>>(tenantId, loader));
+        }
+    }
+
+    private Tenant? LoadAndCacheTenant(string tenantId)
+    {
+        // A caller that arrives just after another load finished finds its result here
+        // and does not read the database a second time.
+        _tenantCache.TryGetValue(tenantId, out var previous);
+        if (previous is { Tenant.IsDisabled: false } && IsFresh(previous))
+        {
+            return previous.Tenant;
         }
 
-        if (TryCacheTenant(tenant))
+        Tenant? loaded;
+        try
+        {
+            loaded = ReadTenantFromDb(tenantId);
+        }
+        catch (Exception ex)
+        {
+            return ServeLastGoodAfterFailedLoad(tenantId, previous, ex);
+        }
+
+        if (loaded is null)
+        {
+            // The database answered: the tenant is disabled or gone.
+            _tenantCache.TryRemove(tenantId, out _);
+            return null;
+        }
+
+        if (TryCacheTenant(loaded) && previous is null)
         {
             // Ensure trace collection exists asynchronously without blocking
-            _ = EnsureTraceCollectionExistsAsync(tenant!);
+            _ = EnsureTraceCollectionExistsAsync(loaded);
         }
 
-        return tenant;
+        return loaded;
+    }
+
+    /// <summary>
+    /// A failed read says nothing about the tenant. The last good copy (never a disabled
+    /// one) is served and retried after a short delay; with no such copy the lookup fails
+    /// like an unknown tenant.
+    /// </summary>
+    private Tenant? ServeLastGoodAfterFailedLoad(string tenantId, TenantCacheEntry? previous, Exception ex)
+    {
+        if (previous is null || previous.Tenant.IsDisabled)
+        {
+            _logger.LogError(ex, "Failed to retrieve tenant from DB for ID: {TenantId}", tenantId);
+            return null;
+        }
+
+        var retryDelay = ReloadFailureRetryDelay < _cacheLifetime ? ReloadFailureRetryDelay : _cacheLifetime;
+        _tenantCache.TryUpdate(tenantId, previous with { ExpiresAtUtc = _timeProvider.GetUtcNow() + retryDelay }, previous);
+
+        _logger.LogWarning(
+            ex,
+            "Failed to reload tenant from DB; serving the last good cached copy and retrying in {RetryDelay}. TenantId: {TenantId}",
+            retryDelay,
+            tenantId);
+
+        return previous.Tenant;
+    }
+
+    private bool IsFresh(TenantCacheEntry entry) => entry.ExpiresAtUtc > _timeProvider.GetUtcNow();
+
+    private static TimeSpan ResolveCacheLifetime(string? configuredSeconds, ILogger logger)
+    {
+        if (configuredSeconds is null)
+        {
+            return DefaultCacheLifetime;
+        }
+
+        if (int.TryParse(configuredSeconds.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds) && seconds > 0)
+        {
+            return TimeSpan.FromSeconds(seconds);
+        }
+
+        logger.LogWarning(
+            "Invalid {Variable} value; using the default tenant cache lifetime of {Lifetime}.",
+            CacheLifetimeEnvironmentVariable,
+            DefaultCacheLifetime);
+
+        return DefaultCacheLifetime;
     }
 
     public Dictionary<string, (string, string)> GetTenantDatabaseConnectionStrings()
     {
         return _tenantCache.ToDictionary(
             kvp => kvp.Key,
-            kvp => (kvp.Value.DBName, kvp.Value.DbConnectionString));
+            kvp => (kvp.Value.Tenant.DBName, kvp.Value.Tenant.DbConnectionString));
     }
 
     public (string?, string?) GetTenantDatabaseConnectionString(string tenantId)
@@ -306,23 +426,8 @@ public sealed class Tenants : ITenants, IDisposable
             return false;
         }
 
-        _tenantCache[tenant.TenantId] = tenant;
+        _tenantCache[tenant.TenantId] = new TenantCacheEntry(tenant, _timeProvider.GetUtcNow() + _cacheLifetime);
         return true;
-    }
-
-    private Tenant? GetTenantFromDb(string tenantId)
-    {
-        if (string.IsNullOrWhiteSpace(tenantId)) return null;
-
-        try
-        {
-            return ReadTenantFromDb(tenantId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to retrieve tenant from DB for ID: {TenantId}", tenantId);
-            return null;
-        }
     }
 
     /// <summary>
@@ -363,11 +468,18 @@ public sealed class Tenants : ITenants, IDisposable
 
         appName = BlocksContext.NormalizeDomain(appName);
 
-        var cachedTenant = _tenantCache.Values.FirstOrDefault(tenant => !tenant.IsDisabled && tenant.Applications.Any(a => string.Equals(BlocksContext.NormalizeDomain(a.Domain), appName, StringComparison.OrdinalIgnoreCase)));
+        var cachedTenant = _tenantCache.Values
+            .Select(entry => entry.Tenant)
+            .FirstOrDefault(tenant => !tenant.IsDisabled && HasApplicationDomain(tenant, appName));
 
         if (cachedTenant != null)
         {
-            return cachedTenant;
+            // GetTenantByID serves a fresh entry as is and reloads an expired one.
+            var current = GetTenantByID(cachedTenant.TenantId);
+            if (current != null && HasApplicationDomain(current, appName))
+            {
+                return current;
+            }
         }
 
         try
@@ -402,6 +514,11 @@ public sealed class Tenants : ITenants, IDisposable
         }
     }
 
+
+    private static bool HasApplicationDomain(Tenant tenant, string normalizedDomain)
+    {
+        return tenant.Applications.Any(a => string.Equals(BlocksContext.NormalizeDomain(a.Domain), normalizedDomain, StringComparison.OrdinalIgnoreCase));
+    }
 
     private async Task EnsureTraceCollectionExistsAsync(Tenant tenant)
     {

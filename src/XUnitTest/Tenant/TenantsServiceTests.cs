@@ -25,7 +25,7 @@ public class TenantsServiceTests
     public void GetTenantByID_ShouldReturnTenantFromCache_WhenPresent()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         var tenant = CreateTenant("tenant-1");
         cache["tenant-1"] = tenant;
 
@@ -72,7 +72,7 @@ public class TenantsServiceTests
         Assert.NotNull(result);
         Assert.Equal("tenant-db", result!.TenantId);
 
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         Assert.True(cache.ContainsKey("tenant-db"));
     }
 
@@ -80,7 +80,7 @@ public class TenantsServiceTests
     public void GetTenantDatabaseConnectionStrings_ShouldMapFromCache()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["t1"] = CreateTenant("t1", dbName: "db1", connection: "conn1");
         cache["t2"] = CreateTenant("t2", dbName: "db2", connection: "conn2");
 
@@ -105,7 +105,7 @@ public class TenantsServiceTests
     public void GetTenantDatabaseConnectionString_ShouldReturnTenantValues_WhenFound()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["tenant-1"] = CreateTenant("tenant-1", dbName: "db-main", connection: "mongo-main");
 
         var result = sut.GetTenantDatabaseConnectionString("tenant-1");
@@ -127,7 +127,7 @@ public class TenantsServiceTests
     public void GetTenantTokenValidationParameter_ShouldReturnJwtParams_WhenFound()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         var tenant = CreateTenant("tenant-1");
         cache["tenant-1"] = tenant;
 
@@ -265,7 +265,7 @@ public class TenantsServiceTests
     public void GetTenantByApplicationDomain_ShouldReturnTenantFromCache_WhenPresent()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         var tenant = CreateTenant("tenant-cache");
         tenant.Applications = [new Blocks.Genesis.Applications { Domain = "https://acme.local" }];
         cache[tenant.TenantId] = tenant;
@@ -367,7 +367,7 @@ public class TenantsServiceTests
     public void HandleTenantUpdate_ShouldIgnoreInvalidPayload()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["tenant-1"] = CreateTenant("tenant-1", dbName: "db");
 
         InvokePrivateHandleTenantUpdate(sut, "tenant::updates", "not-json");
@@ -412,7 +412,7 @@ public class TenantsServiceTests
     public void HandleTenantUpdate_ShouldUpsertTenant_WhenUpsertMessageReceived()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         var incoming = CreateTenant("tenant-1", dbName: "updated-db");
 
         InvokePrivateHandleTenantUpdate(
@@ -428,7 +428,7 @@ public class TenantsServiceTests
     public void HandleTenantUpdate_ShouldRemoveByTenantId_WhenRemoveMessageReceived()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["keep"] = CreateTenant("keep", dbName: "keep-db");
         cache["tenant-1"] = CreateTenant("tenant-1", dbName: "old-db");
 
@@ -446,7 +446,7 @@ public class TenantsServiceTests
     public void HandleTenantUpdate_ShouldRemoveByTenantPayload_WhenRemoveMessageReceived()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["keep"] = CreateTenant("keep", dbName: "keep-db");
         cache["tenant-1"] = CreateTenant("tenant-1", dbName: "old-db");
 
@@ -464,7 +464,7 @@ public class TenantsServiceTests
     public void GetTenantTokenValidationParameter_ShouldServeFromCache_WhenCertificatePathIsPresent()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["tenant-ok"] = CreateTenant("tenant-ok");
 
         var database = new Mock<IMongoDatabase>();
@@ -484,7 +484,7 @@ public class TenantsServiceTests
     public void GetTenantTokenValidationParameter_ShouldRevalidateFromDb_WhenCachedCertificatePathIsBlank()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["tenant-stale"] = CreateTenantWithoutCertificatePath("tenant-stale");
 
         SetField(sut, "_database", CreateDatabaseReturning(CreateTenant("tenant-stale")).Object);
@@ -501,7 +501,7 @@ public class TenantsServiceTests
     public void GetTenantTokenValidationParameter_ShouldThrottleRevalidation_WhenPathStaysBlank()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["tenant-blank"] = CreateTenantWithoutCertificatePath("tenant-blank");
 
         // The database agrees the path is blank, so revalidation cannot help.
@@ -523,7 +523,7 @@ public class TenantsServiceTests
     public void GetTenantTokenValidationParameter_ShouldFallBackToCachedValue_WhenRevalidationFindsNothing()
     {
         var sut = CreateSut();
-        var cache = GetField<ConcurrentDictionary<string, Blocks.Genesis.Tenant>>(sut, "_tenantCache");
+        var cache = TenantCacheView.Of(sut);
         cache["tenant-gone"] = CreateTenantWithoutCertificatePath("tenant-gone");
 
         var database = new Mock<IMongoDatabase>();
@@ -584,7 +584,9 @@ public class TenantsServiceTests
         SetField(instance, "_tenantUpdateChannel", "tenant::updates");
         SetField(instance, "_isSubscribed", false);
         SetField(instance, "_disposed", false);
-        SetField(instance, "_tenantCache", new ConcurrentDictionary<string, Blocks.Genesis.Tenant>());
+        SetField(instance, "_tenantCache", new ConcurrentDictionary<string, TenantCacheEntry>());
+        SetField(instance, "_timeProvider", TimeProvider.System);
+        SetField(instance, "_cacheLifetime", Tenants.DefaultCacheLifetime);
         SetField(instance, "_tenantLoadInProgress", new ConcurrentDictionary<string, Lazy<Blocks.Genesis.Tenant?>>());
         // GetUninitializedObject skips field initializers, so every readonly field the
         // production code touches has to be seeded here explicitly.

@@ -100,12 +100,7 @@ public class TenantsUpdateHandlerCoverageTests
         return tenants;
     }
 
-    private static System.Collections.Concurrent.ConcurrentDictionary<string, Blocks.Genesis.Tenant> GetCache(Tenants tenants)
-    {
-        var field = typeof(Tenants).GetField("_tenantCache", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(field);
-        return (System.Collections.Concurrent.ConcurrentDictionary<string, Blocks.Genesis.Tenant>)field!.GetValue(tenants)!;
-    }
+    private static TenantCacheView GetCache(Tenants tenants) => TenantCacheView.Of(tenants);
 
     private static Blocks.Genesis.Tenant MakeTenant(string tenantId)
     {

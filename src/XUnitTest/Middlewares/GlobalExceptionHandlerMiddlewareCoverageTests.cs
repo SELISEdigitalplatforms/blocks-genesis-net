@@ -53,6 +53,36 @@ public class GlobalExceptionHandlerMiddlewareCoverageTests
         Assert.Equal("required", errorsElement.GetProperty("name")[0].GetString());
     }
 
+    [Fact]
+    public async Task Invoke_ShouldKeepExceptionMessage_ForClientErrors()
+    {
+        var logger = new Mock<ILogger<GlobalExceptionHandlerMiddleware>>();
+        var middleware = new GlobalExceptionHandlerMiddleware(_ => throw new BlocksNotFoundException("missing-thing"), logger.Object);
+        var context = CreateContext();
+
+        await middleware.Invoke(context);
+
+        context.Response.Body.Position = 0;
+        using var document = await JsonDocument.ParseAsync(context.Response.Body);
+        Assert.Equal("missing-thing", document.RootElement.GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task Invoke_ShouldHideExceptionMessage_ForServerErrors()
+    {
+        var logger = new Mock<ILogger<GlobalExceptionHandlerMiddleware>>();
+        var middleware = new GlobalExceptionHandlerMiddleware(_ => throw new InvalidOperationException("internal-detail"), logger.Object);
+        var context = CreateContext();
+
+        await middleware.Invoke(context);
+
+        Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.DoesNotContain("internal-detail", body, StringComparison.Ordinal);
+        Assert.Contains("An unexpected error occurred.", body, StringComparison.Ordinal);
+    }
+
     private static DefaultHttpContext CreateContext()
     {
         var context = new DefaultHttpContext();
