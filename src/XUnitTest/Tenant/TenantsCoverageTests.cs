@@ -422,12 +422,7 @@ public class TenantsCoverageTests
         Assert.True(GetCache(tenants).ContainsKey("tenant-keep"));
     }
 
-    private static ConcurrentDictionary<string, Blocks.Genesis.Tenant> GetCache(Tenants tenants)
-    {
-        var field = typeof(Tenants).GetField("_tenantCache", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(field);
-        return (ConcurrentDictionary<string, Blocks.Genesis.Tenant>)field!.GetValue(tenants)!;
-    }
+    private static TenantCacheView GetCache(Tenants tenants) => TenantCacheView.Of(tenants);
 
     private static Tenants CreateTenants(
         string databaseName,
