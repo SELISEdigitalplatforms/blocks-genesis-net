@@ -591,6 +591,9 @@ public class TenantsServiceTests
         // GetUninitializedObject skips field initializers, so every readonly field the
         // production code touches has to be seeded here explicitly.
         SetField(instance, "_lastTokenParameterRevalidationUtc", new ConcurrentDictionary<string, DateTime>());
+        SetField(instance, "_cacheGate", new object());
+        var removalMarks = typeof(Tenants).GetField("_removalMarks", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        removalMarks.SetValue(instance, Activator.CreateInstance(removalMarks.FieldType, StringComparer.Ordinal));
 
         return instance;
     }
