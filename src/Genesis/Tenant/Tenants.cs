@@ -45,6 +45,15 @@ public sealed class Tenants : ITenants, IDisposable
     private readonly ConcurrentDictionary<string, Lazy<Tenant?>> _tenantLoadInProgress = [];
     private readonly ConcurrentDictionary<string, DateTime> _lastTokenParameterRevalidationUtc = [];
 
+    // A disabled tenant is never in the cache. Every write goes through TryCacheTenant and
+    // every removal through MarkRemoved, both under this lock. A removal leaves a mark with a
+    // new epoch; a database read stores its result only if no removal of that tenant happened
+    // after the read started, and while a mark is active only such a fresh read (never an
+    // update event) can put the tenant back.
+    private readonly object _cacheGate = new();
+    private readonly Dictionary<string, TenantRemovalMark> _removalMarks = new(StringComparer.Ordinal);
+    private long _removalEpoch;
+
     // A cached tenant is only ever refreshed by a "tenant::updates" message, and Redis
     // pub/sub delivers at most once — a pod that is restarting, disconnected, or simply
     // started after the publish keeps the stale copy for its whole lifetime. When the
@@ -87,7 +96,7 @@ public sealed class Tenants : ITenants, IDisposable
             if (entry.Tenant.IsDisabled)
             {
                 // Never serve a disabled tenant; drop it and fall through to the database.
-                _tenantCache.TryRemove(tenantId, out _);
+                MarkRemoved(tenantId);
             }
             else if (IsFresh(entry))
             {
@@ -129,6 +138,7 @@ public sealed class Tenants : ITenants, IDisposable
             return previous.Tenant;
         }
 
+        var readStartedAt = CurrentRemovalEpoch();
         Tenant? loaded;
         try
         {
@@ -136,17 +146,23 @@ public sealed class Tenants : ITenants, IDisposable
         }
         catch (Exception ex)
         {
-            return ServeLastGoodAfterFailedLoad(tenantId, previous, ex);
+            return ServeLastGoodAfterFailedLoad(tenantId, ex);
         }
 
         if (loaded is null)
         {
             // The database answered: the tenant is disabled or gone.
-            _tenantCache.TryRemove(tenantId, out _);
+            MarkRemoved(tenantId, onlyIfKnown: true);
             return null;
         }
 
-        if (TryCacheTenant(loaded) && previous is null)
+        if (!TryCacheTenant(loaded, TenantCacheSource.DatabaseRead, readStartedAt))
+        {
+            // Disabled or removed while the read was in flight: the result is stale.
+            return null;
+        }
+
+        if (previous is null)
         {
             // Ensure trace collection exists asynchronously without blocking
             _ = EnsureTraceCollectionExistsAsync(loaded);
@@ -156,20 +172,19 @@ public sealed class Tenants : ITenants, IDisposable
     }
 
     /// <summary>
-    /// A failed read says nothing about the tenant. The last good copy (never a disabled
-    /// one) is served and retried after a short delay; with no such copy the lookup fails
-    /// like an unknown tenant.
+    /// A failed read says nothing about the tenant. The copy still in the cache is served and
+    /// retried after a short delay. A disable or remove event evicts that copy, so after one
+    /// there is nothing to serve and the lookup fails like an unknown tenant.
     /// </summary>
-    private Tenant? ServeLastGoodAfterFailedLoad(string tenantId, TenantCacheEntry? previous, Exception ex)
+    private Tenant? ServeLastGoodAfterFailedLoad(string tenantId, Exception ex)
     {
-        if (previous is null || previous.Tenant.IsDisabled)
+        var retryDelay = ReloadFailureRetryDelay < _cacheLifetime ? ReloadFailureRetryDelay : _cacheLifetime;
+        var lastGood = TryExtendCachedTenant(tenantId, _timeProvider.GetUtcNow() + retryDelay);
+        if (lastGood is null)
         {
             _logger.LogError(ex, "Failed to retrieve tenant from DB for ID: {TenantId}", tenantId);
             return null;
         }
-
-        var retryDelay = ReloadFailureRetryDelay < _cacheLifetime ? ReloadFailureRetryDelay : _cacheLifetime;
-        _tenantCache.TryUpdate(tenantId, previous with { ExpiresAtUtc = _timeProvider.GetUtcNow() + retryDelay }, previous);
 
         _logger.LogWarning(
             ex,
@@ -177,7 +192,7 @@ public sealed class Tenants : ITenants, IDisposable
             retryDelay,
             tenantId);
 
-        return previous.Tenant;
+        return lastGood;
     }
 
     private bool IsFresh(TenantCacheEntry entry) => entry.ExpiresAtUtc > _timeProvider.GetUtcNow();
@@ -267,6 +282,7 @@ public sealed class Tenants : ITenants, IDisposable
             return null;
         }
 
+        var readStartedAt = CurrentRemovalEpoch();
         Tenant? refreshed;
         try
         {
@@ -282,14 +298,18 @@ public sealed class Tenants : ITenants, IDisposable
         if (refreshed is null)
         {
             // The database answered: the tenant is disabled or gone. Stop serving it.
-            _tenantCache.TryRemove(tenantId, out _);
+            MarkRemoved(tenantId, onlyIfKnown: true);
             _logger.LogInformation(
                 "Tenant evicted from cache on re-read because it is disabled or missing. TenantId: {TenantId}",
                 tenantId);
             return null;
         }
 
-        TryCacheTenant(refreshed);
+        if (!TryCacheTenant(refreshed, TenantCacheSource.DatabaseRead, readStartedAt))
+        {
+            // Disabled or removed while the read was in flight: the result is stale.
+            return null;
+        }
 
         var pathNowPresent = !string.IsNullOrWhiteSpace(refreshed.JwtTokenParameters?.PublicCertificatePath);
 
@@ -381,7 +401,7 @@ public sealed class Tenants : ITenants, IDisposable
             {
                 if (!string.IsNullOrWhiteSpace(tenantId))
                 {
-                    _tenantCache.TryRemove(tenantId, out _);
+                    MarkRemoved(tenantId);
                 }
 
                 return;
@@ -393,14 +413,15 @@ public sealed class Tenants : ITenants, IDisposable
 
             if (tenant.IsDisabled)
             {
-                _tenantCache.TryRemove(tenant.TenantId, out _);
+                MarkRemoved(tenant.TenantId);
                 return;
             }
 
             bool isNewTenant = !_tenantCache.ContainsKey(tenant.TenantId);
-            TryCacheTenant(tenant);
 
-            if (isNewTenant)
+            // An update event never puts back a tenant whose disable or remove was seen; the
+            // next lookup reads the database instead.
+            if (TryCacheTenant(tenant, TenantCacheSource.UpdateEvent, CurrentRemovalEpoch()) && isNewTenant)
             {
                 // Ensure trace collection exists asynchronously without blocking the update handler
                 _ = EnsureTraceCollectionExistsAsync(tenant);
@@ -414,20 +435,109 @@ public sealed class Tenants : ITenants, IDisposable
 
     /// <summary>
     /// The only way a tenant enters the in-memory cache. A disabled tenant is never cached;
-    /// any copy already held for it is removed instead.
+    /// it is marked removed and any copy is evicted instead. A result whose tenant was removed
+    /// after <paramref name="readStartedAt"/> is stale and dropped. While a removal mark is
+    /// active only a database read started after it may re-add the tenant.
     /// </summary>
-    private bool TryCacheTenant(Tenant? tenant)
+    private bool TryCacheTenant(Tenant? tenant, TenantCacheSource source, long readStartedAt)
     {
         if (tenant is null || string.IsNullOrWhiteSpace(tenant.TenantId)) return false;
 
-        if (tenant.IsDisabled)
+        lock (_cacheGate)
         {
-            _tenantCache.TryRemove(tenant.TenantId, out _);
-            return false;
+            if (tenant.IsDisabled)
+            {
+                MarkRemovedLocked(tenant.TenantId);
+                return false;
+            }
+
+            if (_removalMarks.TryGetValue(tenant.TenantId, out var mark))
+            {
+                if (mark.Epoch > readStartedAt || (mark.Active && source != TenantCacheSource.DatabaseRead))
+                {
+                    return false;
+                }
+
+                // A fresh read found the tenant enabled again.
+                mark.Active = false;
+            }
+
+            _tenantCache[tenant.TenantId] = new TenantCacheEntry(tenant, _timeProvider.GetUtcNow() + _cacheLifetime);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The cached tenant with a new expiry, or null when none is cached. A disabled copy is
+    /// never served: it is marked removed instead.
+    /// </summary>
+    private Tenant? TryExtendCachedTenant(string tenantId, DateTimeOffset expiresAtUtc)
+    {
+        lock (_cacheGate)
+        {
+            if (!_tenantCache.TryGetValue(tenantId, out var current))
+            {
+                return null;
+            }
+
+            if (current.Tenant.IsDisabled)
+            {
+                MarkRemovedLocked(tenantId);
+                return null;
+            }
+
+            _tenantCache[tenantId] = current with { ExpiresAtUtc = expiresAtUtc };
+            return current.Tenant;
+        }
+    }
+
+    /// <summary>
+    /// Evicts the tenant and leaves a removal mark, so no read or update that started before
+    /// this point can put it back. With <paramref name="onlyIfKnown"/> an id that was never
+    /// cached or marked gets no mark (a lookup of an unknown id must not grow the marks).
+    /// </summary>
+    private void MarkRemoved(string tenantId, bool onlyIfKnown = false)
+    {
+        lock (_cacheGate)
+        {
+            if (onlyIfKnown && !_tenantCache.ContainsKey(tenantId) && !_removalMarks.ContainsKey(tenantId))
+            {
+                return;
+            }
+
+            MarkRemovedLocked(tenantId);
+        }
+    }
+
+    private void MarkRemovedLocked(string tenantId)
+    {
+        var epoch = Interlocked.Increment(ref _removalEpoch);
+        if (_removalMarks.TryGetValue(tenantId, out var mark))
+        {
+            mark.Epoch = epoch;
+            mark.Active = true;
+        }
+        else
+        {
+            _removalMarks[tenantId] = new TenantRemovalMark { Epoch = epoch, Active = true };
         }
 
-        _tenantCache[tenant.TenantId] = new TenantCacheEntry(tenant, _timeProvider.GetUtcNow() + _cacheLifetime);
-        return true;
+        _tenantCache.TryRemove(tenantId, out _);
+    }
+
+    private long CurrentRemovalEpoch() => Interlocked.Read(ref _removalEpoch);
+
+    private enum TenantCacheSource
+    {
+        DatabaseRead,
+        UpdateEvent
+    }
+
+    private sealed class TenantRemovalMark
+    {
+        public long Epoch { get; set; }
+
+        public bool Active { get; set; }
     }
 
     /// <summary>
@@ -482,6 +592,7 @@ public sealed class Tenants : ITenants, IDisposable
             }
         }
 
+        var readStartedAt = CurrentRemovalEpoch();
         try
         {
             var builder = Builders<Tenant>.Filter;
@@ -499,12 +610,19 @@ public sealed class Tenants : ITenants, IDisposable
                 .Find(filter)
                 .FirstOrDefault();
 
-            if (TryCacheTenant(tenant))
+            if (tenant is null)
             {
-                // Ensure trace collection exists asynchronously without blocking
-                _ = EnsureTraceCollectionExistsAsync(tenant!);
+                return null;
             }
 
+            if (!TryCacheTenant(tenant, TenantCacheSource.DatabaseRead, readStartedAt))
+            {
+                // Disabled or removed while the query was in flight: the result is stale.
+                return null;
+            }
+
+            // Ensure trace collection exists asynchronously without blocking
+            _ = EnsureTraceCollectionExistsAsync(tenant);
             return tenant;
         }
         catch (Exception ex)

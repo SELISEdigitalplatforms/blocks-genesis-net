@@ -251,6 +251,231 @@ public class TenantsCacheLifetimeTests
         Assert.Equal(Start.AddSeconds(expectedSeconds), harness.Cache.ExpiresAt(TenantId));
     }
 
+    // ---------- a disabled tenant is never in the cache ----------
+
+    private const string OtherTenantId = "tenant-other";
+
+    /// <summary>
+    /// Runs <paramref name="lookup"/> on its own thread with the database read held open,
+    /// calls <paramref name="duringRead"/> while the read is in flight, then lets the read
+    /// finish with <paramref name="readResult"/>.
+    /// </summary>
+    private static Blocks.Genesis.Tenant? RunWithReadInFlight(
+        Harness harness,
+        Func<Blocks.Genesis.Tenant?> lookup,
+        Func<Blocks.Genesis.Tenant?> readResult,
+        Action duringRead)
+    {
+        using var started = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        harness.Db.Next = () =>
+        {
+            started.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+            return readResult();
+        };
+
+        Blocks.Genesis.Tenant? result = null;
+        var thread = new Thread(() => result = lookup());
+        thread.Start();
+        Assert.True(started.Wait(TimeSpan.FromSeconds(10)));
+        duringRead();
+        release.Set();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)));
+        return result;
+    }
+
+    private static Blocks.Genesis.Tenant Disabled(string tenantId)
+    {
+        var tenant = MakeTenant(tenantId);
+        tenant.IsDisabled = true;
+        return tenant;
+    }
+
+    [Theory]
+    [InlineData(Tenants.TenantCacheUpdateActionUpsert)]
+    [InlineData(Tenants.TenantCacheUpdateActionRemove)]
+    public void DisableEvent_DuringInFlightReload_RefusesTenantAfterwards(string action)
+    {
+        var harness = new Harness();
+        harness.Db.Next = () => MakeTenant(TenantId, dbName: FirstDb);
+        Assert.NotNull(harness.Sut.GetTenantByID(TenantId));
+        harness.Time.Advance(Tenants.DefaultCacheLifetime);
+
+        // The reload read the enabled row before the disable landed.
+        var result = RunWithReadInFlight(
+            harness,
+            () => harness.Sut.GetTenantByID(TenantId),
+            () => MakeTenant(TenantId, dbName: SecondDb),
+            () => harness.Publish(action, Disabled(TenantId)));
+
+        Assert.Null(result);
+        Assert.False(harness.Cache.ContainsKey(TenantId));
+
+        harness.Db.Next = () => null;
+        Assert.Null(harness.Sut.GetTenantByID(TenantId));
+        Assert.Empty(harness.Sut.GetTenantDatabaseConnectionStrings());
+    }
+
+    [Fact]
+    public void DisableEvent_DuringInFlightFirstLoad_IsNotCached()
+    {
+        var harness = new Harness();
+
+        var result = RunWithReadInFlight(
+            harness,
+            () => harness.Sut.GetTenantByID(TenantId),
+            () => MakeTenant(TenantId),
+            () => harness.Publish(Tenants.TenantCacheUpdateActionRemove, Disabled(TenantId)));
+
+        Assert.Null(result);
+        Assert.Empty(harness.Cache);
+    }
+
+    [Fact]
+    public void DisableEvent_DuringInFlightDomainLookup_IsRefused()
+    {
+        var harness = new Harness();
+
+        var result = RunWithReadInFlight(
+            harness,
+            () => harness.Sut.GetTenantByApplicationDomain(AppDomain),
+            () => MakeTenant(TenantId),
+            () => harness.Publish(Tenants.TenantCacheUpdateActionUpsert, Disabled(TenantId)));
+
+        Assert.Null(result);
+        Assert.Empty(harness.Cache);
+    }
+
+    [Fact]
+    public void DisableEvent_DuringInFlightRevalidation_IsRefused()
+    {
+        var harness = new Harness();
+        var withoutPath = MakeTenant(TenantId);
+        withoutPath.JwtTokenParameters.PublicCertificatePath = string.Empty;
+        harness.Db.Next = () => withoutPath;
+        Assert.NotNull(harness.Sut.GetTenantByID(TenantId));
+
+        var parameters = default(JwtTokenParameters);
+        RunWithReadInFlight(
+            harness,
+            () =>
+            {
+                parameters = harness.Sut.GetTenantTokenValidationParameter(TenantId);
+                return null;
+            },
+            () => MakeTenant(TenantId),
+            () => harness.Publish(Tenants.TenantCacheUpdateActionRemove, Disabled(TenantId)));
+
+        Assert.Null(parameters);
+        Assert.Empty(harness.Cache);
+    }
+
+    [Fact]
+    public void DisableEvent_ForAnotherTenant_DoesNotDropANormalReload()
+    {
+        var harness = new Harness();
+        harness.Db.Next = () => MakeTenant(TenantId, dbName: FirstDb);
+        Assert.NotNull(harness.Sut.GetTenantByID(TenantId));
+        harness.Time.Advance(Tenants.DefaultCacheLifetime);
+
+        var result = RunWithReadInFlight(
+            harness,
+            () => harness.Sut.GetTenantByID(TenantId),
+            () => MakeTenant(TenantId, dbName: SecondDb),
+            () => harness.Publish(Tenants.TenantCacheUpdateActionRemove, Disabled(OtherTenantId)));
+
+        Assert.Equal(SecondDb, result!.DBName);
+        Assert.Equal(SecondDb, harness.Cache[TenantId].DBName);
+        Assert.Equal(harness.Time.GetUtcNow() + Tenants.DefaultCacheLifetime, harness.Cache.ExpiresAt(TenantId));
+    }
+
+    [Fact]
+    public void StaleUpsert_AfterDisable_DoesNotPutTenantBack()
+    {
+        var harness = new Harness();
+        harness.Db.Next = () => MakeTenant(TenantId);
+        Assert.NotNull(harness.Sut.GetTenantByID(TenantId));
+
+        harness.Publish(Tenants.TenantCacheUpdateActionUpsert, Disabled(TenantId));
+        harness.Publish(Tenants.TenantCacheUpdateActionUpsert, MakeTenant(TenantId));
+
+        Assert.False(harness.Cache.ContainsKey(TenantId));
+        harness.Db.Next = () => null;
+        Assert.Null(harness.Sut.GetTenantByID(TenantId));
+    }
+
+    [Fact]
+    public void ReloadFailure_AfterDisableDuringTheRead_IsRefused()
+    {
+        var harness = new Harness();
+        harness.Db.Next = () => MakeTenant(TenantId, dbName: FirstDb);
+        Assert.NotNull(harness.Sut.GetTenantByID(TenantId));
+        harness.Time.Advance(Tenants.DefaultCacheLifetime);
+
+        var result = RunWithReadInFlight(
+            harness,
+            () => harness.Sut.GetTenantByID(TenantId),
+            () => throw new TimeoutException(DbDown),
+            () => harness.Publish(Tenants.TenantCacheUpdateActionRemove, Disabled(TenantId)));
+
+        Assert.Null(result);
+        Assert.Empty(harness.Cache);
+        harness.VerifyLogged(LogLevel.Warning, Times.Never());
+    }
+
+    [Fact]
+    public void ReloadFailure_AfterDisable_IsRefused()
+    {
+        var harness = new Harness();
+        harness.Db.Next = () => MakeTenant(TenantId);
+        Assert.NotNull(harness.Sut.GetTenantByID(TenantId));
+
+        harness.Publish(Tenants.TenantCacheUpdateActionUpsert, Disabled(TenantId));
+        harness.Db.Next = () => throw new TimeoutException(DbDown);
+
+        Assert.Null(harness.Sut.GetTenantByID(TenantId));
+        Assert.Empty(harness.Cache);
+    }
+
+    [Fact]
+    public void ReEnable_ThroughAFreshRead_IsServedAndCached()
+    {
+        var harness = new Harness();
+        harness.Db.Next = () => MakeTenant(TenantId);
+        Assert.NotNull(harness.Sut.GetTenantByID(TenantId));
+        harness.Publish(Tenants.TenantCacheUpdateActionRemove, Disabled(TenantId));
+
+        // The re-enable event alone is not trusted; the next lookup reads the database.
+        harness.Publish(Tenants.TenantCacheUpdateActionUpsert, MakeTenant(TenantId, dbName: SecondDb));
+        Assert.False(harness.Cache.ContainsKey(TenantId));
+
+        harness.Db.Next = () => MakeTenant(TenantId, dbName: SecondDb);
+        Assert.Equal(SecondDb, harness.Sut.GetTenantByID(TenantId)!.DBName);
+        Assert.True(harness.Cache.ContainsKey(TenantId));
+
+        // Once re-added, update events apply again.
+        harness.Publish(Tenants.TenantCacheUpdateActionUpsert, MakeTenant(TenantId, dbName: FirstDb));
+        Assert.Equal(FirstDb, harness.Cache[TenantId].DBName);
+    }
+
+    [Fact]
+    public void UnknownTenantLookups_LeaveNoRemovalMarks()
+    {
+        var harness = new Harness();
+        harness.Db.Next = () => null;
+
+        for (var i = 0; i < 50; i++)
+        {
+            Assert.Null(harness.Sut.GetTenantByID($"unknown-{i}"));
+        }
+
+        var marks = (System.Collections.ICollection)typeof(Tenants)
+            .GetField("_removalMarks", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(harness.Sut)!;
+        Assert.Empty(marks);
+    }
+
     private static Blocks.Genesis.Tenant MakeTenant(string tenantId, string dbName = "db")
     {
         return new Blocks.Genesis.Tenant
