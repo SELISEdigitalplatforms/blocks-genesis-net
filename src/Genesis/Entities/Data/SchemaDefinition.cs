@@ -27,6 +27,13 @@ public class SchemaDefinition : GraphQlBaseEntity
     [BsonIgnoreIfDefault]
     public bool IsSystemEntity { get; set; }
 
+    /// <summary>
+    /// What the schema holds, in plain text (at most 500 characters, checked by the Data Gateway).
+    /// Not written while null, so existing documents are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? Description { get; set; }
+
     public string GetSchemaNameForProject()
     {
         return SchemaName;

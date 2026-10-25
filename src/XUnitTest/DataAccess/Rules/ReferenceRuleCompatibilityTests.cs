@@ -14,10 +14,13 @@ public class ReferenceRuleCompatibilityTests
     };
 
     [Fact]
-    public void TenantRules_PointAtTenantEntities_SystemRulesAtSystemEntities()
+    public void TenantRules_PointAtTenantOrSystemEntities_SystemRulesAtSystemEntities()
     {
+        // Changed 2026-10-25 (owner decision, validation and access rules plan, section 8): a tenant rule may also
+        // point at a system entity. A system rule still points at system entities only.
         Assert.Null(ReferenceRuleCompatibility.Check(Tags, Role(system: false), "Slug"));
-        Assert.Equal(ReferenceRuleCompatibility.TargetSchemaMustBeEntity, ReferenceRuleCompatibility.Check(Tags, Role(system: true), "Slug"));
+        Assert.Null(ReferenceRuleCompatibility.Check(Tags, Role(system: true), "Slug"));
+        Assert.Equal(ReferenceRuleCompatibility.TargetFieldMustExist, ReferenceRuleCompatibility.Check(Tags, Role(system: true), "Missing"));
 
         Assert.Null(ReferenceRuleCompatibility.Check(Tags, Role(system: true), "Slug", systemSchemas: true));
         Assert.Equal(ReferenceRuleCompatibility.TargetSchemaMustBeEntity, ReferenceRuleCompatibility.Check(Tags, Role(system: false), "Slug", systemSchemas: true));

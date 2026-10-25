@@ -151,6 +151,43 @@ public static class DataAccessPolicyHelper
     }
 
     /// <summary>
+    /// The filter for a validation rule's "only when" condition or a reference filter: the same builder as access
+    /// policies, so values compare as Mongo compares them. Unlike <see cref="EvaluatePolicy"/>, no condition (null or
+    /// empty) means the rule always applies. Built for the anonymous principal: the save-time check
+    /// (<c>ValidationRuleCheck</c>) refuses Auth values here. "Contains" text is escaped on a copy, so it means the
+    /// plain text, as the rule editor says; access policies keep their own meaning of "contains".
+    /// </summary>
+    public static PolicyEvaluationResult BuildValidationConditionFilter(PolicyRuleGroup? group)
+    {
+        if (group is null || (group.Rules.Count == 0 && group.NestedGroups.Count == 0))
+            return new PolicyEvaluationResult { IsAccessGranted = true, RequiresDataFilter = false };
+
+        return EvaluateRuleGroup(AccessPrincipal.Anonymous, WithContainsAsPlainText(group));
+    }
+
+    private static PolicyRuleGroup WithContainsAsPlainText(PolicyRuleGroup group) => new()
+    {
+        LogicalOperator = group.LogicalOperator,
+        Rules = group.Rules.Select(rule =>
+            rule.Operator is PolicyOperator.CONTAIN or PolicyOperator.NOT_CONTAIN
+            && rule.RightSource == ConditionSource.STATIC_VALUE
+            && rule.StaticValue is string text
+                ? new PolicyRule
+                {
+                    LeftSource = rule.LeftSource,
+                    LeftOperand = rule.LeftOperand,
+                    Operator = rule.Operator,
+                    RightSource = rule.RightSource,
+                    RightOperand = rule.RightOperand,
+                    RightOperands = [.. rule.RightOperands],
+                    StaticValue = Regex.Escape(text),
+                    Description = rule.Description,
+                }
+                : rule).ToList(),
+        NestedGroups = group.NestedGroups.Select(WithContainsAsPlainText).ToList(),
+    };
+
+    /// <summary>
     /// Evaluates a rule group recursively.
     /// </summary>
     private static PolicyEvaluationResult EvaluateRuleGroup(AccessPrincipal principal, PolicyRuleGroup group)

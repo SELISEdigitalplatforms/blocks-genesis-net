@@ -66,4 +66,20 @@ public class ValidationRule
     /// </summary>
     [BsonIgnoreIfDefault]
     public int EvaluationVersion { get; set; }
+
+    /// <summary>
+    /// "Only when": the rule applies only to a record that matches this condition, in the policy condition
+    /// model (left side a property of the record). Null: the rule always applies.
+    /// Not written while null, so existing documents are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public PolicyRuleGroup? When { get; set; }
+
+    /// <summary>
+    /// For Reference and NotExistsIn: the target row must also match this condition (left side a property of
+    /// the target schema, right side a fixed value). Null: any target row counts.
+    /// Not written while null, so existing documents are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public PolicyRuleGroup? TargetFilter { get; set; }
 }

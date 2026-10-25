@@ -132,7 +132,13 @@ public static class WriteRules
             ? $"Value '{value.Value}' of {schemaName}.{value.Path} was not found in {value.Target.SchemaName}.{value.Target.FieldName}."
             : value.Rule.ErrorMessage;
 
-    /// <summary>Names of the schemas the active Reference rules in <paramref name="fields"/> point at.</summary>
+    /// <summary>The default message for a value a Must not exist in rule found. Shared with the Data Gateway.</summary>
+    public static string ReferenceFoundMessage(string schemaName, ReferenceValue value) =>
+        string.IsNullOrWhiteSpace(value.Rule.ErrorMessage)
+            ? $"Value '{value.Value}' of {schemaName}.{value.Path} already exists in {value.Target.SchemaName}.{value.Target.FieldName}."
+            : value.Rule.ErrorMessage;
+
+    /// <summary>Names of the schemas the active Reference and Must not exist in rules in <paramref name="fields"/> point at.</summary>
     public static HashSet<string> ReferencedSchemaNames(IEnumerable<FieldDefinitionResponse> fields)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
@@ -140,7 +146,7 @@ public static class WriteRules
         {
             foreach (var rule in field.ValidationRule?.Validations ?? [])
             {
-                if (rule.IsActive && rule.Type == ValidationType.Reference)
+                if (rule.IsActive && ReferenceTargets.IsLookupRule(rule))
                     names.Add(ReferenceTargets.TargetSchemaName(rule));
             }
             names.UnionWith(ReferencedSchemaNames(field.Fields));

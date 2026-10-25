@@ -142,5 +142,21 @@ public enum ValidationType
 
     // The value (or each element of a primitive array) must exist in another Entity schema's data.
     // Value = target SchemaName, SecondaryValue = target field name (ItemId when empty).
-    Reference
+    Reference,
+
+    // Appended 2026-10-25; never renumber. These never read EvaluationVersion: each behaves one fixed way.
+
+    // The value (each item of a list) must be one of Value, a list. Compared exactly, as Equal does.
+    In,
+    // The value (each item of a list) must not be any of Value, a list.
+    NotIn,
+
+    // A list property, checked as a whole: at least / at most Value items, or no item twice.
+    MinItems,
+    MaxItems,
+    UniqueItems,
+
+    // The value (or each element of a primitive array) must not exist in another Entity schema's data.
+    // Value = target SchemaName, SecondaryValue = target field name (ItemId when empty), as for Reference.
+    NotExistsIn
 }
