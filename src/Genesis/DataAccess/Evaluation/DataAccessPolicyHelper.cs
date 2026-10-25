@@ -781,7 +781,7 @@ public static class DataAccessPolicyHelper
         {
             bool flag => bool.TryParse(text, out var parsed) && parsed == flag,
             DateTime date => ParseIsoDate(text) is { } parsed && AsUtc(date) == parsed,
-            _ when IsNumber(typed) => ParseNumber(text) is { } number && Convert.ToDouble(typed, CultureInfo.InvariantCulture) == number,
+            _ when IsNumber(typed) => ParseNumber(text) is { } number && Convert.ToDouble(typed, CultureInfo.InvariantCulture).Equals(number),
             _ => typed.Equals(text)
         };
     }
