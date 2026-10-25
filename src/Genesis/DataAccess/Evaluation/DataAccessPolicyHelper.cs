@@ -637,10 +637,10 @@ public static class DataAccessPolicyHelper
             PolicyOperator.NOT_CONTAIN => !CompareContains(leftValue, rightValue),
             PolicyOperator.IN => CompareIn(leftValue, rightValue),
             PolicyOperator.NOT_IN => !CompareIn(leftValue, rightValue),
-            PolicyOperator.GREATER_THAN => CompareNumeric(leftValue, rightValue) > 0,
-            PolicyOperator.GREATER_THAN_OR_EQUAL => CompareNumeric(leftValue, rightValue) >= 0,
-            PolicyOperator.LESS_THAN => CompareNumeric(leftValue, rightValue) < 0,
-            PolicyOperator.LESS_THAN_OR_EQUAL => CompareNumeric(leftValue, rightValue) <= 0,
+            PolicyOperator.GREATER_THAN => CompareOrdered(leftValue, rightValue) > 0,
+            PolicyOperator.GREATER_THAN_OR_EQUAL => CompareOrdered(leftValue, rightValue) >= 0,
+            PolicyOperator.LESS_THAN => CompareOrdered(leftValue, rightValue) < 0,
+            PolicyOperator.LESS_THAN_OR_EQUAL => CompareOrdered(leftValue, rightValue) <= 0,
             PolicyOperator.START_WITH => leftValue.ToString()?.StartsWith(rightValue.ToString() ?? "") ?? false,
             PolicyOperator.END_WITH => leftValue.ToString()?.EndsWith(rightValue.ToString() ?? "") ?? false,
             PolicyOperator.REGEX => Regex.IsMatch(leftValue.ToString() ?? "", rightValue.ToString() ?? "", RegexOptions.None, TimeSpan.FromSeconds(1)),
@@ -761,8 +761,38 @@ public static class DataAccessPolicyHelper
         if (left is string leftStr && right is string rightStr)
             return string.Equals(leftStr, rightStr, StringComparison.OrdinalIgnoreCase);
 
+        // A value typed in the policy editor arrives as text, while the row holds a real bool, number or date.
+        if (right is string rightText)
+            return TypedEquals(left, rightText);
+        if (left is string leftText)
+            return TypedEquals(right, leftText);
+
         return left.Equals(right);
     }
+
+    /// <summary>
+    /// A row's bool, number or date against text: the text read as that type, the way
+    /// <see cref="TypedAlternative"/> reads it for a filter. Any other value never equals text.
+    /// </summary>
+    private static bool TypedEquals(object typed, string text)
+    {
+        text = text.Trim();
+        return typed switch
+        {
+            bool flag => bool.TryParse(text, out var parsed) && parsed == flag,
+            DateTime date => ParseIsoDate(text) is { } parsed && AsUtc(date) == parsed,
+            _ when IsNumber(typed) => ParseNumber(text) is { } number && Convert.ToDouble(typed, CultureInfo.InvariantCulture) == number,
+            _ => typed.Equals(text)
+        };
+    }
+
+    private static DateTime AsUtc(DateTime date) => date.Kind switch
+    {
+        DateTimeKind.Utc => date,
+        // Stored dates are UTC; one without a kind is read as UTC, as MongoDB does.
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(date, DateTimeKind.Utc),
+        _ => date.ToUniversalTime()
+    };
 
     private static bool CompareContains(object left, object right)
     {
@@ -774,32 +804,48 @@ public static class DataAccessPolicyHelper
 
     private static bool CompareIn(object left, object right)
     {
-        var leftStr = left?.ToString();
-        if (string.IsNullOrEmpty(leftStr)) return false;
+        if (left is null || string.IsNullOrEmpty(left.ToString())) return false;
 
-        // Try to convert right to string array
+        // Try to convert right to string array; each item compares as Equal does (bool, number and date read as such).
         var rightArray = ConvertToStringArray(right);
         if (rightArray != null)
         {
-            return rightArray.Contains(leftStr, StringComparer.OrdinalIgnoreCase);
+            return rightArray.Any(item => CompareEquals(left, item));
         }
 
         return false;
     }
 
-    private static int CompareNumeric(object left, object right)
+    /// <summary>
+    /// Orders two values for Greater / Less than. A date and a date or ISO date text compare as dates, a number and
+    /// a number or numeric text as numbers (text read the same way on every server, whatever its culture); anything
+    /// else compares as text.
+    /// </summary>
+    private static int CompareOrdered(object left, object right)
     {
-        try
-        {
-            var leftDouble = Convert.ToDouble(left);
-            var rightDouble = Convert.ToDouble(right);
-            return leftDouble.CompareTo(rightDouble);
-        }
-        catch
-        {
-            return string.Compare(left.ToString(), right.ToString(), StringComparison.Ordinal);
-        }
+        if (AsDate(left) is { } leftDate && AsDate(right) is { } rightDate)
+            return leftDate.CompareTo(rightDate);
+        if (AsNumber(left) is { } leftNumber && AsNumber(right) is { } rightNumber)
+            return leftNumber.CompareTo(rightNumber);
+        return string.Compare(left.ToString(), right.ToString(), StringComparison.Ordinal);
     }
+
+    private static DateTime? AsDate(object value) => value switch
+    {
+        DateTime date => AsUtc(date),
+        string text => ParseIsoDate(text.Trim()),
+        _ => null
+    };
+
+    private static double? AsNumber(object value) => value switch
+    {
+        string text => ParseNumber(text.Trim()),
+        _ when IsNumber(value) => Convert.ToDouble(value, CultureInfo.InvariantCulture),
+        _ => null
+    };
+
+    private static bool IsNumber(object value) =>
+        value is sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal;
 
     #endregion
 
@@ -845,14 +891,16 @@ public static class DataAccessPolicyHelper
     private static readonly Regex IsoDatePattern = new(@"^\d{4}-\d{2}-\d{2}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     /// <summary>
-    /// <see cref="BuildConditionFilter"/> for a value typed in the policy editor. It arrives as text ("150"), and a
-    /// number or date field never matches text in MongoDB, so a comparison against text that reads as a number or
-    /// an ISO date matches either the typed value or the text: number, date and text fields all compare as written.
+    /// <see cref="BuildConditionFilter"/> for a value typed in the policy editor. It arrives as text ("150", "true"),
+    /// and a number, date or bool field never matches text in MongoDB, so a comparison against text that reads as a
+    /// number or an ISO date (or, for Equal and Not equal, true or false) matches either the typed value or the text:
+    /// number, date, bool and text fields all compare as written.
     /// </summary>
     private static BsonDocument BuildStaticConditionFilter(AccessPrincipal principal, string fieldName, PolicyOperator op, object? value)
     {
         var asText = BuildConditionFilter(principal, fieldName, op, value);
-        if (!IsScalarComparison(op) || TypedAlternative(value) is not { } typed)
+        var withBoolean = op is PolicyOperator.EQUAL or PolicyOperator.NOT_EQUAL;
+        if (!IsScalarComparison(op) || TypedAlternative(value, withBoolean) is not { } typed)
             return asText;
 
         var asTyped = BuildConditionFilter(principal, fieldName, op, typed);
@@ -865,19 +913,32 @@ public static class DataAccessPolicyHelper
         PolicyOperator.GREATER_THAN or PolicyOperator.GREATER_THAN_OR_EQUAL or
         PolicyOperator.LESS_THAN or PolicyOperator.LESS_THAN_OR_EQUAL;
 
-    /// <summary>The number or UTC date a typed static value reads as; null for other text, lists and token expressions.</summary>
-    private static object? TypedAlternative(object? value)
+    /// <summary>
+    /// The number, UTC date or (with <paramref name="withBoolean"/>) bool a typed static value reads as; null for
+    /// other text, lists and token expressions. Bools are left out of ordering comparisons, where they mean nothing.
+    /// </summary>
+    private static object? TypedAlternative(object? value, bool withBoolean)
     {
         if (value is not string text || text.Contains(',') || ExpressionPattern.IsMatch(text))
             return null;
         text = text.Trim();
-        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number))
+        if (ParseNumber(text) is { } number)
             return number;
-        if (IsoDatePattern.IsMatch(text) &&
-            DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date))
+        if (ParseIsoDate(text) is { } date)
             return date;
+        if (withBoolean && bool.TryParse(text, out var flag))
+            return flag;
         return null;
     }
+
+    private static double? ParseNumber(string text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number) ? number : null;
+
+    private static DateTime? ParseIsoDate(string text) =>
+        IsoDatePattern.IsMatch(text) &&
+        DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date)
+            ? date
+            : null;
 
     /// <summary>
     /// The values of an In / Not in rule against a typed list: the comma-delimited static value the editor sends,
@@ -902,14 +963,14 @@ public static class DataAccessPolicyHelper
         return operands.Length > 0 ? operands : null;
     }
 
-    /// <summary>Each value as text, plus its number or date when it reads as one (see <see cref="BuildStaticConditionFilter"/>).</summary>
+    /// <summary>Each value as text, plus its number, date or bool when it reads as one (see <see cref="BuildStaticConditionFilter"/>).</summary>
     private static BsonArray WithTypedAlternatives(string[] values)
     {
         var array = new BsonArray();
         foreach (var value in values)
         {
             array.Add(new BsonString(value));
-            if (TypedAlternative(value) is { } typed)
+            if (TypedAlternative(value, withBoolean: true) is { } typed)
                 array.Add(ConvertToBsonValue(typed));
         }
         return array;

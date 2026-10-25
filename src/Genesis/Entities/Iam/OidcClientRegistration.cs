@@ -51,4 +51,8 @@ public class OidcClientRegistration : BaseEntity
 
     public bool RegisterAsIdentityProvider { get; set; }
 
+    /// <summary>Optional per-client token lifetimes; null = the project values. Not stored when null.</summary>
+    [BsonIgnoreIfNull]
+    public OidcClientTokenLifetimes? TokenLifetimes { get; set; }
+
 }
