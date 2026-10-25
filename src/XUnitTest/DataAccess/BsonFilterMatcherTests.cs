@@ -27,12 +27,12 @@ public sealed class BsonFilterMatcherParityTests : IDisposable
     [
         new() { { "_id", "1" }, { "Name", "Alice" }, { "Age", 30 }, { "Score", 150.0 }, { "Tags", new BsonArray { "a", "b" } },
                 { "OrganizationId", "org-1" }, { "CreatedBy", "user-1" }, { "Manager", "user-1" }, { "Region", "US" },
-                { "Born", new BsonDateTime(new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc)) } },
+                { "Born", new BsonDateTime(new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc)) }, { "Active", true } },
         new() { { "_id", "2" }, { "Name", "bob" }, { "Age", "30" }, { "Tags", new BsonArray { "c" } }, { "OrganizationId", "org-2" },
-                { "CreatedBy", "user-2" }, { "Manager", "user-1" }, { "Region", BsonNull.Value } },
+                { "CreatedBy", "user-2" }, { "Manager", "user-1" }, { "Region", BsonNull.Value }, { "Active", "true" } },
         new() { { "_id", "3" }, { "Name", "Carol" }, { "Age", 45 }, { "Score", 10 }, { "Tags", new BsonArray() }, { "OrganizationId", "org-1" },
                 { "CreatedBy", "user-9" }, { "Region", "ZZ" }, { "Nested", new BsonDocument("Dept", "hr") },
-                { "Born", new BsonDateTime(new DateTime(1980, 6, 1, 0, 0, 0, DateTimeKind.Utc)) } },
+                { "Born", new BsonDateTime(new DateTime(1980, 6, 1, 0, 0, 0, DateTimeKind.Utc)) }, { "Active", false } },
         new() { { "_id", "4" } },
         new() { { "_id", "5" }, { "Name", "alicia" }, { "Age", 30L }, { "Score", 99 }, { "Tags", "a" }, { "CreatedBy", "user-1" },
                 { "Items", new BsonArray { new BsonDocument("Code", "x"), new BsonDocument("Code", "y") } } },
@@ -74,6 +74,9 @@ public sealed class BsonFilterMatcherParityTests : IDisposable
             ["lt number"] = Group(PolicyLogicalOperator.AND, FieldStatic("Age", PolicyOperator.LESS_THAN, "45")),
             ["lte number"] = Group(PolicyLogicalOperator.AND, FieldStatic("Age", PolicyOperator.LESS_THAN_OR_EQUAL, "30")),
             ["gt date"] = Group(PolicyLogicalOperator.AND, FieldStatic("Born", PolicyOperator.GREATER_THAN, "1985-01-01")),
+            ["eq typed bool"] = Group(PolicyLogicalOperator.AND, FieldStatic("Active", PolicyOperator.EQUAL, "true")),
+            ["ne typed bool"] = Group(PolicyLogicalOperator.AND, FieldStatic("Active", PolicyOperator.NOT_EQUAL, "True")),
+            ["in bool list"] = Group(PolicyLogicalOperator.AND, FieldStatic("Active", PolicyOperator.IN, "false,true")),
             ["contain"] = Group(PolicyLogicalOperator.AND, FieldStatic("Name", PolicyOperator.CONTAIN, "ali")),
             ["not contain"] = Group(PolicyLogicalOperator.AND, FieldStatic("Name", PolicyOperator.NOT_CONTAIN, "ali")),
             ["start with"] = Group(PolicyLogicalOperator.AND, FieldStatic("Name", PolicyOperator.START_WITH, "al")),
@@ -123,6 +126,21 @@ public sealed class BsonFilterMatcherParityTests : IDisposable
 
         Assert.True(fromMongo.SequenceEqual(inMemory),
             $"{name}: filter {result.DataFilter.ToJson()} -> mongo [{string.Join(",", fromMongo)}] memory [{string.Join(",", inMemory)}]");
+    }
+
+    // The policy editor sends "true" as text; MongoDB must still find the rows that store a real true.
+    [Theory]
+    [InlineData(PolicyOperator.EQUAL, "true", new[] { "1", "2" })]
+    [InlineData(PolicyOperator.NOT_EQUAL, "true", new[] { "3", "4", "5" })]
+    public async Task ABoolTypedAsText_FindsTheStoredBoolInMongo(PolicyOperator op, string typed, string[] expected)
+    {
+        var result = Policy(PolicyType.RLS, PolicyOperation.READ, [], Group(PolicyLogicalOperator.AND, FieldStatic("Active", op, typed)))
+            .EvaluatePolicy(Caller);
+
+        var ids = (await _rows.Find(result.DataFilter).Project(Builders<BsonDocument>.Projection.Include("_id")).ToListAsync())
+            .Select(d => d["_id"].AsString).Order().ToArray();
+
+        Assert.Equal(expected, ids);
     }
 }
 

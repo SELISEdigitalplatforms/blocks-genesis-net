@@ -7,7 +7,8 @@ namespace XUnitTest.DataAccess;
 
 /// <summary>
 /// Row rules that compare a schema field with a value typed in the policy editor: the value arrives as text, so
-/// numbers and dates are matched as numbers and dates too, and In / Not in take the list in either form.
+/// numbers, dates and (for Equal and Not equal) bools are matched as such too, and In / Not in take the list in
+/// either form.
 /// </summary>
 public class StaticValueRuleFilterTests
 {
@@ -116,6 +117,55 @@ public class StaticValueRuleFilterTests
     {
         Assert.Equal(new BsonDocument("Price", new BsonDocument("$in", new BsonArray { "10", 10.0, "20", 20.0 })),
             FilterOf(Rule("Price", PolicyOperator.IN, "10,20")));
+    }
+
+    [Fact]
+    public void Equal_AndNotEqual_MatchABoolTheSameWay()
+    {
+        Assert.Equal(new BsonDocument("$or", new BsonArray { new BsonDocument("Active", true), new BsonDocument("Active", "true") }),
+            FilterOf(Rule("Active", PolicyOperator.EQUAL, "true")));
+        Assert.Equal(new BsonDocument("$and", new BsonArray
+            {
+                new BsonDocument("Active", new BsonDocument("$ne", false)),
+                new BsonDocument("Active", new BsonDocument("$ne", "False")),
+            }),
+            FilterOf(Rule("Active", PolicyOperator.NOT_EQUAL, "False")));
+    }
+
+    [Fact]
+    public void AnOrderingComparison_GetsNoBoolForm()
+    {
+        Assert.Equal(new BsonDocument("Active", new BsonDocument("$gt", "true")),
+            FilterOf(Rule("Active", PolicyOperator.GREATER_THAN, "true")));
+    }
+
+    [Fact]
+    public void In_WithBools_MatchesEachAsBoolOrText()
+    {
+        Assert.Equal(new BsonDocument("Active", new BsonDocument("$in", new BsonArray { "true", true, "false", false })),
+            FilterOf(Rule("Active", PolicyOperator.IN, "true,false")));
+    }
+
+    // The same filter checks a row before a write (BsonFilterMatcher), so it must match a stored bool there too.
+    [Theory]
+    [InlineData(PolicyOperator.EQUAL, "true", true, true)]
+    [InlineData(PolicyOperator.EQUAL, "true", false, false)]
+    [InlineData(PolicyOperator.EQUAL, "TRUE", true, true)]
+    [InlineData(PolicyOperator.NOT_EQUAL, "true", false, true)]
+    [InlineData(PolicyOperator.NOT_EQUAL, "true", true, false)]
+    public void ABoolTypedAsText_MatchesAStoredBool(PolicyOperator op, string typed, bool stored, bool matches)
+    {
+        var filter = FilterOf(Rule("Active", op, typed));
+
+        Assert.Equal(matches, BsonFilterMatcher.Matches(new BsonDocument("Active", stored), filter));
+    }
+
+    [Fact]
+    public void ABoolTypedAsText_StillMatchesTheSameText()
+    {
+        var filter = FilterOf(Rule("Active", PolicyOperator.EQUAL, "true"));
+
+        Assert.True(BsonFilterMatcher.Matches(new BsonDocument("Active", "true"), filter));
     }
 
     [Fact]
