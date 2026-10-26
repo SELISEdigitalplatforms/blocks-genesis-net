@@ -133,6 +133,32 @@ public class RuleEdgeCasesTests
     }
 
     [Fact]
+    public void ItemCounts_StoredOnAListOfObjects_ReachTheCheck_NothingElseDoes()
+    {
+        // As stored: the list, and its item's property as a reference row.
+        List<FieldDefinition> stored =
+        [
+            new() { Name = "Items", Type = "Item", IsArray = true },
+            new() { Name = "Items.Qty", Type = "Int", IsReferenceField = true, ReferenceFieldType = "Item" },
+            new() { Name = "Address", Type = "Address" },
+            new() { Name = "Address.City", Type = "String", IsReferenceField = true, ReferenceFieldType = "Address" },
+        ];
+        List<DataValidation> validations =
+        [
+            new() { FieldName = "Items", Validations = [new ValidationRule { Type = ValidationType.MinItems, Value = 1L }, new ValidationRule { Type = ValidationType.NotEmpty }] },
+            new() { FieldName = "Address", Validations = [new ValidationRule { Type = ValidationType.NotEmpty }] },
+        ];
+        var schema = new SchemaDefinitionExtended { SchemaName = "Lead", Fields = FieldDefinitionMapper.GetFieldDefinitionResponses(stored, [], validations) };
+
+        var items = schema.Fields.Single(f => f.Name == "Items");
+        Assert.Equal([ValidationType.MinItems], items.ValidationRule!.Validations.Select(r => r.Type));
+        Assert.Null(schema.Fields.Single(f => f.Name == "Address").ValidationRule);
+
+        Assert.False(new Dictionary<string, object?> { ["Items"] = new List<object?>() }.Validate(schema).IsValid);
+        Assert.True(new Dictionary<string, object?> { ["Items"] = new List<object?> { new Dictionary<string, object?> { ["Qty"] = 1 } } }.Validate(schema).IsValid);
+    }
+
+    [Fact]
     public void NoDuplicates_OnALongList_IsFast_AndComparesAsEqualDoes()
     {
         var schema = (string type) => Schema("Tags", type, true, new ValidationRule { Type = ValidationType.UniqueItems });
@@ -167,6 +193,19 @@ public class RuleEdgeCasesTests
 
         Assert.Equal(ConditionOutcome.CannotCheck, ValidationCondition.Evaluate(group, new BsonDocument("Country", "DE")));
         Assert.False(ReferenceLookup.TryCondition(new ValidationRule { Type = ValidationType.NotExistsIn, Value = "Blocklist", TargetFilter = group }, out _));
+    }
+
+    // ── API payloads ──
+
+    [Fact]
+    public void AbsentConditionsFiltersAndDescriptions_AreLeftOutOfJson()
+    {
+        var rule = System.Text.Json.JsonSerializer.Serialize(new ValidationRule { Type = ValidationType.NotEmpty });
+        Assert.DoesNotContain("When", rule);
+        Assert.DoesNotContain("TargetFilter", rule);
+        Assert.DoesNotContain("Description", System.Text.Json.JsonSerializer.Serialize(new SchemaDefinition { SchemaName = "Lead" }));
+
+        Assert.Contains("\"When\"", System.Text.Json.JsonSerializer.Serialize(new ValidationRule { Type = ValidationType.NotEmpty, When = Where("Country", "DE") }));
     }
 
     [Fact]
