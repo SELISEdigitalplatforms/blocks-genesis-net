@@ -36,6 +36,7 @@ public static class ValidationRuleCheck
     public const string CommaInSingleValue = "A single value can't contain a comma: use \"is one of\" for a list";
     public const string ConditionNeedsValue = "Enter a value to compare with";
     public const string ConditionInsideList = "A rule on a property inside a list of objects can't have a condition yet";
+    public const string ConditionNamesListItem = "A condition can't name a property inside a list of objects yet";
     public const string FilterOnlyForReferences = "Only \"exists in\" and \"must not exist in\" rules take a filter";
     public const string FilterMustUseFixedValues = "A filter compares the other schema's properties with fixed values only";
     public const string ConditionOnLookup = "\"Exists in\" and \"must not exist in\" rules can't have a condition yet: use a filter on the other schema";
@@ -173,6 +174,14 @@ public static class ValidationRuleCheck
             // The left side is a property of the target schema, which the caller checks against that schema.
             if (condition.RightSource != ConditionSource.STATIC_VALUE) problems.Add(FilterMustUseFixedValues);
             else CheckFixedValue(condition, problems);
+            return;
+        }
+
+        // Which item of the list a condition would read isn't defined yet ("any item" or "this item").
+        if (IsInsideListOfObjects(condition.LeftOperand, fields)
+            || (condition.RightSource == ConditionSource.SCHEMA_FIELD && IsInsideListOfObjects(condition.RightOperand ?? string.Empty, fields)))
+        {
+            problems.Add(ConditionNamesListItem);
             return;
         }
 

@@ -5,6 +5,7 @@
     "CommaInSingleValue": "A single value can't contain a comma: use \"is one of\" for a list",
     "ConditionGroupEmpty": "Each group of conditions needs at least one condition",
     "ConditionInsideList": "A rule on a property inside a list of objects can't have a condition yet",
+    "ConditionNamesListItem": "A condition can't name a property inside a list of objects yet",
     "ConditionLeftMustBeProperty": "A condition must start with a property of the record",
     "ConditionNeedsValue": "Enter a value to compare with",
     "ConditionOnLookup": "\"Exists in\" and \"must not exist in\" rules can't have a condition yet: use a filter on the other schema",

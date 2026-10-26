@@ -377,10 +377,10 @@ public static class DataValidationHelper
         switch (validation.Type)
         {
             case ValidationType.MinItems:
-                problem = Count(validation.Value) is { } min && elements.Count < min ? $"Field '{fieldPath}' must have at least {min} items." : null;
+                problem = Count(validation.Value) is { } min && elements.Count < min ? $"Field '{fieldPath}' must have at least {Items(min)}." : null;
                 break;
             case ValidationType.MaxItems:
-                problem = Count(validation.Value) is { } max && elements.Count > max ? $"Field '{fieldPath}' must have at most {max} items." : null;
+                problem = Count(validation.Value) is { } max && elements.Count > max ? $"Field '{fieldPath}' must have at most {Items(max)}." : null;
                 break;
             default:
                 var repeated = FirstRepeated(elements, fieldType);
@@ -395,6 +395,8 @@ public static class DataValidationHelper
             ValidationType = validation.Type.ToString(),
         };
     }
+
+    private static string Items(long count) => count == 1 ? "1 item" : $"{count} items";
 
     /// <summary>
     /// The first item that repeats an earlier one, compared as Equal compares them (numbers as numbers, text exactly),

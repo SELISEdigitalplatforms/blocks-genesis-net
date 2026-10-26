@@ -41,6 +41,21 @@ public class RuleEdgeCasesTests
     }
 
     [Fact]
+    public void ACondition_NamingAPropertyInsideAListOfObjects_IsRefused_OnEitherSide()
+    {
+        var onItem = Where("Items.Qty", "1");
+        Assert.Contains(ValidationRuleCheck.ConditionNamesListItem, Check(new ValidationRule { Type = ValidationType.NotEmpty, When = onItem }));
+
+        var comparedWithItem = new PolicyRuleGroup
+        {
+            Rules = [new() { LeftOperand = "Country", Operator = PolicyOperator.EQUAL, RightSource = ConditionSource.SCHEMA_FIELD, RightOperand = "Items.Qty" }],
+        };
+        Assert.Contains(ValidationRuleCheck.ConditionNamesListItem, Check(new ValidationRule { Type = ValidationType.NotEmpty, When = comparedWithItem }));
+
+        Assert.DoesNotContain(ValidationRuleCheck.ConditionNamesListItem, Check(new ValidationRule { Type = ValidationType.NotEmpty, When = Where("Country", "DE") }));
+    }
+
+    [Fact]
     public void NoDuplicates_NeedsAListOfValues_ItemCountsWorkOnObjects()
     {
         Assert.Contains(ValidationRuleCheck.UniqueItemsNeedsValues, Check(new ValidationRule { Type = ValidationType.UniqueItems }, "Items"));
@@ -120,6 +135,10 @@ public class RuleEdgeCasesTests
         Assert.False(oneItem.Validate(Schema("Items", "Item", true, new ValidationRule { Type = ValidationType.MinItems, Value = 2L }, ItemFields)).IsValid);
         Assert.False(oneItem.Validate(Schema("Items", "Item", true, new ValidationRule { Type = ValidationType.MaxItems, Value = 0L }, ItemFields)).IsValid);
         Assert.True(oneItem.Validate(Schema("Items", "Item", true, new ValidationRule { Type = ValidationType.MaxItems, Value = 1L }, ItemFields)).IsValid);
+
+        var none = new Dictionary<string, object?> { ["Items"] = new List<object?>() };
+        Assert.Equal("Field 'Items' must have at least 1 item.",
+            Assert.Single(none.Validate(Schema("Items", "Item", true, new ValidationRule { Type = ValidationType.MinItems, Value = 1L }, ItemFields)).Errors).Message);
     }
 
     [Fact]
