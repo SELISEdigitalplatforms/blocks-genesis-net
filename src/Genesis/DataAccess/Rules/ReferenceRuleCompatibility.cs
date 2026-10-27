@@ -28,8 +28,9 @@ public static class ReferenceRuleCompatibility
         Check(source, target, targetFieldName, systemSchemas: false);
 
     /// <summary>
-    /// As <see cref="Check(FieldDefinition, SchemaDefinition?, string)"/>; with <paramref name="systemSchemas"/>
-    /// the rule is on a system schema, whose targets must be system Entity schemas (tenant schemas otherwise).
+    /// As <see cref="Check(FieldDefinition, SchemaDefinition?, string)"/>. A rule on a tenant schema may point at a
+    /// tenant or a system Entity schema; with <paramref name="systemSchemas"/> the rule is on a system schema, whose
+    /// targets must be system Entity schemas.
     /// </summary>
     public static string? Check(FieldDefinition source, SchemaDefinition? target, string targetFieldName, bool systemSchemas)
     {
@@ -38,7 +39,7 @@ public static class ReferenceRuleCompatibility
         if (sourceFamily is null)
             return SourceFieldNotSupported;
 
-        if (target is null || target.IsDeleted || target.IsSystemEntity != systemSchemas || target.SchemaType != SchemaType.Entity)
+        if (target is null || target.IsDeleted || (systemSchemas && !target.IsSystemEntity) || target.SchemaType != SchemaType.Entity)
             return TargetSchemaMustBeEntity;
 
         // ItemId is the stored _id: a string on every gateway row.

@@ -68,6 +68,7 @@ public static class FieldDefinitionMapper
                 }
                 else
                 {
+                    fieldResponse.ValidationRule = ObjectFieldRules(field.IsArray, validations.FirstOrDefault(v => v.FieldName == currentPath));
                     fieldResponse.Fields = GetFieldDefinitionResponses(fields, policies, validations, currentPath);
                 }
             }
@@ -96,6 +97,25 @@ public static class FieldDefinitionMapper
         }
 
         return fieldResponses;
+    }
+
+    /// <summary>
+    /// The rules an object property carries: on a list of objects only its item counts (At least / At most), the
+    /// only rules read there. Anything else stored on an object property stays off, as before, so no older rule
+    /// starts to apply. Null when there is nothing to check.
+    /// </summary>
+    public static DataValidation? ObjectFieldRules(bool isArray, DataValidation? validation)
+    {
+        if (!isArray || validation is null)
+            return null;
+        var counts = validation.Validations.Where(r => r.Type is ValidationType.MinItems or ValidationType.MaxItems).ToList();
+        return counts.Count == 0 ? null : new DataValidation
+        {
+            ItemId = validation.ItemId,
+            SchemaId = validation.SchemaId,
+            FieldName = validation.FieldName,
+            Validations = counts,
+        };
     }
 
     public static FieldDefinitionResponse MapFieldToResponse(this FieldDefinition field, IEnumerable<DataAccessPolicy>? policies = null)

@@ -1,6 +1,7 @@
 // Moved from blocks-data server/DataGateway.DomainService/Entities/DataValidation.cs (feature/collection-cut working tree, 2026-10-13).
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
+using System.Text.Json.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace Blocks.Genesis.Entities.Data;
@@ -66,4 +67,22 @@ public class ValidationRule
     /// </summary>
     [BsonIgnoreIfDefault]
     public int EvaluationVersion { get; set; }
+
+    /// <summary>
+    /// "Only when": the rule applies only to a record that matches this condition, in the policy condition
+    /// model (left side a property of the record). Null: the rule always applies.
+    /// Not written while null, in the database or in API responses, so existing documents and payloads are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PolicyRuleGroup? When { get; set; }
+
+    /// <summary>
+    /// For Reference and NotExistsIn: the target row must also match this condition (left side a property of
+    /// the target schema, right side a fixed value). Null: any target row counts.
+    /// Not written while null, in the database or in API responses, so existing documents and payloads are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PolicyRuleGroup? TargetFilter { get; set; }
 }

@@ -19,7 +19,9 @@ public class OsEntitiesTests
         ["Blocks.Genesis.Entities.Os.IntegrationRequest"] = "7586EC925992892D6186B4DF7C500EB6 3C668F1E8C610723F9F2D9D01F94D61B CDFEC7DF2D6F0EDC2E0D540A4FC8E8FC",
         ["Blocks.Genesis.Entities.Os.IntegrationSetup"] = "0F15C211144A321B9C6CB1AF055AF253 0C731DE406BD25D9A66858E7BCEB6EC9 BB96FE7FAC6BEF4BBF00A2A58067DB6E",
         ["Blocks.Genesis.Entities.Os.IntegrationTemplate"] = "89990FABAA57B5620D2A2D79A7DE6F54 157810C3CD79264E104FA0BB1F8D62BD F3FEE82C32F4B5DD9E4436B56C0DE8AA",
-        ["Blocks.Genesis.Entities.Os.MailServerConfiguration"] = "A6142C4FB5EFFBE1840B9A8CCD5C3D3F 4E64E05BA499E02F95363440D78CF196 C8D207DADE23B86DB7DD0F279726DD96",
+        // Filled-sample hash changed on purpose 2026-10-27 (owner decision): Blocks Secrets reference AccountPasswordReference,
+        // [BsonIgnoreIfNull], so the default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Os.MailServerConfiguration"] = "34255D76FF10A6650E9209DF630E3BCB 4E64E05BA499E02F95363440D78CF196 C8D207DADE23B86DB7DD0F279726DD96",
         ["Blocks.Genesis.Entities.Os.MigrationTracker"] = "6815B920AE0725C6F18708A3696C81B5 E3E9F6A6EACFA76A9B05982CFC743CAF 9E531C68F38C4AA4121FE61F41914A50",
         // Filled-sample hash changed on purpose 2026-10-21 (owner decision): optional built-in fields (IsBuiltIn, IsDisabled,
         // Description, Importance, Kind, SourceService, ConsumerAppRecommendation, ConsumerAppNote), all left out while default,
@@ -55,5 +57,21 @@ public class OsEntitiesTests
         var doc = new Blocks.Genesis.Entities.Os.MailServerConfiguration { ItemId = "m1" }.ToBsonDocument();
         doc["IsEnableSnsConfiguration"] = BsonNull.Value; // written by today's logic copy (bool?)
         Assert.False(BsonSerializer.Deserialize<Blocks.Genesis.Entities.Os.MailServerConfiguration>(doc).IsEnableSnsConfiguration);
+    }
+
+    [Fact]
+    public void MailServerConfiguration_AccountPasswordReference_NotStoredWhenNull_OldDocumentKeepsPlaintext()
+    {
+        var doc = new Blocks.Genesis.Entities.Os.MailServerConfiguration { ItemId = "m1", AccountPassword = "plain" }.ToBsonDocument();
+        Assert.False(doc.Contains("AccountPasswordReference"));
+
+        // A document saved before the reference existed: plaintext read as before, no reference.
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Os.MailServerConfiguration>(doc);
+        Assert.Equal("plain", read.AccountPassword);
+        Assert.Null(read.AccountPasswordReference);
+
+        doc["AccountPassword"] = string.Empty; // blocks-os writing through Blocks Secrets
+        doc["AccountPasswordReference"] = "s1";
+        Assert.Equal("s1", BsonSerializer.Deserialize<Blocks.Genesis.Entities.Os.MailServerConfiguration>(doc).AccountPasswordReference);
     }
 }

@@ -48,6 +48,14 @@ public class MailServerConfiguration : BaseEntity
     /// </summary>
     public string? ClientSecretReference { get; set; }
 
+    /// <summary>
+    /// The Blocks Secrets id of the account password. When set, the password lives in the secret
+    /// store and <see cref="AccountPassword"/> is empty; when null (every configuration saved before
+    /// this field existed), <see cref="AccountPassword"/> holds the plaintext. Not stored when null.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? AccountPasswordReference { get; set; }
+
     [AllowRules(Validation = RuleAccess.Warned)]
     public string? MailboxAddress { get; set; }
 }

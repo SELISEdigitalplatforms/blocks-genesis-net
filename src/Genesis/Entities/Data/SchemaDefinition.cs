@@ -1,6 +1,7 @@
 // Moved from blocks-data server/DataGateway.DomainService/Entities/SchemaDefinition.cs (feature/collection-cut working tree, 2026-10-13).
 // Same class, collection and field names; no behaviour change (genesis SPEC1 6.4).
 using Blocks.Genesis;
+using System.Text.Json.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace Blocks.Genesis.Entities.Data;
@@ -26,6 +27,14 @@ public class SchemaDefinition : GraphQlBaseEntity
     /// </summary>
     [BsonIgnoreIfDefault]
     public bool IsSystemEntity { get; set; }
+
+    /// <summary>
+    /// What the schema holds, in plain text (at most 500 characters, checked by the Data Gateway).
+    /// Not written while null, in the database or in API responses, so existing documents and payloads are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
 
     public string GetSchemaNameForProject()
     {

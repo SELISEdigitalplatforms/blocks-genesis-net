@@ -24,7 +24,9 @@ public class IamEntitiesTests
         ["Blocks.Genesis.Entities.Iam.DeviceInformation"] = "1808150F01E61EE5A85EC008F88C8060 77F22838EFC48F88F9CE54B1BF875C34 77F22838EFC48F88F9CE54B1BF875C34",
         ["Blocks.Genesis.Entities.Iam.ExternalIdentity"] = "5365F322978B7D6878C60DCFE9900B17 5D9B863D18EC094B6377F5C44051EF18 70E01D67BA79E0F703E5A68BF283CD4D",
         ["Blocks.Genesis.Entities.Iam.IdentityConfiguration"] = "F4550AF3895645DDE0CBB15D3148011B 78972763BEC26681804AC2AEBABB693B 003BED26623A96FC4323FB69C120B7C1",
-        ["Blocks.Genesis.Entities.Iam.IdentityProvider"] = "A469A96D61839922CE735A47A42FCC55 E0A7768A540F7121B1103C62A5737C55 A5F2A7FD8B998DF9314D192556BCE80C",
+        // Filled-sample hash changed on purpose 2026-10-27 (owner decision): Blocks Secrets references ClientSecretReference and
+        // PrivateKeyReference, [BsonIgnoreIfNull], so the default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Iam.IdentityProvider"] = "784768712580470189CA9881EE5651B7 E0A7768A540F7121B1103C62A5737C55 A5F2A7FD8B998DF9314D192556BCE80C",
         ["Blocks.Genesis.Entities.Iam.IdpSessionAccount"] = "04CE4A113EF054B300BCD25FA7D80F4B 17A2F635383973C477BF987B34536A31 C33F2A5EF1F3CC89AAAF43870B1CA295",
         ["Blocks.Genesis.Entities.Iam.IdpSessionModel"] = "71B88C318A5AE5EFDE15AEC73130E26F 00EEF75CE2CAEEDB7A477C2037699A79 6AFBCCD9D7C532BC65AC900D1530015A",
         ["Blocks.Genesis.Entities.Iam.ImpersonationSession"] = "1A2195E0C5C28045C82C069215940A2F 7B848E419145FA9BBFAEDCFC93D873BD AF0D9CB00EDAF0F64EAA19D33E1CC809",
@@ -85,6 +87,34 @@ public class IamEntitiesTests
         var json = JsonSerializer.Serialize(read);
         Assert.DoesNotContain("IsCaptchaRequired", json, StringComparison.Ordinal);
         Assert.DoesNotContain("IsMFARequired", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IdentityProvider_SecretReferences_NotStoredWhenNull_OldDocumentKeepsPlaintext()
+    {
+        var provider = new Blocks.Genesis.Entities.Iam.IdentityProvider
+        {
+            ItemId = "idp1", Provider = "google", ProviderType = "social", ClientId = "c1",
+            ClientSecret = "plain", PrivateKey = "key", TokenEndpointAuthMethod = "client_secret_post",
+        };
+        var doc = provider.ToBsonDocument();
+        Assert.False(doc.Contains("ClientSecretReference"));
+        Assert.False(doc.Contains("PrivateKeyReference"));
+
+        // A document saved before the references existed: plaintext read as before, no reference.
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.IdentityProvider>(doc);
+        Assert.Equal("plain", read.ClientSecret);
+        Assert.Equal("key", read.PrivateKey);
+        Assert.Null(read.ClientSecretReference);
+        Assert.Null(read.PrivateKeyReference);
+
+        doc["ClientSecret"] = string.Empty; // blocks-iam writing through Blocks Secrets
+        doc["ClientSecretReference"] = "s1";
+        doc.Remove("PrivateKey");
+        doc["PrivateKeyReference"] = "s2";
+        read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.IdentityProvider>(doc);
+        Assert.Equal("s1", read.ClientSecretReference);
+        Assert.Equal("s2", read.PrivateKeyReference);
     }
 
     [Fact]

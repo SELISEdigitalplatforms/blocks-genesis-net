@@ -18,8 +18,13 @@ public class DataEntitiesTests
         // Reference, and the filled sample uses an enum's last value, so Type is now "Reference" instead of "Range";
         // ValidationRule also gained EvaluationVersion ([BsonIgnoreIfDefault], not written while 0).
         // Stored documents do not change; default and all-null bytes are unchanged.
+        // DataValidation, ValidationRule and SchemaDefinition filled-sample hashes changed 2026-10-25 (owner decision, signed off 2026-10-25;
+        // validation and access rules plan, phase 1): ValidationType gained In, NotIn, MinItems, MaxItems, UniqueItems and
+        // NotExistsIn, so the filled sample's Type is now "NotExistsIn"; ValidationRule gained When and TargetFilter, and
+        // SchemaDefinition gained Description, all [BsonIgnoreIfNull]. Default and all-null bytes are unchanged, so stored
+        // documents are too.
 ["Blocks.Genesis.Entities.Data.DataAccessPolicy"] = "6D44828E6980CD11AAC4FDDE65BE1E81 6A695E651DB981256B0E177E35852C82 0E73D66ADCC5906B571E56644D99B420",
-        ["Blocks.Genesis.Entities.Data.DataValidation"] = "9F98721546DE7E5BA4484DF220A64AF8 DFB7A9CCDA9E6088D308428A545D1816 A794FC235E46D909A021A27310985753",
+        ["Blocks.Genesis.Entities.Data.DataValidation"] = "A82990EC7A94E330E7B17E1220FEB8D2 DFB7A9CCDA9E6088D308428A545D1816 A794FC235E46D909A021A27310985753",
         ["Blocks.Genesis.Entities.Data.DirectoryOptions"] = "EE16F317F1AA907A659C7A547CA30606 6C6B04A509549608DF6ED1571C09AAE6 6C6B04A509549608DF6ED1571C09AAE6",
         // FieldDefaultValue and DefaultValueOffset are new in 4.3.3 (default values); FieldDefinition gained DefaultValue
         // ([BsonIgnoreIfNull]), which changes the filled-sample bytes of FieldDefinition and SchemaDefinition (owner decision,
@@ -44,12 +49,12 @@ public class DataEntitiesTests
         ["Blocks.Genesis.Entities.Data.SchemaChangeLog"] = "B4CD3EF80B86CC3BE37E01962A04478B F850AB9CE17E6ACE013DBDADD023AF4D EDBC76BFFF2286CFFB7B1A856BF73627",
         // Filled-sample hash changed on purpose (owner decision 2026-10-14): IsSystemEntity added with [BsonIgnoreIfDefault];
         // default and all-null bytes are unchanged, so existing documents are byte-identical.
-        ["Blocks.Genesis.Entities.Data.SchemaDefinition"] = "65F622FA6FE9B3095E723D50CC885722 726AC8DACD7D8DBF541656949A6F860C 2FC7AD4B65B84C2E950156758FCEBB42",
+        ["Blocks.Genesis.Entities.Data.SchemaDefinition"] = "42280A7D530760CC5619EDACFAA4CC40 726AC8DACD7D8DBF541656949A6F860C 2FC7AD4B65B84C2E950156758FCEBB42",
         ["Blocks.Genesis.Entities.Data.SchemaIndexDefinition"] = "045EC948D915DCDF8402F06326B0DB10 FB9DDD0578BE6B3A9BD24659069AA32D 616BBA5DB2DBB248F1CDF28D9EAA834C",
         ["Blocks.Genesis.Entities.Data.SchemaPublishState"] = "24BA88AD6FC4F4757C477DE7442063E1 E43A501BC314F74CA65A562EA88DB865 ACAE91E1BFF76FE025F95D75A46CBE23",
         ["Blocks.Genesis.Entities.Data.StorageConfiguration"] = "DE272370E1AD68DBEBD7B92A1E7624EC 9DAD29AED145D1822D2B307158CAB7BB 061A848E4BB93A76E8768449890E9AAF",
         ["Blocks.Genesis.Entities.Data.Structure"] = "A90CF6459B1FB73D7161B523EB08105F EDDD120AC2690E72E02133125F589458 1501A18A1B14C70A101426BDCF826ECC",
-        ["Blocks.Genesis.Entities.Data.ValidationRule"] = "CBD8978F1D6FB664EF097DDCC3D67F1E B0875FBB77CB7FFEFD00B2A6F9903403 B0875FBB77CB7FFEFD00B2A6F9903403",
+        ["Blocks.Genesis.Entities.Data.ValidationRule"] = "5E4C7D7F5FD319C532C387451675E65A B0875FBB77CB7FFEFD00B2A6F9903403 B0875FBB77CB7FFEFD00B2A6F9903403",
     };
 
     public static TheoryData<string> DocumentClasses() => EntityAssertions.DocumentClassesOf("Data");
@@ -112,5 +117,79 @@ public class DataEntitiesTests
         var current = new Blocks.Genesis.Entities.Data.ValidationRule { Type = Blocks.Genesis.Entities.Data.ValidationType.MaxLength, Value = 50, EvaluationVersion = 1 };
         var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Data.ValidationRule>(current.ToBsonDocument());
         Assert.Equal(1, read.EvaluationVersion);
+    }
+
+    // Every name in the order of its number. Stored rules hold the name; the gateway API sends the number.
+    // The first 13 must never change; new types are only ever appended.
+    private static readonly string[] ValidationTypeNamesByNumber =
+    [
+        "NotEmpty", "Regex", "MinLength", "MaxLength", "LengthRange", "Equal", "NotEqual", "GreaterThan", "LessThan",
+        "GreaterThanOrEqual", "LessThanOrEqual", "Range", "Reference",
+        "In", "NotIn", "MinItems", "MaxItems", "UniqueItems", "NotExistsIn",
+    ];
+
+    [Fact]
+    public void ValidationType_EveryNumberAndName_IsFixed_AndNewTypesAreAppended()
+    {
+        Assert.Equal(ValidationTypeNamesByNumber, Enum.GetNames<Blocks.Genesis.Entities.Data.ValidationType>());
+        for (var number = 0; number < ValidationTypeNamesByNumber.Length; number++)
+            Assert.Equal(number, (int)Enum.Parse<Blocks.Genesis.Entities.Data.ValidationType>(ValidationTypeNamesByNumber[number]));
+    }
+
+    [Fact]
+    public void ValidationRule_WhenAndTargetFilter_NotWrittenWhileNull_SoExistingRulesAreUnchanged()
+    {
+        var doc = new Blocks.Genesis.Entities.Data.ValidationRule { Type = Blocks.Genesis.Entities.Data.ValidationType.MaxLength, Value = 50, EvaluationVersion = 1 }.ToBsonDocument();
+        Assert.False(doc.Contains("When"));
+        Assert.False(doc.Contains("TargetFilter"));
+    }
+
+    [Fact]
+    public void ValidationRule_WhenAndTargetFilter_AreStoredAndReadBack()
+    {
+        static Blocks.Genesis.Entities.Data.PolicyRuleGroup Equals(string field, string value) => new()
+        {
+            Rules = [new() { LeftOperand = field, Operator = Blocks.Genesis.Entities.Data.PolicyOperator.EQUAL, StaticValue = value }],
+        };
+        var rule = new Blocks.Genesis.Entities.Data.ValidationRule
+        {
+            Type = Blocks.Genesis.Entities.Data.ValidationType.Reference,
+            Value = "Customer",
+            When = Equals("Country", "DE"),
+            TargetFilter = Equals("Status", "Active"),
+        };
+
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Data.ValidationRule>(rule.ToBsonDocument());
+
+        Assert.Equal("Country", read.When!.Rules.Single().LeftOperand);
+        Assert.Equal("DE", read.When.Rules.Single().StaticValue);
+        Assert.Equal("Status", read.TargetFilter!.Rules.Single().LeftOperand);
+        Assert.Equal("Active", read.TargetFilter.Rules.Single().StaticValue);
+    }
+
+    [Fact]
+    public void SchemaDefinition_Description_NotWrittenWhileNull_SoExistingSchemasAreUnchanged()
+    {
+        var doc = new Blocks.Genesis.Entities.Data.SchemaDefinition { ItemId = "s1", SchemaName = "Customer" }.ToBsonDocument();
+        Assert.False(doc.Contains("Description"));
+    }
+
+    [Fact]
+    public void SchemaDefinition_Description_IsStoredAndReadBack()
+    {
+        var schema = new Blocks.Genesis.Entities.Data.SchemaDefinition { ItemId = "s1", SchemaName = "Customer", Description = "People and companies we invoice" };
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Data.SchemaDefinition>(schema.ToBsonDocument());
+        Assert.Equal("People and companies we invoice", read.Description);
+    }
+
+    [Fact]
+    public void ValidationType_EveryType_IsStoredAsItsName_AndReadsBack()
+    {
+        foreach (var type in Enum.GetValues<Blocks.Genesis.Entities.Data.ValidationType>())
+        {
+            var doc = new Blocks.Genesis.Entities.Data.ValidationRule { Type = type }.ToBsonDocument();
+            Assert.Equal(type.ToString(), doc["Type"].AsString);
+            Assert.Equal(type, BsonSerializer.Deserialize<Blocks.Genesis.Entities.Data.ValidationRule>(doc).Type);
+        }
     }
 }

@@ -34,4 +34,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Shared with the blocks-data client: the new rule messages and the shapes of a date relative to now. -->
+    <None Update="DataAccess/Rules/rule-message-cases.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- G1: validation results recorded on origin/dev 6658c58, before the plan; see ValidateBaselineTests. -->
+    <None Update="DataAccess/Rules/validate-baseline.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

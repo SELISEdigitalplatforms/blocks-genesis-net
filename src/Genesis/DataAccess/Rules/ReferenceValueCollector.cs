@@ -4,11 +4,11 @@ using Blocks.Genesis.Entities.Data;
 
 namespace Blocks.Genesis.DataAccess.Rules;
 
-/// <summary>One value a mutation sends to a field with a Reference rule, and where it must exist.</summary>
+/// <summary>One value a mutation sends to a field with a Reference rule (where it must exist) or a Must not exist in rule (where it must not).</summary>
 public sealed record ReferenceValue(int InputIndex, string Path, object Value, ValidationRule Rule, ReferenceTarget Target);
 
 /// <summary>
-/// Finds the values in mutation inputs that Reference rules must check. Walks the input the same way
+/// Finds the values in mutation inputs that Reference and Must not exist in rules must check. Walks the input the same way
 /// <see cref="DataValidationHelper"/> does: only the fields that were sent (so a partial update checks only
 /// what it changes), nested objects as <c>a.b</c>, arrays of objects as <c>a[i].b</c>, and a list of plain
 /// values element by element as <c>a[i]</c>. Null and blank values are left to Not empty / Required.
@@ -53,7 +53,7 @@ public static class ReferenceValueCollector
 
             foreach (var rule in field.ValidationRule?.Validations ?? [])
             {
-                if (!rule.IsActive || rule.Type != ValidationType.Reference || targets.Find(rule) is not { } target)
+                if (!rule.IsActive || !ReferenceTargets.IsLookupRule(rule) || targets.Find(rule) is not { } target)
                 {
                     continue;
                 }

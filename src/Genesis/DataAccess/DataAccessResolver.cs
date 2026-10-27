@@ -231,20 +231,26 @@ public sealed class DataAccessResolver : IDataAccessResolver
             return new ResolvedWrite(document, result, DefaultsApplied: false);
 
         var record = WriteRules.ToRecord(document);
+        var nowUtc = DateTime.UtcNow;
         var defaultsApplied = false;
         if (isInsert && FieldDefaultsApplier.HasDefaults(schema.Fields))
         {
-            var defaults = FieldDefaultsApplier.Compute(record, schema.SchemaName, schema.Fields, principal, DateTime.UtcNow);
+            var defaults = FieldDefaultsApplier.Compute(record, schema.SchemaName, schema.Fields, principal, nowUtc);
             FieldDefaultsApplier.Apply(record, defaults);
             defaultsApplied = WriteRules.ApplyDefaults(document, defaults) > 0;
         }
 
-        result.Errors.AddRange(record.Validate(schema, storedRecord is null ? null : WriteRules.ToRecord(storedRecord)).Errors);
+        // The raw document keeps explicit nulls, which "only when" rules read as cleared properties.
+        result.Errors.AddRange(record.Validate(schema, storedRecord is null ? null : WriteRules.ToRecord(storedRecord), nowUtc, rawInput: document).Errors);
         await CheckReferencesAsync(schema, record, principal, result, cancellationToken);
         return new ResolvedWrite(document, result, defaultsApplied);
     }
 
-    /// <summary>Reference rules: each value (each item, for a list) must exist in the target schema's collection.</summary>
+    /// <summary>
+    /// Reference rules: each value (each item, for a list) must exist in the target schema's collection. Must not exist
+    /// in rules: it must not. Values share a lookup only when it is the same lookup: same collection, field, filter and
+    /// deleted-rows clause.
+    /// </summary>
     private async Task CheckReferencesAsync(SchemaDefinitionExtended schema, Dictionary<string, object?> record, AccessPrincipal principal, DataValidationResult result, CancellationToken cancellationToken)
     {
         var targetNames = WriteRules.ReferencedSchemaNames(schema.Fields);
@@ -263,16 +269,44 @@ public sealed class DataAccessResolver : IDataAccessResolver
         if (values.Count == 0)
             return;
 
-        var database = Database(principal);
-        foreach (var group in values.GroupBy(v => (v.Target.CollectionName, v.Target.DbFieldName)))
+        var lookups = new List<(ReferenceValue Value, BsonDocument? Condition)>();
+        foreach (var value in values)
         {
-            var requested = group.Select(v => BsonValue.Create(v.Value)).Distinct().ToList();
-            var collection = database.GetCollection<BsonDocument>(group.Key.CollectionName);
-            var found = await collection.DistinctAsync<BsonValue>(group.Key.DbFieldName, Builders<BsonDocument>.Filter.In(group.Key.DbFieldName, requested), cancellationToken: cancellationToken);
-            var present = (await found.ToListAsync(cancellationToken)).Select(WriteRules.ReferenceKey).ToHashSet(StringComparer.Ordinal);
+            if (ReferenceLookup.TryCondition(value.Rule, out var condition))
+                lookups.Add((value, condition));
+            else
+                result.AddError(value.Path, string.IsNullOrWhiteSpace(value.Rule.ErrorMessage) ? DataValidationHelper.ConditionNotChecked : value.Rule.ErrorMessage, value.Rule.Type.ToString());
+        }
 
-            foreach (var value in group.Where(v => !present.Contains(WriteRules.ReferenceKey(BsonValue.Create(v.Value)))))
-                result.AddError(value.Path, WriteRules.ReferenceNotFoundMessage(schema.SchemaName, value), nameof(ValidationType.Reference));
+        var database = Database(principal);
+        foreach (var group in lookups.GroupBy(l => (l.Value.Target.CollectionName, l.Value.Target.DbFieldName, Condition: l.Condition?.ToJson() ?? string.Empty)))
+        {
+            var requested = group.Select(l => BsonValue.Create(l.Value.Value)).Distinct().ToList();
+            var collection = database.GetCollection<BsonDocument>(group.Key.CollectionName);
+            var condition = group.First().Condition;
+            var filter = ReferenceLookup.Filter(group.Key.DbFieldName, requested, condition);
+            HashSet<string> present;
+            try
+            {
+                var found = await collection.DistinctAsync<BsonValue>(group.Key.DbFieldName, filter, cancellationToken: cancellationToken);
+                present = (await found.ToListAsync(cancellationToken)).Select(WriteRules.ReferenceKey).ToHashSet(StringComparer.Ordinal);
+            }
+            // A filter Mongo refuses (a pattern .NET reads but PCRE doesn't) fails its values instead of the write.
+            catch (MongoCommandException) when (condition is not null)
+            {
+                foreach (var (value, _) in group)
+                    result.AddError(value.Path, string.IsNullOrWhiteSpace(value.Rule.ErrorMessage) ? DataValidationHelper.ConditionNotChecked : value.Rule.ErrorMessage, value.Rule.Type.ToString());
+                continue;
+            }
+
+            foreach (var (value, _) in group)
+            {
+                var exists = present.Contains(WriteRules.ReferenceKey(BsonValue.Create(value.Value)));
+                if (value.Rule.Type == ValidationType.NotExistsIn && exists)
+                    result.AddError(value.Path, WriteRules.ReferenceFoundMessage(schema.SchemaName, value), nameof(ValidationType.NotExistsIn));
+                else if (value.Rule.Type == ValidationType.Reference && !exists)
+                    result.AddError(value.Path, WriteRules.ReferenceNotFoundMessage(schema.SchemaName, value), nameof(ValidationType.Reference));
+            }
         }
     }
 

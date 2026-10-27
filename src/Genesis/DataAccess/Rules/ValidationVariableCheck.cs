@@ -26,6 +26,9 @@ public static class ValidationVariableCheck
             // Only text that looks like a variable is parsed, so fixed values with braces stay fixed values.
             if (raw is not string text || !(text.Contains("{{", StringComparison.Ordinal) || text.Contains("}}", StringComparison.Ordinal)))
                 continue;
+            // A date relative to now ({{Now-18y}}) is not a variable; ValidationRuleCheck checks it.
+            if (RelativeNow.IsWritten(text))
+                continue;
 
             var (parts, error) = VariableSyntax.Parse(text, VariableMode.SingleVariable, schemaName);
             error ??= VariableSyntax.CheckReferences(parts, VariableMode.SingleVariable, schemaName, fields, targetIsList: false);

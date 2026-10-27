@@ -18,6 +18,15 @@ public class IdentityProvider : BaseEntity
     public bool IsActive { get; set; }
     public required string ClientId { get; set; }
     public required string ClientSecret { get; set; }
+
+    /// <summary>
+    /// The Blocks Secrets id of the client secret. When set, the value lives in the secret store and
+    /// <see cref="ClientSecret"/> is empty; when null (every provider saved before this field existed),
+    /// <see cref="ClientSecret"/> holds the plaintext. Not stored when null.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? ClientSecretReference { get; set; }
+
     public string? Issuer { get; set; }
     public  string? AuthorizationUrl { get; set; }
     public  string? TokenUrl { get; set; }
@@ -39,5 +48,13 @@ public class IdentityProvider : BaseEntity
     public string? TeamId { get; set; }
     public string? KeyId { get; set; }
     public string? PrivateKey { get; set; }
+
+    /// <summary>
+    /// The Blocks Secrets id of <see cref="PrivateKey"/>, with the same rule as <see cref="ClientSecretReference"/>:
+    /// set means the key is in the secret store, null means <see cref="PrivateKey"/> holds it. Not stored when null.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? PrivateKeyReference { get; set; }
+
     public string? AppleAudience { get; set; }
 }
