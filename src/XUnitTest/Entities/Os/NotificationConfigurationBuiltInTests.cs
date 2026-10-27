@@ -148,4 +148,16 @@ public class NotificationConfigurationBuiltInTests
         Assert.True(new NotificationAudience { Roles = ["admin"] }.HasRules());
         Assert.True(new NotificationAudience { Filters = [new Blocks.Genesis.Entities.Logic.SubscriptionFilter { Context = "c" }] }.HasRules());
     }
+
+    [Fact]
+    public void Scope_Both_RoundTrips()
+    {
+        var c = Custom();
+        c.Scope = NotificationScope.Both;
+
+        var read = BsonSerializer.Deserialize<NotificationConfiguration>(c.ToBsonDocument());
+
+        Assert.Equal(NotificationScope.Both, read.Scope);
+        Assert.Equal(2, c.ToBsonDocument()["Scope"].AsInt32);
+    }
 }
