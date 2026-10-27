@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Version>4.4.8-preview.1</Version>
+    <Version>4.4.8</Version>
 
 
     <PackageId>SeliseBlocks.Genesis.OS</PackageId>
