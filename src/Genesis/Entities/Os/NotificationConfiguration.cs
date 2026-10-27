@@ -47,7 +47,8 @@ public class NotificationConfiguration : BaseEntity
     [BsonIgnoreIfNull]
     public string? ConsumerAppNote { get; set; }
 
-    /// <summary>Where a built-in is needed. <see cref="NotificationScope.Console"/> rows stay in the root tenant only.</summary>
+    /// <summary>Who it is for: <see cref="NotificationScope.App"/> consumer users, <see cref="NotificationScope.Console"/> root
+    /// console users (rows stay in the root tenant only), or <see cref="NotificationScope.Both"/>.</summary>
     [BsonIgnoreIfDefault]
     public NotificationScope Scope { get; set; }
 
@@ -62,14 +63,17 @@ public class NotificationConfiguration : BaseEntity
     public bool CanBeDisabled() => !IsBuiltIn || (Kind != NotificationKind.Job && Kind != NotificationKind.Progress);
 }
 
-/// <summary>Where a built-in notification is needed.</summary>
+/// <summary>Who a notification is for, and so where a built-in is kept.</summary>
 public enum NotificationScope
 {
-    /// <summary>Useful to apps: copied to every project tenant.</summary>
+    /// <summary>Consumer users of the project. Copied to every project tenant.</summary>
     App = 0,
 
-    /// <summary>Only the Blocks console uses it: kept in the root tenant, not copied to projects.</summary>
+    /// <summary>Root console users (also while they impersonate a project). Kept in the root tenant only.</summary>
     Console = 1,
+
+    /// <summary>Both consumer users and root console users. Copied to every project tenant.</summary>
+    Both = 2,
 }
 
 /// <summary>How the rule lists of an <see cref="NotificationAudience"/> combine.</summary>
