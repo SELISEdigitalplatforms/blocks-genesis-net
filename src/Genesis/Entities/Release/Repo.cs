@@ -21,6 +21,9 @@ public class Repo : BaseEntity
     public string DefaultDeploymentUrl { get; set; }
     [AllowRules(Validation = RuleAccess.Warned)]
     public string CustomDeploymentUrl { get; set; }
+    // True deploys to CustomDeploymentUrl alone. False (the default, and absent on older documents) deploys to
+    // both domains. Ignored while CustomDeploymentUrl is empty, so a repo is never left without a domain.
+    public bool IsCustomDomainOnly { get; set; }
     // The exact `namespace` param sent to Tekton at deploy time. Null/absent means no live deployment.
     // Never recomputed - it is the only value the delete path is allowed to act on.
     public string DeployedNamespace { get; set; }
