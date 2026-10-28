@@ -23,4 +23,12 @@ public class OfflineNotification
 
     [BsonIgnore]
     public bool IsRead { get; set; }
+
+    /// <summary>The project tenant of a console user's row, which is kept in the root DB. Null: the DB's own tenant.</summary>
+    [BsonIgnoreIfNull]
+    public string? TenantId { get; set; }
+
+    /// <summary>The send's organization. A row without <see cref="PayloadData.UserId"/> is for every user of it.</summary>
+    [BsonIgnoreIfNull]
+    public string? OrganizationId { get; set; }
 }

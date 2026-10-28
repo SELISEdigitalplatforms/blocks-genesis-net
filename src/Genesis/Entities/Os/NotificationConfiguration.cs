@@ -52,9 +52,55 @@ public class NotificationConfiguration : BaseEntity
     [BsonIgnoreIfDefault]
     public NotificationScope Scope { get; set; }
 
-    /// <summary>Who may receive it. Null or no rules: the sender decides, as before. A sender can only narrow this list.</summary>
+    /// <summary>Who receives it in this tenant, set by the project admin. Null: <see cref="DefaultAudience"/> applies.</summary>
     [BsonIgnoreIfNull]
     public NotificationAudience? Audience { get; set; }
+
+    /// <summary>Who receives it when the tenant set nothing. Set by the root tenant on built-ins and copied with them.
+    /// Null: affected users only.</summary>
+    [BsonIgnoreIfNull]
+    public NotificationAudience? DefaultAudience { get; set; }
+
+    /// <summary>Built-in personal notice: a tenant may not change who receives it (only turn it on or off).</summary>
+    [BsonIgnoreIfDefault]
+    public bool AudienceLocked { get; set; }
+
+    /// <summary>Most sends per minute per tenant. 0: the notifier's default (120).</summary>
+    [BsonIgnoreIfDefault]
+    public int RateLimitPerMinute { get; set; }
+
+    /// <summary>In-app (live) channel. On by default: left out of the stored document while true, and a document
+    /// without the field reads as true, so records written before the field existed keep sending live.</summary>
+    [BsonDefaultValue(true)]
+    [BsonIgnoreIfDefault]
+    public bool LiveEnabled { get; set; } = true;
+
+    /// <summary>Mobile push channel. Needs <see cref="PushTemplate"/>.</summary>
+    [BsonIgnoreIfDefault]
+    public bool PushEnabled { get; set; }
+
+    /// <summary>Localization keys and link of the mobile push message.</summary>
+    [BsonIgnoreIfNull]
+    public NotificationPushTemplate? PushTemplate { get; set; }
+
+    /// <summary>The audience that applies: the tenant's own unless locked, else the default, else affected users only.</summary>
+    public NotificationAudience EffectiveAudience() =>
+        (AudienceLocked ? null : Audience) ?? DefaultAudience ?? new NotificationAudience();
+
+    /// <summary>
+    /// The channels that apply. A record saved before the channel fields existed with <c>ChannelToNotify</c>
+    /// Firebase (and no <see cref="PushEnabled"/>) reads as push only; SignalR reads as live. Inbox is
+    /// <see cref="EnablePersistence"/>.
+    /// </summary>
+    public NotificationChannels EffectiveChannels()
+    {
+        if (ChannelToNotify == NotifierTypes.Firebase && !PushEnabled)
+        {
+            return new NotificationChannels(Live: false, Push: true, Inbox: EnablePersistence);
+        }
+
+        return new NotificationChannels(Live: LiveEnabled, Push: PushEnabled, Inbox: EnablePersistence);
+    }
 
     /// <summary>
     /// False for a built-in job result or progress stream: a page waits for it, so switching it off would leave
@@ -76,7 +122,38 @@ public enum NotificationScope
     Both = 2,
 }
 
-/// <summary>How the rule lists of an <see cref="NotificationAudience"/> combine.</summary>
+/// <summary>Which users of the send's organization receive a notification.</summary>
+public enum NotificationAudienceLevel
+{
+    /// <summary>"Affected users only": the users the sending code names (record owner, affected user).</summary>
+    AffectedOnly = 0,
+
+    /// <summary>"All users": every active user of the send's organization.</summary>
+    AllUsers = 1,
+
+    /// <summary>"Selected": the users, roles and permissions in the rule lists, joined by <see cref="NotificationAudience.Match"/>.</summary>
+    Selected = 2,
+}
+
+/// <summary>The channels a notification goes out on (see <see cref="NotificationConfiguration.EffectiveChannels"/>).</summary>
+public readonly record struct NotificationChannels(bool Live, bool Push, bool Inbox);
+
+/// <summary>
+/// The mobile push message. Title and body are Localization keys (module <c>notifications</c>); their text, per language,
+/// may hold <c>{{field}}</c> placeholders filled from the payload. No free text is stored here.
+/// </summary>
+[BsonIgnoreExtraElements]
+public class NotificationPushTemplate
+{
+    public string TitleKey { get; set; } = string.Empty;
+    public string BodyKey { get; set; } = string.Empty;
+
+    /// <summary>Link the app opens; may hold placeholders.</summary>
+    [BsonIgnoreIfNull]
+    public string? Link { get; set; }
+}
+
+/// <summary>How the rule lists of a custom audience combine.</summary>
 public enum NotificationAudienceMatch
 {
     /// <summary>A user in any list receives it.</summary>
@@ -87,33 +164,33 @@ public enum NotificationAudienceMatch
 }
 
 /// <summary>
-/// Who may receive a notification. <see cref="EveryoneInTenant"/> means every active user of the tenant; otherwise
-/// each non-empty list gives a set of users and <see cref="Match"/> joins them. Roles and Permissions are checked
-/// inside <see cref="OrganizationIds"/> when that list is set.
+/// Who receives a notification. Always inside the send's organization (org must): every level picks only active
+/// users of that organization. Live filters only narrow the result, they never add anyone.
 /// </summary>
 [BsonIgnoreExtraElements]
 public class NotificationAudience
 {
     [BsonIgnoreIfDefault]
-    public bool EveryoneInTenant { get; set; }
+    public NotificationAudienceLevel Level { get; set; }
 
     [BsonIgnoreIfDefault]
     public NotificationAudienceMatch Match { get; set; }
 
     public List<string> UserIds { get; set; } = [];
-    public List<string> OrganizationIds { get; set; } = [];
     public List<string> Roles { get; set; } = [];
+
+    /// <summary>Permission resources, for example <c>blocks-iam::iam::users</c>.</summary>
     public List<string> Permissions { get; set; } = [];
 
-    /// <summary>Users with a live subscription that matches one of these (same match as filter notifications).</summary>
+    /// <summary>Keep only users with a live subscription that matches one of these. Never adds a user.</summary>
     public List<Logic.SubscriptionFilter> Filters { get; set; } = [];
 
-    /// <summary>True when at least one rule list is set.</summary>
-    public bool HasRules() =>
-        UserIds.Count > 0 || OrganizationIds.Count > 0 || Roles.Count > 0 || Permissions.Count > 0 || Filters.Count > 0;
+    /// <summary>Selected level: also send to the users the sending code names (for example the locked user).</summary>
+    [BsonIgnoreIfDefault]
+    public bool AlsoNamedUsers { get; set; }
 
-    /// <summary>True when this audience limits who receives the notification.</summary>
-    public bool IsSet() => EveryoneInTenant || HasRules();
+    /// <summary>True when the Selected rule lists name at least one user, role or permission.</summary>
+    public bool HasRules() => UserIds.Count > 0 || Roles.Count > 0 || Permissions.Count > 0;
 }
 
 /// <summary>How much a notification matters to the person who receives it.</summary>
