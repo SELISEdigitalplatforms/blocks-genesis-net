@@ -46,6 +46,8 @@
 		<PackageReference Include="Serilog.Sinks.MongoDB" Version="7.2.0" />
 		<PackageReference Include="StackExchange.Redis" Version="2.12.14" />
 		<PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.7" />
+		<!-- Pinned above the 2.5.187 the SignalR Redis package pulls in: GHSA-hv8m-jj95-wg3x, GHSA-vh6j-jc39-fggf fixed in 2.5.301. -->
+		<PackageReference Include="MessagePack" Version="2.5.303" />
 
 		<PackageReference Include="AspNetCore.HealthChecks.MongoDb" Version="9.0.0" />
 		<PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
