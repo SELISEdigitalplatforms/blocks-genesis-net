@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Version>4.5.0</Version>
+    <Version>4.6.0</Version>
 
 
     <PackageId>SeliseBlocks.Genesis.OS</PackageId>
@@ -45,6 +45,7 @@
 		<PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
 		<PackageReference Include="Serilog.Sinks.MongoDB" Version="7.2.0" />
 		<PackageReference Include="StackExchange.Redis" Version="2.12.14" />
+		<PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.7" />
 
 		<PackageReference Include="AspNetCore.HealthChecks.MongoDb" Version="9.0.0" />
 		<PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
