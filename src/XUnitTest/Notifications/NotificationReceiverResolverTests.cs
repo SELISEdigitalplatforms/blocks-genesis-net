@@ -25,16 +25,39 @@ public sealed class NotificationReceiverResolverTests : IAsyncLifetime
     private static NotificationAudience Level(NotificationAudienceLevel level) => new() { Level = level };
 
     [Fact]
-    public async Task AffectedOnly_NamedUserOfAnotherOrg_NeverReceives()
+    public async Task AffectedOnly_NamedUserRemovedFromTheOrganization_StillReceives()
+    {
+        // e.g. "roles revoked": the user is no longer in the send's organization.
+        await _mongo.AddUserAsync("u-in", [Org]);
+        await _mongo.AddUserAsync("u-other-org", [OtherOrg]);
+        await _mongo.AddUserAsync("u-no-org", []);
+
+        var result = await ResolveAsync(Sample.Item(Org, "u-in", "u-other-org", "u-no-org"), Sample.Config());
+
+        Assert.Equal(["u-in", "u-no-org", "u-other-org"], result.ProjectUserIds.Order());
+        Assert.Null(result.OrganizationWideId);
+    }
+
+    [Fact]
+    public async Task AffectedOnly_InactiveOrUnknownNamedUser_NeverReceives()
     {
         await _mongo.AddUserAsync("u-in", [Org]);
-        await _mongo.AddUserAsync("u-other", [OtherOrg]);
         await _mongo.AddUserAsync("u-inactive", [Org], active: false);
 
-        var result = await ResolveAsync(Sample.Item(Org, "u-in", "u-other", "u-inactive", "u-unknown"), Sample.Config());
+        var result = await ResolveAsync(Sample.Item(Org, "u-in", "u-inactive", "u-unknown"), Sample.Config());
 
         Assert.Equal(["u-in"], result.ProjectUserIds);
-        Assert.Null(result.OrganizationWideId);
+    }
+
+    [Fact]
+    public async Task AffectedOnly_NamedUserOfAnotherTenant_NeverReceives()
+    {
+        // The root DB stands in for another tenant's DB: the same id there must not count for this tenant.
+        await _mongo.AddUserAsync("u-elsewhere", [Org], database: _mongo.RootDb);
+
+        var result = await ResolveAsync(Sample.Item(Org, "u-elsewhere"), Sample.Config());
+
+        Assert.True(result.IsEmpty);
     }
 
     [Fact]
@@ -134,16 +157,30 @@ public sealed class NotificationReceiverResolverTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Selected_AlsoNamedUsers_AddsNamedUsersOfTheOrganizationOnly()
+    public async Task Selected_AlsoNamedUsers_AddsNamedUsersOfAnyOrganization_RulesStayInTheOrganization()
     {
         await _mongo.AddUserAsync("admin", [Org], roles: new() { [Org] = ["admin"] });
+        await _mongo.AddUserAsync("admin-elsewhere", [OtherOrg], roles: new() { [OtherOrg] = ["admin"] });
         await _mongo.AddUserAsync("affected", [Org]);
         await _mongo.AddUserAsync("affected-elsewhere", [OtherOrg]);
         var audience = new NotificationAudience { Level = NotificationAudienceLevel.Selected, Roles = ["admin"], AlsoNamedUsers = true };
 
         var result = await ResolveAsync(Sample.Item(Org, "affected", "affected-elsewhere"), Sample.Config(audience));
 
-        Assert.Equal(["admin", "affected"], result.ProjectUserIds.Order());
+        Assert.Equal(["admin", "affected", "affected-elsewhere"], result.ProjectUserIds.Order());
+    }
+
+    [Fact]
+    public async Task Selected_AlsoNamedUsers_NoOrganization_LockedNamedUserReceives_RulesReachNobody()
+    {
+        // e.g. "account locked": iam sends without an organization, Selected (admins) + AlsoNamedUsers.
+        await _mongo.AddUserAsync("admin", [Org], roles: new() { [Org] = ["admin"] });
+        await _mongo.AddUserAsync("locked", [Org], lockoutUntilUtc: _mongo.Time.Now.UtcDateTime.AddMinutes(15));
+        var audience = new NotificationAudience { Level = NotificationAudienceLevel.Selected, Roles = ["admin"], AlsoNamedUsers = true };
+
+        var result = await ResolveAsync(Sample.Item(null, "locked"), Sample.Config(audience));
+
+        Assert.Equal(["locked"], result.ProjectUserIds);
     }
 
     [Fact]
