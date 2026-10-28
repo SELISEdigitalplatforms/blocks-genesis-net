@@ -169,16 +169,25 @@ public class TenantContextHelperCoverageTests
     }
 
     [Fact]
+    public void IsValidOrigin_HttpOriginOfTheTenant_PassesOnlyInDevelopment()
+    {
+        var tenant = MakeTenant("https://app.local");
+
+        Assert.False(IsValidOrigin("http://app.local", tenant, false));
+        Assert.True(IsValidOrigin("http://app.local", tenant, true));
+    }
+
+    [Fact]
     public void IsValidOrigin_NoOrigin_IsAServerCall_AndPasses()
     {
         Assert.True(IsValidOrigin(null, MakeTenant("https://app.local"), false));
     }
 
-    private static bool IsValidOrigin(string? origin, Blocks.Genesis.Tenant tenant, bool allowLocalhost)
+    private static bool IsValidOrigin(string? origin, Blocks.Genesis.Tenant tenant, bool isDevelopment)
     {
         var method = HelperType.GetMethod("IsValidOrigin", BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
-        return (bool)method!.Invoke(null, [origin, tenant, allowLocalhost])!;
+        return (bool)method!.Invoke(null, [origin, tenant, isDevelopment])!;
     }
 
     private static bool IsDomainAllowed(string? headerValue, Blocks.Genesis.Tenant tenant)

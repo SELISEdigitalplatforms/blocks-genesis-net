@@ -503,6 +503,12 @@ public static class ApplicationConfigurations
             return true;
         }
 
+        // Domain lookup drops the scheme, so an http:// page of a registered domain would pass.
+        if (!environment.IsDevelopment() && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
         var normalizedOrigin = uri.GetLeftPart(UriPartial.Authority);
         return tenants.GetTenantByApplicationDomain(normalizedOrigin) != null;
     }

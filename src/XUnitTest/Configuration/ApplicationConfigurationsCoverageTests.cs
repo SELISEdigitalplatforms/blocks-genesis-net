@@ -285,6 +285,19 @@ public class ApplicationConfigurationsCoverageTests
         Assert.True(result);
     }
 
+    [Theory]
+    [InlineData("Production", false)]
+    [InlineData("Development", true)]
+    public void IsOriginAllowed_HttpOriginOfARegisteredDomain_PassesOnlyInDevelopment(string environmentName, bool expected)
+    {
+        var tenants = new Mock<ITenants>();
+        tenants.Setup(t => t.GetTenantByApplicationDomain("http://tenant.example.com")).Returns(CreateTenant());
+
+        var result = InvokeIsOriginAllowed("http://tenant.example.com", tenants.Object, environmentName, []);
+
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public void IsOriginAllowed_ShouldReturnTrue_WhenTenantMatchesApplicationDomain()
     {

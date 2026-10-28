@@ -173,9 +173,10 @@ internal static class TenantContextHelper
     /// A browser call must come from one of the tenant's application domains, judged by Origin
     /// only. Referer is not used: it can be hidden by the page and a caller controls it anyway.
     /// A call without Origin is treated as a server-to-server call and passes.
-    /// Localhost passes only when <paramref name="allowLocalhost"/> is true (Development).
+    /// Localhost and plain http:// origins pass only when <paramref name="isDevelopment"/> is true:
+    /// an http page can be changed by anyone on the network path.
     /// </summary>
-    public static bool IsValidOrigin(string? origin, Tenant tenant, bool allowLocalhost = false)
+    public static bool IsValidOrigin(string? origin, Tenant tenant, bool isDevelopment = false)
     {
         if (string.IsNullOrWhiteSpace(origin))
         {
@@ -184,11 +185,19 @@ internal static class TenantContextHelper
 
         if (IsLocalhostHeader(origin))
         {
-            return allowLocalhost;
+            return isDevelopment;
+        }
+
+        if (!isDevelopment && !IsHttpsOrigin(origin))
+        {
+            return false;
         }
 
         return IsDomainAllowed(origin, tenant);
     }
+
+    public static bool IsHttpsOrigin(string? origin) =>
+        Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 
     public static string ResolveApplicationDomain(Tenant tenant, string? origin, string? referer)
     {
