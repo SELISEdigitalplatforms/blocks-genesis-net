@@ -90,6 +90,25 @@ public sealed class DemoMessageConsumer : IConsumer<DemoMessage>
 }
 ```
 
+## Notifications
+
+```csharp
+services.AddBlocksNotifications();   // after the genesis services (API or worker)
+
+publisher.Publish(new NotificationRequest
+{
+    Name = "iam-user-updated",           // KV notification-config:<Name> in the tenant DB, else the root built-in
+    NamedUserIds = [affectedUserId],
+    OrganizationId = recordOrgId,        // used only when there is no user token
+    Payload = new { Fields = changed },  // JSON, max 256 KB
+});
+```
+
+- `Publish` returns at once and never throws. A background worker reads a 1000-item buffer (full: dropped and logged).
+- The tenant configuration decides receivers (level, scope, filters), channels (inbox, live, push) and the rate limit.
+- Live goes to `NotificationHub` groups over the Redis backplane; the hub itself is mapped by blocks-logic only.
+- Push sends `PushRequested` to queue `blocks_notification_push_listener` (consumed by the logic worker).
+
 ## Configuration
 
 `ConfigureLogAndSecretsAsync` loads a `.env` file when one exists at or above the working directory, then resolves secrets from Azure Key Vault (`VaultType.Azure`) or environment variables (`VaultType.OnPrem`, prefixed with `BlocksSecret__`). `DatabaseConnectionString` and `CacheConnectionString` are required; startup fails with a descriptive error when they are missing.
