@@ -51,6 +51,66 @@ public sealed class BlocksEventTriggerRegistrationTests
         }
     }
 
+    [Theory]
+    [InlineData("rabbit")]
+    [InlineData("azure")]
+    public void H12_IMessageClientResolvedFromTheRealConfigureServicesUsesTheForwardingConstructor(string transport)
+    {
+        var previousSecret = GetStatic("_blocksSecret");
+        var previousServiceName = GetStatic("_serviceName");
+        var previousSwagger = GetStatic("_blocksSwaggerOptions");
+        try
+        {
+            SetStatic("_serviceName", "svc-event-trigger-di-resolve");
+            SetStatic("_blocksSwaggerOptions", null);
+            SetStatic("_blocksSecret", new BlocksSecret
+            {
+                DatabaseConnectionString = "mongodb://127.0.0.1:27017/genesis-event-trigger-di",
+                RootDatabaseName = "genesis-event-trigger-di-root",
+                CacheConnectionString = "localhost:6379,abortConnect=false",
+                MessageConnectionString = string.Empty,
+                TraceConnectionString = string.Empty
+            });
+            RemoveRegisteredObjectBsonSerializer();
+
+            // No broker is contacted: the RabbitMQ topology step returns early without a connection string, and
+            // the Azure one has no queues or topics to create. Resolving builds the whole real dependency graph.
+            var messageConfiguration = transport == "azure"
+                ? new MessageConfiguration
+                {
+                    ServiceName = "svc-event-trigger-di-resolve",
+                    Connection = TriggerKit.ValidAzureConnection,
+                    AzureServiceBusConfiguration = new AzureServiceBusConfiguration { Queues = [], Topics = [] }
+                }
+                : new MessageConfiguration
+                {
+                    ServiceName = "svc-event-trigger-di-resolve",
+                    RabbitMqConfiguration = new RabbitMqConfiguration()
+                };
+
+            var services = new ServiceCollection();
+            services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+            ApplicationConfigurations.ConfigureServices(services, messageConfiguration);
+
+            using var provider = services.BuildServiceProvider();
+            var client = provider.GetRequiredService<IMessageClient>();
+
+            Assert.IsType(transport == "azure" ? typeof(AzureMessageClient) : typeof(RabbitMessageClient), client);
+            Assert.Same(provider.GetRequiredService<IBlocksEventTriggerForwarder>(), Forwarder(client));
+            Assert.IsType<BlocksEventTriggerForwarder>(Forwarder(client));
+            // The client's own logger (for a throwing forwarder) is resolved too, not the null fallback.
+            var logger = client.GetType().GetField("_logger", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client);
+            Assert.IsNotType<Microsoft.Extensions.Logging.Abstractions.NullLogger<AzureMessageClient>>(logger);
+            Assert.IsNotType<Microsoft.Extensions.Logging.Abstractions.NullLogger<RabbitMessageClient>>(logger);
+        }
+        finally
+        {
+            SetStatic("_blocksSecret", previousSecret);
+            SetStatic("_serviceName", previousServiceName);
+            SetStatic("_blocksSwaggerOptions", previousSwagger);
+        }
+    }
+
     [Fact]
     public void H12_AddBlocksEventTriggerResolvesOneForwarderPerProcess()
     {

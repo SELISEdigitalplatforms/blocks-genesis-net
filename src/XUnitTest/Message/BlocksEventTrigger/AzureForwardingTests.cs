@@ -447,22 +447,35 @@ public sealed class AzureForwardingTests : IDisposable
     [Fact]
     public async Task C13_OriginalEnvelopeAndHeadersAreIdenticalWithTheHookOnOrOff()
     {
+        // An isolated, always-sampled source: other tests' ActivityListeners cannot change whether these sends
+        // get a span. Each side's TraceId/SpanId must be its own producer span's; everything else is equal.
+        var sourceName = "bet-azure-c13-" + Guid.NewGuid().ToString("N");
+        var stopped = new ConcurrentQueue<Activity>();
+        using var listener = TriggerKit.Listen(sourceName, stopped);
+        using var source = new ActivitySource(sourceName);
         var offSender = new RecordingSender(Queue);
-        var off = TriggerKit.AzureClient(null, new Dictionary<string, ServiceBusSender> { [Queue] = offSender });
-        var on = Client(TriggerKit.Catalog(("OrderPlaced", true)), out _);
+        var off = TriggerKit.AzureClient(null, new Dictionary<string, ServiceBusSender> { [Queue] = offSender }, source);
+        var on = Client(TriggerKit.Catalog(("OrderPlaced", true)), out _, source: source);
         var message = Order() with { DelegationTtl = TimeSpan.FromHours(1) };
 
         await off.SendToConsumerAsync(message);
+        var offSpan = Assert.Single(stopped);
         await on.SendToConsumerAsync(message);
+        var onSpan = stopped.Single(a => a.GetTagItem("messaging.message_type") as string == "OrderPlaced" && a != offSpan);
 
         var before = Assert.Single(offSender.Sent);
         var after = Assert.Single(_original.Sent);
         Assert.Equal(before.Body.ToArray(), after.Body.ToArray());
         Assert.Equal(before.ApplicationProperties.Keys.OrderBy(k => k), after.ApplicationProperties.Keys.OrderBy(k => k));
-        foreach (var key in before.ApplicationProperties.Keys)
+        foreach (var key in before.ApplicationProperties.Keys.Except(["TraceId", "SpanId"]))
         {
             Assert.Equal(before.ApplicationProperties[key], after.ApplicationProperties[key]);
         }
+
+        Assert.Equal(offSpan.TraceId.ToString(), before.ApplicationProperties["TraceId"]);
+        Assert.Equal(offSpan.SpanId.ToString(), before.ApplicationProperties["SpanId"]);
+        Assert.Equal(onSpan.TraceId.ToString(), after.ApplicationProperties["TraceId"]);
+        Assert.Equal(onSpan.SpanId.ToString(), after.ApplicationProperties["SpanId"]);
 
         Assert.Single(_trigger.Sent);
     }
@@ -481,6 +494,168 @@ public sealed class AzureForwardingTests : IDisposable
         Assert.Equal(offSender.Scheduled.Single().At, _original.Scheduled.Single().At);
         Assert.Equal(offSender.Scheduled.Single().Message.Body.ToArray(), _original.Scheduled.Single().Message.Body.ToArray());
         Assert.Empty(_original.Sent);
+    }
+
+    [Fact]
+    public async Task M1_AHungCatalogReadDelaysTheSendOnlyUntilTheTimeoutAndLaterSendsDoNoIo()
+    {
+        var clock = new TriggerClock();
+        var store = new Mock<IKeyValueStore>(MockBehavior.Strict);
+        store
+            .Setup(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()))
+            .Returns(new TaskCompletionSource<BsonArray?>().Task);
+        var logger = new RecordingLogger<BlocksEventCatalogCache>();
+        var forwarder = TriggerKit.Forwarder(TriggerKit.Cache(store.Object, clock: clock, logger: logger), clock: clock);
+        var client = TriggerKit.AzureClient(forwarder, Senders());
+
+        var send = client.SendToConsumerAsync(Order());
+        Assert.Single(_original.Sent);
+        Assert.False(send.IsCompleted);
+
+        clock.Advance(BlocksEventCatalogCache.ReadTimeout);
+        Assert.Same(send, await Task.WhenAny(send, Task.Delay(TimeSpan.FromSeconds(5))));
+        await send;
+
+        for (var i = 0; i < 100; i++)
+        {
+            var next = client.SendToConsumerAsync(Order());
+            Assert.True(next.IsCompletedSuccessfully, "after a timed-out read, sends are served from the failure entry");
+        }
+
+        Assert.Equal(101, _original.Sent.Count);
+        Assert.Empty(_trigger.Sent);
+        store.Verify(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()), Times.Once);
+        store.VerifyNoOtherCalls();
+        Assert.Single(logger.At(LogLevel.Warning));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task M2_AThrowingForwarderNeverFailsADeliveredSend(bool synchronously)
+    {
+        var forwarder = new ThrowingForwarder { Synchronous = synchronously };
+        var logger = new RecordingLogger<AzureMessageClient>();
+        var client = TriggerKit.AzureClient(forwarder, Senders(), logger: logger);
+
+        await client.SendToConsumerAsync(Order());
+        await client.SendToMassConsumerAsync(Order(Topic));
+
+        Assert.Equal(2, forwarder.Calls);
+        Assert.Single(_original.Sent);
+        Assert.Single(_topic.Sent);
+        var warnings = logger.At(LogLevel.Warning);
+        Assert.Equal(2, warnings.Count);
+        Assert.All(warnings, w =>
+        {
+            Assert.Contains(nameof(InvalidOperationException), w.Message);
+            Assert.Null(w.Exception);
+        });
+        Assert.Empty(logger.At(LogLevel.Error));
+        Assert.DoesNotContain(TriggerKit.PayloadMarker, logger.AllText());
+    }
+
+    [Fact]
+    public async Task M2_AThrowingForwarderWithoutALoggerStillNeverFailsTheSend()
+    {
+        var client = TriggerKit.AzureClient(new ThrowingForwarder(), Senders());
+
+        await client.SendToConsumerAsync(Order());
+
+        Assert.Single(_original.Sent);
+    }
+
+    [Fact]
+    public async Task M3_ForwardsUseTheirOwnSenderFromANoRetryClient_OriginalsKeepTheDefaultRetries()
+    {
+        var originalsTrigger = new RecordingSender(BlocksEventTriggerConstants.QueueName);
+        var client = TriggerKit.AzureClient(TriggerKit.Forwarder(TriggerKit.Cache(TriggerKit.Store(TriggerKit.Catalog(("OrderPlaced", true))).Object)),
+            new Dictionary<string, ServiceBusSender>());
+        Inject(client, "_senders", Queue, _original);
+        Inject(client, "_senders", BlocksEventTriggerConstants.QueueName, originalsTrigger);
+        Inject(client, "_forwardSenders", BlocksEventTriggerConstants.QueueName, _trigger);
+
+        await client.SendToConsumerAsync(Order());
+
+        Assert.Single(_original.Sent);
+        Assert.Single(_trigger.Sent);
+        Assert.Empty(originalsTrigger.Sent);
+
+        Assert.Equal(0, RetryOptionsOf(client, "_forwardClient").MaxRetries);
+        Assert.Equal(new ServiceBusRetryOptions().MaxRetries, RetryOptionsOf(client, "_client").MaxRetries);
+        Assert.Equal(0, AzureMessageClient.CreateForwardClientOptions().RetryOptions.MaxRetries);
+    }
+
+    [Fact]
+    public async Task M3_TheForwardSenderIsCreatedFromTheForwardClientNotTheOriginalsClient()
+    {
+        // No sender injected for the trigger queue, and the forward client closed: the forward fails creating its
+        // sender, while the original (on the other client) is sent. The forwarder logs the failure.
+        var logger = new RecordingLogger<BlocksEventTriggerForwarder>();
+        var client = TriggerKit.AzureClient(
+            TriggerKit.Forwarder(TriggerKit.Cache(TriggerKit.Store(TriggerKit.Catalog(("OrderPlaced", true))).Object), logger),
+            new Dictionary<string, ServiceBusSender> { [Queue] = _original });
+        var forwardSenders = (ConcurrentDictionary<string, ServiceBusSender>)typeof(AzureMessageClient)
+            .GetField("_forwardSenders", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(client)!;
+        forwardSenders.Clear();
+        await ClientIn(client, "_forwardClient").DisposeAsync();
+
+        await client.SendToConsumerAsync(Order());
+
+        Assert.Single(_original.Sent);
+        Assert.Empty(forwardSenders);
+        Assert.Contains(nameof(ObjectDisposedException), Assert.Single(logger.At(LogLevel.Warning)).Message);
+    }
+
+    private static void Inject(AzureMessageClient client, string field, string name, ServiceBusSender sender)
+    {
+        var map = (ConcurrentDictionary<string, ServiceBusSender>)typeof(AzureMessageClient)
+            .GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(client)!;
+        map[name] = sender;
+    }
+
+    private static ServiceBusClient ClientIn(AzureMessageClient client, string field)
+    {
+        var value = typeof(AzureMessageClient)
+            .GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(client)!;
+        return value as ServiceBusClient ?? ((Lazy<ServiceBusClient>)value).Value;
+    }
+
+    // The SDK keeps a client's retry options internally; find them by type rather than by a private name.
+    private static ServiceBusRetryOptions RetryOptionsOf(AzureMessageClient client, string field) =>
+        FindRetryOptions(ClientIn(client, field), depth: 3)
+        ?? throw new InvalidOperationException("ServiceBusRetryOptions not found on the client");
+
+    private static ServiceBusRetryOptions? FindRetryOptions(object? value, int depth)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            case ServiceBusRetryOptions options:
+                return options;
+            case ServiceBusClientOptions clientOptions:
+                return clientOptions.RetryOptions;
+        }
+
+        if (depth == 0 || value is string || value.GetType().IsPrimitive)
+        {
+            return null;
+        }
+
+        for (var type = value.GetType(); type is not null && type != typeof(object); type = type.BaseType)
+        {
+            foreach (var f in type.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly))
+            {
+                if (f.FieldType.Namespace?.StartsWith("Azure.Messaging.ServiceBus", StringComparison.Ordinal) == true
+                    && FindRetryOptions(f.GetValue(value), depth - 1) is { } found)
+                {
+                    return found;
+                }
+            }
+        }
+
+        return null;
     }
 
     [Fact]

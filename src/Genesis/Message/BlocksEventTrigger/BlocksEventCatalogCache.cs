@@ -25,6 +25,15 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
 {
     internal static readonly TimeSpan SubscribeRetryInterval = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// Longest a miss waits for the catalog read. A miss is awaited on the send path, so a slow or unreachable
+    /// tenant DB must not hold sends for the driver's own (30 s) timeout. A timed-out read is a failed read.
+    /// </summary>
+    internal static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>Longest a subscribe attempt may stay pending before it counts as failed and may be retried.</summary>
+    internal static readonly TimeSpan SubscribeTimeout = TimeSpan.FromSeconds(5);
+
     private readonly IKeyValueStore _keyValueStore;
     private readonly ICacheClient _cacheClient;
     private readonly TimeProvider _timeProvider;
@@ -34,7 +43,10 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
     private readonly ConcurrentDictionary<string, Lazy<Task<FrozenSet<string>>>> _inFlight = new(StringComparer.Ordinal);
     private readonly object _subscribeLock = new();
 
-    private long _invalidations;
+    // Per-tenant invalidation versions: a read stores its result only if its tenant's version did not move.
+    // The epoch changes when the map is cleared, so a cleared version can never look unchanged.
+    private readonly ConcurrentDictionary<string, long> _versions = new(StringComparer.Ordinal);
+    private long _versionEpoch;
     private bool _subscribed;
     private bool _subscribing;
     private DateTimeOffset _nextSubscribeAttempt = DateTimeOffset.MinValue;
@@ -53,6 +65,9 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
 
     internal int CachedTenantCount => _entries.Count;
 
+    /// <summary>Test seam: runs after a read's version check and before its result is stored.</summary>
+    internal Action<string>? BeforeStore { get; set; }
+
     public ValueTask<FrozenSet<string>> GetEnabledEventsAsync(string tenantId)
     {
         if (_entries.TryGetValue(tenantId, out var cached) && cached.ExpiresAt > _timeProvider.GetUtcNow())
@@ -66,8 +81,21 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
     /// <summary>Drops one tenant's entry. Called for each message on the invalidation channel.</summary>
     internal void Invalidate(string tenantId)
     {
-        Interlocked.Increment(ref _invalidations);
+        if (_versions.Count >= BlocksEventTriggerConstants.MaxCachedTenants && !_versions.ContainsKey(tenantId))
+        {
+            Interlocked.Increment(ref _versionEpoch);
+            _versions.Clear();
+        }
+
+        // Version first, then the entry: a read that stored in between sees the new version and removes itself.
+        _versions.AddOrUpdate(tenantId, 1, (_, version) => version + 1);
         _entries.TryRemove(tenantId, out _);
+    }
+
+    private (long Epoch, long Version) ReadVersion(string tenantId)
+    {
+        var epoch = Interlocked.Read(ref _versionEpoch);
+        return (epoch, _versions.TryGetValue(tenantId, out var version) ? version : 0);
     }
 
     private async Task<FrozenSet<string>> LoadSingleFlightAsync(string tenantId)
@@ -87,15 +115,15 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
 
     private async Task<FrozenSet<string>> LoadAsync(string tenantId)
     {
-        var invalidationsAtStart = Interlocked.Read(ref _invalidations);
+        var versionAtStart = ReadVersion(tenantId);
+        // Lifetimes count from the read's start, so a slow read never extends how long a result is trusted.
+        var startedAt = _timeProvider.GetUtcNow();
         FrozenSet<string> enabled;
         TimeSpan lifetime;
 
         try
         {
-            var catalog = await _keyValueStore
-                .GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, impersonated: true)
-                .ConfigureAwait(false);
+            var catalog = await ReadCatalogAsync().ConfigureAwait(false);
 
             enabled = BuildEnabledSet(tenantId, catalog);
             lifetime = BlocksEventTriggerConstants.CacheLifetime;
@@ -110,13 +138,51 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
             lifetime = BlocksEventTriggerConstants.FailureCacheLifetime;
         }
 
-        // An invalidation that arrived while reading may describe a newer catalog than the one just read.
-        if (Interlocked.Read(ref _invalidations) == invalidationsAtStart)
+        StoreUnlessInvalidated(tenantId, versionAtStart, new CachedCatalog(enabled, startedAt + lifetime));
+        return enabled;
+    }
+
+    // Starts the read synchronously on the caller's flow, so the impersonated read resolves the caller's tenant.
+    private async Task<BsonArray?> ReadCatalogAsync()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var read = _keyValueStore.GetAsync<BsonArray>(
+            BlocksEventTriggerConstants.CatalogKey, impersonated: true, cancellation.Token);
+
+        try
         {
-            Store(tenantId, new CachedCatalog(enabled, _timeProvider.GetUtcNow() + lifetime));
+            // WaitAsync bounds the wait even for a store that ignores the token.
+            return await read.WaitAsync(ReadTimeout, _timeProvider).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            cancellation.Cancel();
+            // The abandoned read may still fault; observe it so it is not reported as unobserved.
+            _ = read.ContinueWith(
+                static t => _ = t.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            throw;
+        }
+    }
+
+    // An invalidation that arrived while reading may describe a newer catalog than the one just read. Check,
+    // store, then check again: an invalidation landing between the first check and the store removes it.
+    private void StoreUnlessInvalidated(string tenantId, (long Epoch, long Version) versionAtStart, CachedCatalog entry)
+    {
+        if (ReadVersion(tenantId) != versionAtStart)
+        {
+            return;
         }
 
-        return enabled;
+        BeforeStore?.Invoke(tenantId);
+        Store(tenantId, entry);
+
+        if (ReadVersion(tenantId) != versionAtStart)
+        {
+            _entries.TryRemove(new KeyValuePair<string, CachedCatalog>(tenantId, entry));
+        }
     }
 
     private void Store(string tenantId, CachedCatalog entry)
@@ -212,29 +278,61 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
 
     private async Task SubscribeAsync()
     {
-        var subscribed = false;
+        Task? attempt = null;
+        Exception? failure = null;
         try
         {
-            await _cacheClient
-                .SubscribeAsync(BlocksEventTriggerConstants.InvalidationChannel, OnInvalidation)
-                .ConfigureAwait(false);
-            subscribed = true;
+            attempt = _cacheClient.SubscribeAsync(BlocksEventTriggerConstants.InvalidationChannel, OnInvalidation);
+            // Bounded, so a subscribe that never completes still clears the flag and C11's retry still happens.
+            await attempt.WaitAsync(SubscribeTimeout, _timeProvider).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(
-                "Blocks event trigger invalidation subscribe failed ({ErrorType}); cached catalogs expire after {Minutes} min",
-                ex.GetType().Name, BlocksEventTriggerConstants.CacheLifetime.TotalMinutes);
+            failure = ex;
         }
-        finally
+
+        lock (_subscribeLock)
         {
-            lock (_subscribeLock)
-            {
-                _subscribed = subscribed;
-                _subscribing = false;
-            }
+            // Never back to false: a late success of an earlier, timed-out attempt may already have set it.
+            _subscribed |= failure is null;
+            _subscribing = false;
         }
+
+        if (failure is null)
+        {
+            return;
+        }
+
+        if (failure is TimeoutException && attempt is not null)
+        {
+            // A late success still delivers invalidations, so record it rather than subscribing twice.
+            _ = attempt.ContinueWith(
+                t =>
+                {
+                    if (t.IsCompletedSuccessfully)
+                    {
+                        lock (_subscribeLock)
+                        {
+                            _subscribed = true;
+                        }
+                    }
+                    else
+                    {
+                        _ = t.Exception;
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        LogSubscribeFailure(failure);
     }
+
+    private void LogSubscribeFailure(Exception ex) =>
+        _logger.LogWarning(
+            "Blocks event trigger invalidation subscribe failed ({ErrorType}); cached catalogs expire after {Minutes} min",
+            ex.GetType().Name, BlocksEventTriggerConstants.CacheLifetime.TotalMinutes);
 
     private void OnInvalidation(RedisChannel channel, RedisValue message)
     {

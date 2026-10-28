@@ -89,10 +89,67 @@ public sealed class RabbitMessageClient : IMessageClient
         _channel.BasicReturnAsync += async (sender, ea) =>
         {
             // Never the body: it is payload content.
-            _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}, Type={MessageType}, TenantId={TenantId}",
-                ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length, ReadWireType(ea.Body.Span), ReadHeader(ea.BasicProperties?.Headers, "TenantId"));
+            var wireType = ReadWireType(ea.Body.Span);
+            var tenantId = ReadHeader(ea.BasicProperties?.Headers, "TenantId");
+            if (wireType == nameof(BlocksEventTriggerMessage))
+            {
+                // A returned forward (C6): the tenant and the forwarded event's name, still without the payload.
+                _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}, Type={MessageType}, TenantId={TenantId}, EventName={EventName}",
+                    ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length, wireType, tenantId, ReadForwardEventName(ea.Body.Span));
+            }
+            else
+            {
+                _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}, Type={MessageType}, TenantId={TenantId}",
+                    ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length, wireType, tenantId);
+            }
             await Task.CompletedTask;
         };
+    }
+
+    /// <summary>
+    /// The <c>EventName</c> of a forward envelope (<c>Body</c> is a serialized <see cref="BlocksEventTriggerMessage"/>);
+    /// <c>unknown</c> when unreadable. Reads only that field; <c>PayloadJson</c> is never returned.
+    /// </summary>
+    internal static string ReadForwardEventName(ReadOnlySpan<byte> envelope)
+    {
+        try
+        {
+            var body = ReadTopLevelString(envelope, nameof(Message.Body));
+            if (body is not null)
+            {
+                return ReadTopLevelString(Encoding.UTF8.GetBytes(body), nameof(BlocksEventTriggerMessage.EventName)) ?? "unknown";
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            // Not a forward envelope.
+        }
+
+        return "unknown";
+    }
+
+    // The string value of one top-level property, or null. Other values are skipped without being decoded.
+    private static string? ReadTopLevelString(ReadOnlySpan<byte> json, string name)
+    {
+        var reader = new Utf8JsonReader(json);
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            return null;
+        }
+
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            var matches = reader.ValueTextEquals(name);
+            reader.Read();
+            if (matches && reader.TokenType == JsonTokenType.String)
+            {
+                return reader.GetString();
+            }
+
+            reader.Skip();
+        }
+
+        return null;
     }
 
     /// <summary>The envelope's top-level <c>Type</c>, without decoding the body; <c>unknown</c> when unreadable.</summary>
@@ -100,27 +157,11 @@ public sealed class RabbitMessageClient : IMessageClient
     {
         try
         {
-            var reader = new Utf8JsonReader(envelope);
-            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
-            {
-                return "unknown";
-            }
-
-            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
-            {
-                var isType = reader.ValueTextEquals(nameof(Message.Type));
-                reader.Read();
-                if (isType && reader.TokenType == JsonTokenType.String)
-                {
-                    return reader.GetString() ?? "unknown";
-                }
-
-                reader.Skip();
-            }
+            return ReadTopLevelString(envelope, nameof(Message.Type)) ?? "unknown";
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
-            // Not a Genesis envelope.
+            // Not a Genesis envelope (InvalidOperationException: a Type that is not valid UTF-8).
         }
 
         return "unknown";
@@ -182,17 +223,28 @@ public sealed class RabbitMessageClient : IMessageClient
             _logger.LogDebug("Message sent to {ConsumerName} with routing key {RoutingKey}",
                 consumerMessage.ConsumerName, consumerMessage.RoutingKey ?? string.Empty);
 
-            // Reached only when the original publish completed. The forwarder never throws.
+            // Reached only when the original publish completed.
             if (_forwarder is not null)
             {
-                await _forwarder.TryForwardAsync(
-                    consumerMessage,
-                    messageBody.Type,
-                    messageBody.Body,
-                    securityContext?.TenantId,
-                    isExchange,
-                    activity,
-                    _sendForward);
+                try
+                {
+                    await _forwarder.TryForwardAsync(
+                        consumerMessage,
+                        messageBody.Type,
+                        messageBody.Body,
+                        securityContext?.TenantId,
+                        isExchange,
+                        activity,
+                        _sendForward);
+                }
+                catch (Exception ex)
+                {
+                    // The forwarder is a public extension point. If one throws anyway, the original was still
+                    // published: not a "Failed to send message" error. Type only: no message content.
+                    _logger.LogWarning(
+                        "Blocks event trigger forwarder threw after a completed send to {ConsumerName} ({ErrorType})",
+                        consumerMessage.ConsumerName, ex.GetType().Name);
+                }
             }
         }
         catch (Exception ex)

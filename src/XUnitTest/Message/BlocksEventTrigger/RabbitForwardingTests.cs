@@ -241,6 +241,51 @@ public sealed class RabbitForwardingTests : IDisposable
         Assert.DoesNotContain(TriggerKit.PayloadMarker, clientLogger.AllText());
         Assert.DoesNotContain("o-1", clientLogger.AllText());
         Assert.DoesNotContain(warning.State, kv => kv.Key == "Body");
+        Assert.Equal("OrderPlaced", warning.State.Single(kv => kv.Key == "EventName").Value);
+        Assert.Contains("EventName=OrderPlaced", warning.Message);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task M2_AThrowingForwarderIsAWarningNotASendFailure(bool synchronously)
+    {
+        var forwarder = new ThrowingForwarder { Synchronous = synchronously };
+        var clientLogger = new RecordingLogger<RabbitMessageClient>();
+        var client = TriggerKit.RabbitClient(forwarder, _channel.Object, clientLogger);
+
+        await client.SendToConsumerAsync(Order());
+
+        Assert.Equal(1, forwarder.Calls);
+        Assert.Single(_published);
+        Assert.Empty(clientLogger.At(LogLevel.Error));
+        var warning = Assert.Single(clientLogger.At(LogLevel.Warning));
+        Assert.Contains(nameof(InvalidOperationException), warning.Message);
+        Assert.Contains(Queue, warning.Message);
+        Assert.Null(warning.Exception);
+        Assert.DoesNotContain(TriggerKit.PayloadMarker, clientLogger.AllText());
+    }
+
+    [Theory]
+    [InlineData("{\"Body\":\"{\\\"EventId\\\":\\\"e\\\",\\\"EventName\\\":\\\"UserMutationEvent\\\",\\\"PayloadJson\\\":\\\"{}\\\"}\",\"Type\":\"BlocksEventTriggerMessage\"}", "UserMutationEvent")]
+    [InlineData("{\"Type\":\"BlocksEventTriggerMessage\"}", "unknown")]
+    [InlineData("{\"Body\":\"not json\",\"Type\":\"BlocksEventTriggerMessage\"}", "unknown")]
+    [InlineData("{\"Body\":\"{\\\"EventName\\\":5}\"}", "unknown")]
+    [InlineData("{\"Body\":\"[]\"}", "unknown")]
+    [InlineData("[]", "unknown")]
+    [InlineData("{\"Body\":", "unknown")]
+    public void C6_ReadForwardEventNameReadsOnlyTheEventName(string envelope, string expected)
+    {
+        Assert.Equal(expected, RabbitMessageClient.ReadForwardEventName(Encoding.UTF8.GetBytes(envelope)));
+    }
+
+    [Fact]
+    public void ReadWireType_InvalidUtf8TypeIsUnknown()
+    {
+        byte[] envelope = [.. "{\"Type\":\""u8, 0xC3, 0x28, .. "\"}"u8];
+
+        Assert.Equal("unknown", RabbitMessageClient.ReadWireType(envelope));
+        Assert.Equal("unknown", RabbitMessageClient.ReadForwardEventName([.. "{\"Body\":\""u8, 0xC3, 0x28, .. "\"}"u8]));
     }
 
     [Fact]
@@ -402,12 +447,20 @@ public sealed class RabbitForwardingTests : IDisposable
             .Callback<string, string, bool, BasicProperties, ReadOnlyMemory<byte>, CancellationToken>((e, r, m, p, b, _) =>
                 offPublished.Add(new Published(e, r, m, p, Encoding.UTF8.GetString(b.Span))))
             .Returns(ValueTask.CompletedTask);
-        var off = TriggerKit.RabbitClient(null, offChannel.Object);
-        var on = Client(TriggerKit.Catalog(("OrderPlaced", true)), out _);
+        // An isolated, always-sampled source: other tests' ActivityListeners cannot change whether these sends
+        // get a span (which also decides the Baggage header). TraceId/SpanId are each side's own producer span's.
+        var sourceName = "bet-rabbit-c13-" + Guid.NewGuid().ToString("N");
+        var stopped = new ConcurrentQueue<Activity>();
+        using var listener = TriggerKit.Listen(sourceName, stopped);
+        using var source = new ActivitySource(sourceName);
+        var off = TriggerKit.RabbitClient(null, offChannel.Object, activitySource: source);
+        var on = Client(TriggerKit.Catalog(("OrderPlaced", true)), out _, source: source);
         var message = Order() with { RoutingKey = "rk", DelegationTtl = TimeSpan.FromHours(1) };
 
         await off.SendToMassConsumerAsync(message with { ConsumerName = Exchange });
+        var offSpan = Assert.Single(stopped);
         await on.SendToMassConsumerAsync(message with { ConsumerName = Exchange });
+        var onSpan = stopped.Single(a => a != offSpan && a.GetTagItem("messaging.destination.name") as string == Exchange);
 
         var before = Assert.Single(offPublished);
         var after = _published.First();
@@ -418,10 +471,15 @@ public sealed class RabbitForwardingTests : IDisposable
         Assert.Equal(before.Properties.DeliveryMode, after.Properties.DeliveryMode);
         Assert.Equal(before.Properties.Expiration, after.Properties.Expiration);
         Assert.Equal(before.Properties.Headers!.Keys.OrderBy(k => k), after.Properties.Headers!.Keys.OrderBy(k => k));
-        foreach (var key in before.Properties.Headers.Keys)
+        foreach (var key in before.Properties.Headers.Keys.Except(["TraceId", "SpanId"]))
         {
             Assert.Equal(before.Properties.Headers[key], after.Properties.Headers[key]);
         }
+
+        Assert.Equal(offSpan.TraceId.ToString(), before.Properties.Headers["TraceId"]);
+        Assert.Equal(offSpan.SpanId.ToString(), before.Properties.Headers["SpanId"]);
+        Assert.Equal(onSpan.TraceId.ToString(), after.Properties.Headers["TraceId"]);
+        Assert.Equal(onSpan.SpanId.ToString(), after.Properties.Headers["SpanId"]);
 
         Assert.Equal(2, _published.Count);
     }

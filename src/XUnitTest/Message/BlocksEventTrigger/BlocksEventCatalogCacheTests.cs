@@ -147,6 +147,201 @@ public sealed class BlocksEventCatalogCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task H8_HundredConcurrentMissesOnThreadPoolThreadsShareOneRead()
+    {
+        var gate = new TaskCompletionSource<BsonArray?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        var store = new Mock<IKeyValueStore>();
+        store
+            .Setup(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()))
+            .Returns(() => { Interlocked.Increment(ref reads); return gate.Task; });
+        var cache = TriggerKit.Cache(store.Object);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ready = 0;
+
+        // Each lookup resumes on its own thread-pool continuation once start is released, so they race.
+        var lookups = Enumerable.Range(0, 100).Select(_ => Task.Run(async () =>
+        {
+            Interlocked.Increment(ref ready);
+            await start.Task;
+            return await cache.GetEnabledEventsAsync("T1");
+        })).ToList();
+        await TriggerKit.Eventually(() => Volatile.Read(ref ready) == 100);
+        start.SetResult();
+        await Task.Delay(200);
+        gate.SetResult(TriggerKit.Catalog(("OrderPlaced", true)));
+        var results = await Task.WhenAll(lookups);
+
+        Assert.Equal(1, reads);
+        Assert.All(results, r => Assert.Contains("OrderPlaced", r));
+    }
+
+    [Fact]
+    public async Task M1_AReadThatNeverCompletesIsAbandonedAfterTheTimeoutAndCountsAsAFailure()
+    {
+        var clock = new TriggerClock();
+        var hung = new TaskCompletionSource<BsonArray?>();
+        var tokens = new List<CancellationToken>();
+        var store = new Mock<IKeyValueStore>();
+        store
+            .Setup(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()))
+            .Returns<string, bool, CancellationToken>((_, _, token) => { tokens.Add(token); return hung.Task; });
+        var logger = new RecordingLogger<BlocksEventCatalogCache>();
+        var cache = TriggerKit.Cache(store.Object, clock: clock, logger: logger);
+
+        var lookup = cache.GetEnabledEventsAsync("T1").AsTask();
+        clock.Advance(BlocksEventCatalogCache.ReadTimeout - TimeSpan.FromMilliseconds(1));
+        Assert.False(lookup.IsCompleted);
+
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Same(lookup, await Task.WhenAny(lookup, Task.Delay(TimeSpan.FromSeconds(5))));
+        Assert.Empty(await lookup);
+        Assert.True(Assert.Single(tokens).IsCancellationRequested);
+        var warning = Assert.Single(logger.At(LogLevel.Warning));
+        Assert.Contains("T1", warning.Message);
+        Assert.Contains(nameof(TimeoutException), warning.Message);
+
+        // The failure is cached: later sends do no I/O and complete synchronously.
+        for (var i = 0; i < 100; i++)
+        {
+            var hit = cache.GetEnabledEventsAsync("T1");
+            Assert.True(hit.IsCompletedSuccessfully);
+        }
+
+        VerifyReads(store, Once);
+        Assert.Equal(0, clock.PendingTimers);
+
+        // The read that never completes may still fail later without surfacing anywhere.
+        hung.SetException(new TimeoutException("late"));
+    }
+
+    [Fact]
+    public async Task M1_FailureLifetimeCountsFromTheReadStartNotItsEnd()
+    {
+        var clock = new TriggerClock();
+        var reads = 0;
+        var store = new Mock<IKeyValueStore>();
+        store
+            .Setup(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()))
+            .Returns(() => ++reads == 1
+                ? new TaskCompletionSource<BsonArray?>().Task
+                : Task.FromResult<BsonArray?>(TriggerKit.Catalog(("OrderPlaced", true))));
+        var cache = TriggerKit.Cache(store.Object, clock: clock);
+
+        var lookup = cache.GetEnabledEventsAsync("T1").AsTask();
+        clock.Advance(BlocksEventCatalogCache.ReadTimeout);
+        Assert.Empty(await lookup.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        // The read started at t0 and ended at t0 + timeout; the entry expires at t0 + 30 s.
+        clock.Advance(BlocksEventTriggerConstants.FailureCacheLifetime - BlocksEventCatalogCache.ReadTimeout - TimeSpan.FromSeconds(1));
+        Assert.Empty(await cache.GetEnabledEventsAsync("T1"));
+        Assert.Equal(1, reads);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Contains("OrderPlaced", await cache.GetEnabledEventsAsync("T1"));
+        Assert.Equal(2, reads);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task M1_InvalidationForAnotherTenantDuringAReadKeepsThatReadsResult(bool readFails)
+    {
+        var gate = new TaskCompletionSource<BsonArray?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        var store = new Mock<IKeyValueStore>();
+        store
+            .Setup(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()))
+            .Returns(() => { Interlocked.Increment(ref reads); return gate.Task; });
+        var cache = TriggerKit.Cache(store.Object);
+
+        var pending = cache.GetEnabledEventsAsync("T1").AsTask();
+        cache.Invalidate("T2");
+        if (readFails)
+        {
+            gate.SetException(new TimeoutException("mongo down"));
+        }
+        else
+        {
+            gate.SetResult(TriggerKit.Catalog(("OrderPlaced", true)));
+        }
+
+        await pending;
+        var next = cache.GetEnabledEventsAsync("T1");
+
+        Assert.True(next.IsCompletedSuccessfully, "T1's result (or its 30 s failure entry) must be cached");
+        Assert.Equal(!readFails, next.Result.Contains("OrderPlaced"));
+        Assert.Equal(1, reads);
+    }
+
+    [Fact]
+    public async Task M1_InvalidationBetweenTheCheckAndTheStoreDropsTheStaleResult()
+    {
+        var reads = 0;
+        var store = new Mock<IKeyValueStore>();
+        store
+            .Setup(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()))
+            .Returns(() => Task.FromResult<BsonArray?>(Interlocked.Increment(ref reads) == 1
+                ? TriggerKit.Catalog(("OrderPlaced", true))
+                : TriggerKit.Catalog(("OrderPlaced", false))));
+        var cache = TriggerKit.Cache(store.Object);
+        var invalidated = false;
+        cache.BeforeStore = tenant =>
+        {
+            if (!invalidated)
+            {
+                invalidated = true;
+                cache.Invalidate(tenant);
+            }
+        };
+
+        Assert.Contains("OrderPlaced", await cache.GetEnabledEventsAsync("T1"));
+
+        Assert.DoesNotContain("OrderPlaced", await cache.GetEnabledEventsAsync("T1"));
+        Assert.Equal(2, reads);
+        Assert.Equal(1, cache.CachedTenantCount);
+    }
+
+    [Fact]
+    public async Task M1_InvalidationForAnotherTenantBetweenTheCheckAndTheStoreKeepsTheResult()
+    {
+        var store = TriggerKit.Store(TriggerKit.Catalog(("OrderPlaced", true)));
+        var cache = TriggerKit.Cache(store.Object);
+        cache.BeforeStore = _ => cache.Invalidate("T2");
+
+        await cache.GetEnabledEventsAsync("T1");
+        await cache.GetEnabledEventsAsync("T1");
+
+        VerifyReads(store, Once);
+    }
+
+    [Fact]
+    public async Task M1_ClearingTheVersionMapStillDropsAReadThatAnInvalidationOverlapped()
+    {
+        var gate = new TaskCompletionSource<BsonArray?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        var store = new Mock<IKeyValueStore>();
+        store
+            .Setup(s => s.GetAsync<BsonArray>(BlocksEventTriggerConstants.CatalogKey, true, It.IsAny<CancellationToken>()))
+            .Returns(() => Interlocked.Increment(ref reads) == 1 ? gate.Task : Task.FromResult<BsonArray?>(null));
+        var cache = TriggerKit.Cache(store.Object);
+
+        var pending = cache.GetEnabledEventsAsync("T1").AsTask();
+        cache.Invalidate("T1");
+        // Enough other tenants to clear the version map: T1's version reads as "none" again afterwards.
+        for (var i = 0; i < BlocksEventTriggerConstants.MaxCachedTenants; i++)
+        {
+            cache.Invalidate("other-" + i);
+        }
+
+        gate.SetResult(TriggerKit.Catalog(("OrderPlaced", true)));
+        await pending;
+
+        Assert.DoesNotContain("OrderPlaced", await cache.GetEnabledEventsAsync("T1"));
+        Assert.Equal(2, reads);
+    }
+
+    [Fact]
     public async Task H9_EntriesWithUnknownFieldsDeserializeAndForward()
     {
         var entry = TriggerKit.Entry("OrderPlaced", true);
@@ -379,6 +574,52 @@ public sealed class BlocksEventCatalogCacheTests : IDisposable
         Assert.Contains("OrderPlaced", await lookup);
         await cache.GetEnabledEventsAsync("T2");
         redis.Verify(c => c.SubscribeAsync(It.IsAny<string>(), It.IsAny<Action<RedisChannel, RedisValue>>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task C11_HungSubscribeTimesOutSoTheOncePerMinuteRetryStillHappens()
+    {
+        var clock = new TriggerClock();
+        var attempts = new List<TaskCompletionSource>();
+        var redis = new Mock<ICacheClient>();
+        redis
+            .Setup(c => c.SubscribeAsync(BlocksEventTriggerConstants.InvalidationChannel, It.IsAny<Action<RedisChannel, RedisValue>>()))
+            .Returns(() =>
+            {
+                var attempt = new TaskCompletionSource();
+                attempts.Add(attempt);
+                return attempt.Task;
+            });
+        var logger = new RecordingLogger<BlocksEventCatalogCache>();
+        var cache = TriggerKit.Cache(TriggerKit.Store(TriggerKit.Catalog(("OrderPlaced", true))).Object, redis.Object, clock, logger);
+
+        Assert.Contains("OrderPlaced", await cache.GetEnabledEventsAsync("T1"));
+        Assert.Single(attempts);
+
+        clock.Advance(BlocksEventCatalogCache.SubscribeTimeout);
+        await TriggerKit.Eventually(() => logger.At(LogLevel.Warning).Count == 1);
+        var warning = Assert.Single(logger.At(LogLevel.Warning));
+        Assert.Contains(nameof(TimeoutException), warning.Message);
+
+        clock.Advance(BlocksEventCatalogCache.SubscribeRetryInterval - BlocksEventCatalogCache.SubscribeTimeout - TimeSpan.FromSeconds(1));
+        await cache.GetEnabledEventsAsync("T2");
+        Assert.Single(attempts);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await cache.GetEnabledEventsAsync("T3");
+        Assert.Equal(2, attempts.Count);
+
+        // The second attempt also hangs, then succeeds late: that counts as subscribed, so no third attempt.
+        clock.Advance(BlocksEventCatalogCache.SubscribeTimeout);
+        await TriggerKit.Eventually(() => logger.At(LogLevel.Warning).Count == 2);
+        attempts[1].SetResult();
+        clock.Advance(BlocksEventCatalogCache.SubscribeRetryInterval);
+        await cache.GetEnabledEventsAsync("T4");
+        Assert.Equal(2, attempts.Count);
+
+        // A late failure of the first attempt surfaces nowhere.
+        attempts[0].SetException(new RedisConnectionException(ConnectionFailureType.UnableToConnect, "late"));
+        Assert.Equal(2, logger.At(LogLevel.Warning).Count);
     }
 
     [Fact]

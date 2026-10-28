@@ -12,13 +12,83 @@ using XUnitTest.Delegation;
 
 namespace XUnitTest.Message.BlocksEventTrigger;
 
+/// <summary>A manual clock. Its timers fire only when <see cref="Advance"/> moves time past their due time.</summary>
 internal sealed class TriggerClock : TimeProvider
 {
+    private readonly List<ManualTimer> _timers = [];
+
     public DateTimeOffset Now { get; set; } = new(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
 
     public override DateTimeOffset GetUtcNow() => Now;
 
-    public void Advance(TimeSpan by) => Now += by;
+    /// <summary>Timers created and not yet disposed or fired.</summary>
+    public int PendingTimers
+    {
+        get { lock (_timers) { return _timers.Count(t => t.DueAt is not null); } }
+    }
+
+    public void Advance(TimeSpan by)
+    {
+        Now += by;
+        List<ManualTimer> due;
+        lock (_timers)
+        {
+            due = _timers.Where(t => t.DueAt <= Now).ToList();
+            foreach (var timer in due)
+            {
+                timer.DueAt = null;
+            }
+        }
+
+        foreach (var timer in due)
+        {
+            timer.Fire();
+        }
+    }
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new ManualTimer(this, callback, state);
+        lock (_timers)
+        {
+            _timers.Add(timer);
+        }
+
+        timer.Change(dueTime, period);
+        return timer;
+    }
+
+    private sealed class ManualTimer(TriggerClock clock, TimerCallback callback, object? state) : ITimer
+    {
+        public DateTimeOffset? DueAt { get; set; }
+
+        public void Fire() => callback(state);
+
+        public bool Change(TimeSpan dueTime, TimeSpan period)
+        {
+            lock (clock._timers)
+            {
+                DueAt = dueTime == Timeout.InfiniteTimeSpan ? null : clock.Now + dueTime;
+            }
+
+            return true;
+        }
+
+        public void Dispose()
+        {
+            lock (clock._timers)
+            {
+                DueAt = null;
+                clock._timers.Remove(this);
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
+    }
 }
 
 internal sealed record LogEntry(LogLevel Level, string Message, IReadOnlyList<KeyValuePair<string, object?>> State, Exception? Exception);
@@ -86,6 +156,28 @@ internal sealed class RecordingSender : ServiceBusSender
 
         Scheduled.Add((message, scheduledEnqueueTime));
         return Task.FromResult(1L);
+    }
+}
+
+/// <summary>A third-party forwarder that breaks its "never throws" contract.</summary>
+internal sealed class ThrowingForwarder : IBlocksEventTriggerForwarder
+{
+    public bool Synchronous { get; init; }
+
+    public int Calls;
+
+    public ValueTask TryForwardAsync<T>(
+        ConsumerMessage<T> original,
+        string wireType,
+        string payloadJson,
+        string? tenantId,
+        bool isMassConsumer,
+        Activity? producerActivity,
+        Func<ConsumerMessage<BlocksEventTriggerMessage>, string, Task> sendForward) where T : class
+    {
+        Interlocked.Increment(ref Calls);
+        var ex = new InvalidOperationException("forwarder broken " + TriggerKit.PayloadMarker);
+        return Synchronous ? throw ex : ValueTask.FromException(ex);
     }
 }
 
@@ -208,7 +300,8 @@ internal static class TriggerKit
         IBlocksEventTriggerForwarder? forwarder,
         IDictionary<string, ServiceBusSender> senders,
         ActivitySource? activitySource = null,
-        IDelegationGrantFactory? grantFactory = null)
+        IDelegationGrantFactory? grantFactory = null,
+        ILogger<AzureMessageClient>? logger = null)
     {
         var configuration = new MessageConfiguration
         {
@@ -221,13 +314,17 @@ internal static class TriggerKit
         var grants = grantFactory ?? DelegationTestDoubles.NoGrantFactory();
         var client = forwarder is null
             ? new AzureMessageClient(configuration, source, grants)
-            : new AzureMessageClient(configuration, source, grants, forwarder);
+            : new AzureMessageClient(configuration, source, grants, forwarder, logger);
 
-        var field = typeof(AzureMessageClient).GetField("_senders", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var map = (ConcurrentDictionary<string, ServiceBusSender>)field.GetValue(client)!;
-        foreach (var (name, sender) in senders)
+        // Originals use _senders; forwards use _forwardSenders (the no-retry client). Each gets every sender.
+        foreach (var fieldName in new[] { "_senders", "_forwardSenders" })
         {
-            map[name] = sender;
+            var field = typeof(AzureMessageClient).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var map = (ConcurrentDictionary<string, ServiceBusSender>)field.GetValue(client)!;
+            foreach (var (name, sender) in senders)
+            {
+                map[name] = sender;
+            }
         }
 
         return client;
@@ -282,6 +379,17 @@ internal static class TriggerKit
         };
         ActivitySource.AddActivityListener(listener);
         return listener;
+    }
+
+    /// <summary>Waits (up to 5 s of wall time) for work a fake timer started on another thread.</summary>
+    public static async Task Eventually(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "condition not reached within 5 s");
+            await Task.Delay(5);
+        }
     }
 
     /// <summary>Reads the trigger message out of a serialized forward envelope.</summary>
