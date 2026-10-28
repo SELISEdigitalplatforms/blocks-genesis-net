@@ -16,6 +16,8 @@ public class Build : BaseEntity
     public string RepoUrl { get; set; }
     public string DefaultDeploymentUrl { get; set; }
     public string CustomDeploymentUrl { get; set; }
+    // Repo.IsCustomDomainOnly as it was when this build was started.
+    public bool IsCustomDomainOnly { get; set; }
     public string Commit { get; set; }
     public string Branch { get; set; }
     public string ImageName { get; set; }
@@ -27,4 +29,10 @@ public class Build : BaseEntity
     public string Html_url { get; set; }
     public string DependencyTrackProjectId { get; set; }
     public List<BuildEventResponse> Events { get; set; }
+
+    // SonarQube and Dependency-Track results saved for this build. Null on builds from before they were saved.
+    [BsonIgnoreIfNull]
+    public SastReport? SastReport { get; set; }
+    [BsonIgnoreIfNull]
+    public ScaReport? ScaReport { get; set; }
 }
