@@ -67,6 +67,7 @@ public class LogicEntitiesTests
         ["Blocks.Genesis.Entities.Logic.RunTiming"] = "220970D27C68C29377FC8687832514DB 3A469A49C14533113C19451E42160F01 73932D6042F76EBA1D9CDD38C7BE2D04",
         // Schedule filled hash changed on purpose 2026-10-26 (owner decision): optional TimeZone ([BsonIgnoreIfNull]); default and all-null bytes unchanged.
         ["Blocks.Genesis.Entities.Logic.Schedule"] = "F0F27477D293FA2D974DACD068B83A60 13670CA422BB0C8980180962D1A73648 E6858E525FDAAA7750D0866CDF847F3B",
+        // ScheduleExecution is new in Genesis (2026-10-26), not moved from blocks-logic: these are its first hashes.
         ["Blocks.Genesis.Entities.Logic.ScheduleExecution"] = "46C0104220E4B1C1407650A278931201 F0B08A1FADB05BB7EAA51E3DF1A66DDF 85D0A1CF4D60C022A0DFC4D14A13B141",
         ["Blocks.Genesis.Entities.Logic.SubscriptionFilter"] = "37E7B716AAFA244FDE2A6D12381A782E 77BDD96714A7EA9E0D849051BB502744 B6C9739995C24894ECF7625D14D8B543",
         ["Blocks.Genesis.Entities.Logic.TestWorkflowMeta"] = "85DA441F3D289BEE89146204CAFDB134 684194B17B8083673D7E933AE299B0EC 667384C6537065C79BA6A9E8CDCC4C79",
@@ -212,6 +213,9 @@ public class LogicEntitiesTests
         Assert.Equal(BsonType.String, doc["Response"]["Body"].BsonType);
         Assert.False(doc.Contains("_t"));
         Assert.False(doc["Response"].AsBsonDocument.Contains("_t"));
+        // The bag must use AttributeBagSerializer: with the driver's permissive ObjectSerializer an object value
+        // (e.g. a JsonElement) is written as { "_t": ... } and every later read of that row fails.
+        Assert.IsType<Blocks.Genesis.Entities.Iam.AttributeBagSerializer>(BsonClassMap.LookupClassMap(typeof(ScheduleExecution)).GetMemberMap(nameof(ScheduleExecution.Response)).GetSerializer());
 
         var back = BsonSerializer.Deserialize<ScheduleExecution>(doc);
         Assert.Equal((filled.ItemId, filled.ScheduleId, filled.TenantId, filled.ScheduleName, filled.FiredUtc, filled.FinishedUtc, filled.Snapshot),

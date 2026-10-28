@@ -43,7 +43,9 @@ public sealed class ScheduleExecution : BaseEntity
     /// Outcome of the fire, as a key/value bag stored as an embedded BSON object (so the consumer can index,
     /// filter and count on <c>Response.Status</c>). <c>null</c> is not written and reads back as <c>null</c>.
     /// The keys are a documented contract enforced by the consumer; this library does not validate them, and
-    /// unknown keys are kept in the bag on read.
+    /// unknown keys are kept in the bag on read. Query it by element path (for example
+    /// <c>Builders&lt;ScheduleExecution&gt;.Filter.Eq("Response.Status", 504)</c>); typed LINQ over the dictionary
+    /// may not translate with this serializer.
     /// <list type="table">
     /// <listheader><term>Key</term><description>CLR value / BSON: meaning</description></listheader>
     /// <item>
