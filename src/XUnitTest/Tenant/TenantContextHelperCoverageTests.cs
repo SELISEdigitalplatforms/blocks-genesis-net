@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using System.IdentityModel.Tokens.Jwt;
@@ -150,6 +150,35 @@ public class TenantContextHelperCoverageTests
         var method = HelperType.GetMethod("ResolveTenantIdAsync", BindingFlags.Public | BindingFlags.Static, [typeof(HttpRequest), typeof(string)]);
         Assert.NotNull(method);
         return await (Task<string?>)method!.Invoke(null, [request, token])!;
+    }
+
+    [Fact]
+    public void IsValidOrigin_ForeignOrigin_IsRefused()
+    {
+        Assert.False(IsValidOrigin("https://evil.example.net", MakeTenant("https://app.local"), false));
+        Assert.True(IsValidOrigin("https://app.local", MakeTenant("https://app.local"), false));
+    }
+
+    [Fact]
+    public void IsValidOrigin_LocalhostPassesOnlyInDevelopment()
+    {
+        var tenant = MakeTenant("https://app.local");
+
+        Assert.False(IsValidOrigin("http://localhost:3000", tenant, false));
+        Assert.True(IsValidOrigin("http://localhost:3000", tenant, true));
+    }
+
+    [Fact]
+    public void IsValidOrigin_NoOrigin_IsAServerCall_AndPasses()
+    {
+        Assert.True(IsValidOrigin(null, MakeTenant("https://app.local"), false));
+    }
+
+    private static bool IsValidOrigin(string? origin, Blocks.Genesis.Tenant tenant, bool allowLocalhost)
+    {
+        var method = HelperType.GetMethod("IsValidOrigin", BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+        return (bool)method!.Invoke(null, [origin, tenant, allowLocalhost])!;
     }
 
     private static bool IsDomainAllowed(string? headerValue, Blocks.Genesis.Tenant tenant)

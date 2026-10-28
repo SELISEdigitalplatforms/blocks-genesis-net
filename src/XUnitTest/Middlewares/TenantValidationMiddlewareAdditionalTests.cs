@@ -1,3 +1,5 @@
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
 using Moq;
@@ -149,7 +151,13 @@ public class TenantValidationMiddlewareAdditionalTests
     }
 
     [Fact]
-    public async Task InvokeAsync_ShouldAllowLocalhostOrigin()
+    public async Task InvokeAsync_LocalhostOrigin_PassesOnlyInDevelopment()
+    {
+        Assert.True(await LocalhostOriginPassesAsync(Environments.Development));
+        Assert.False(await LocalhostOriginPassesAsync(Environments.Production));
+    }
+
+    private static async Task<bool> LocalhostOriginPassesAsync(string environmentName)
     {
         var tenants = new Mock<ITenants>();
         var crypto = new Mock<ICryptoService>();
@@ -167,11 +175,14 @@ public class TenantValidationMiddlewareAdditionalTests
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-lh";
         context.Request.Headers.Origin = "http://localhost:3000";
+        var environment = new Mock<IHostEnvironment>();
+        environment.Setup(e => e.EnvironmentName).Returns(environmentName);
+        context.RequestServices = new ServiceCollection().AddSingleton(environment.Object).BuildServiceProvider();
 
         using var activity = new Activity("tenant-validation").Start();
         await middleware.InvokeAsync(context);
 
-        Assert.True(nextCalled);
+        return nextCalled;
     }
 
     [Fact]
@@ -297,7 +308,7 @@ public class TenantValidationMiddlewareAdditionalTests
     }
 
     [Fact]
-    public async Task InvokeAsync_ShouldReject_WhenRefererIsInvalid_AndOriginMissing()
+    public async Task InvokeAsync_RefererIsNotChecked_WhenOriginMissing()
     {
         var tenants = new Mock<ITenants>();
         var crypto = new Mock<ICryptoService>();
@@ -313,7 +324,8 @@ public class TenantValidationMiddlewareAdditionalTests
         using var activity = new Activity("referer-invalid").Start();
         await middleware.InvokeAsync(context);
 
-        Assert.Equal(StatusCodes.Status406NotAcceptable, context.Response.StatusCode);
+        // Only Origin is judged; a request without it is a server call.
+        Assert.NotEqual(StatusCodes.Status406NotAcceptable, context.Response.StatusCode);
     }
 
     [Fact]
