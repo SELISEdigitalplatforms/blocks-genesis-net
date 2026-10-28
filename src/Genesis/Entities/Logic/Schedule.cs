@@ -26,4 +26,8 @@ public class Schedule : BaseEntity
     public ScheduleTriggerType TriggerType { get; set; } = ScheduleTriggerType.Queue;
     public WebhookConfiguration? Webhook { get; set; }
     public QueueConfiguration? Queue { get; set; }
+
+    /// <summary>IANA time zone id the cron is evaluated in. Null = UTC. Validated by the owning service.</summary>
+    [BsonIgnoreIfNull]
+    public string? TimeZone { get; set; }
 }
