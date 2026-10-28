@@ -142,7 +142,7 @@ public class TenantValidationMiddlewareAdditionalTests
 
         var context = CreateHttpContextWithEndpoint("app.local");
         context.Request.Headers[BlocksConstants.BlocksKey] = "tenant-origin";
-        context.Request.Headers.Origin = "http://app.local";
+        context.Request.Headers.Origin = "https://app.local";
 
         using var activity = new Activity("tenant-validation").Start();
         await middleware.InvokeAsync(context);
