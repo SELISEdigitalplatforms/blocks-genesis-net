@@ -1,4 +1,5 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using System.Diagnostics;
 using System.Text.Json;
@@ -50,7 +51,7 @@ public class TenantValidationMiddleware
         var origin = context.Request.Headers.Origin.FirstOrDefault();
         var referer = context.Request.Headers.Referer.FirstOrDefault();
 
-        if (!TenantContextHelper.IsValidOriginOrReferer(origin, referer, tenant))
+        if (!TenantContextHelper.IsValidOrigin(origin, tenant, IsDevelopment(context)))
         {
             await TenantContextHelper.RejectRequest(context, StatusCodes.Status406NotAcceptable, "NotAcceptable: Invalid_Origin_Or_Referer").ConfigureAwait(false);
             return;
@@ -345,4 +346,8 @@ public class TenantValidationMiddleware
         }
     }
 
+    // Local browser origins are a developer convenience only; any other environment refuses them.
+    private static bool IsDevelopment(HttpContext context) =>
+        context.RequestServices?.GetService(typeof(IHostEnvironment)) is IHostEnvironment environment
+        && environment.IsDevelopment();
 }

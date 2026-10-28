@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Text.Json;
@@ -169,30 +169,25 @@ internal static class TenantContextHelper
         }));
     }
 
-    public static bool IsValidOriginOrReferer(string? origin, string? referer, Tenant tenant)
+    /// <summary>
+    /// A browser call must come from one of the tenant's application domains, judged by Origin
+    /// only. Referer is not used: it can be hidden by the page and a caller controls it anyway.
+    /// A call without Origin is treated as a server-to-server call and passes.
+    /// Localhost passes only when <paramref name="allowLocalhost"/> is true (Development).
+    /// </summary>
+    public static bool IsValidOrigin(string? origin, Tenant tenant, bool allowLocalhost = false)
     {
-        // Allow local development origins in tenant middleware.
-        if (IsLocalhostHeader(origin) || IsLocalhostHeader(referer))
+        if (string.IsNullOrWhiteSpace(origin))
         {
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(origin) && string.IsNullOrWhiteSpace(referer))
+        if (IsLocalhostHeader(origin))
         {
-            return true;
+            return allowLocalhost;
         }
 
-        if (!string.IsNullOrWhiteSpace(origin) && !IsDomainAllowed(origin, tenant))
-        {
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(referer) && !IsDomainAllowed(referer, tenant))
-        {
-            return false;
-        }
-
-        return true;
+        return IsDomainAllowed(origin, tenant);
     }
 
     public static string ResolveApplicationDomain(Tenant tenant, string? origin, string? referer)
