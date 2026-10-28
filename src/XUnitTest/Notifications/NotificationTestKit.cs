@@ -59,11 +59,13 @@ internal sealed class NotificationMongo : IAsyncDisposable
     public MongoNotificationDirectory Directory() => new(DbContextProvider.Object, Secret.Object, Tenants.Object, Time);
 
     public Task AddUserAsync(string id, string[] organizations, Dictionary<string, List<string>>? roles = null,
-        Dictionary<string, List<string>>? permissions = null, bool active = true, IMongoDatabase? database = null) =>
+        Dictionary<string, List<string>>? permissions = null, bool active = true, IMongoDatabase? database = null,
+        DateTime? lockoutUntilUtc = null) =>
         (database ?? TenantDb).GetCollection<User>("Users").InsertOneAsync(new User
         {
             ItemId = id,
             Active = active,
+            LockoutUntilUtc = lockoutUntilUtc,
             OrganizationIds = [.. organizations],
             Roles = roles ?? [],
             Permissions = permissions ?? [],
