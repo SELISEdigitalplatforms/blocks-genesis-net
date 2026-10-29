@@ -92,6 +92,9 @@ internal static class EntitySamples
             if (field.IsInitOnly || field.IsDefined(typeof(BsonIgnoreAttribute), true)) continue;
             field.SetValue(instance, ValueFor(field.FieldType, field.Name, field, depth));
         }
+        // ScheduleExecution's Response bag holds its documented keys (Status as int, Body as string), not generic sample keys.
+        if (instance is Blocks.Genesis.Entities.Logic.ScheduleExecution execution)
+            execution.Response = new() { [Blocks.Genesis.Entities.Logic.ScheduleExecution.ResponseStatusKey] = 200, [Blocks.Genesis.Entities.Logic.ScheduleExecution.ResponseBodyKey] = "Response-body" };
     }
 
     private static bool IsNullable(Type t) => !t.IsValueType || Nullable.GetUnderlyingType(t) != null;
@@ -185,7 +188,7 @@ internal static class EntityCatalog
     /// <summary>Owner of each class (folder) and group: A = inherits BaseEntity, B = keeps its own id member and fields (no base).</summary>
     public sealed record Row(string Class, string Owner, char Group, bool ValueType);
 
-    /// <summary>The package catalog (genesis SPEC1 6.4): 70 collection entities + 4 value types.</summary>
+    /// <summary>The package catalog (genesis SPEC1 6.4): 71 collection entities + 4 value types.</summary>
     public static IReadOnlyList<Row> Rows { get; } =
     [
         new("User", "iam", 'B', false),
@@ -234,6 +237,7 @@ internal static class EntityCatalog
         new("ProxyVersionEntity", "logic", 'A', false),
         new("ProxyExecutionEntity", "logic", 'A', false),
         new("Schedule", "logic", 'A', false),
+        new("ScheduleExecution", "logic", 'A', false),
         new("MailBoxEntity", "logic", 'B', false),
         new("MailBoxSyncCursor", "logic", 'B', false),
         new("NotificationConnection", "logic", 'B', false),
