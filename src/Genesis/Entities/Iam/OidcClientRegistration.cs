@@ -10,6 +10,15 @@ public class OidcClientRegistration : BaseEntity
 {
     public string ClientId { get; set; } = string.Empty;
     public string? ClientSecret { get; set; }
+
+    /// <summary>
+    /// The Blocks Secrets id of the client secret. When set, the value lives in the secret store and
+    /// <see cref="ClientSecret"/> is empty; when null (every client saved before this field existed),
+    /// <see cref="ClientSecret"/> holds the plaintext. Not stored when null.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? ClientSecretReference { get; set; }
+
     public List<string> RedirectUris { get; set; } = new();
     public List<string> PostLogoutRedirectUris { get; set; } = new();
     public List<string> AllowedScopes { get; set; } = new();
