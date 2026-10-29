@@ -1,6 +1,12 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Blocks.Genesis;
+using Blocks.Genesis.DataAccess.Rules;
+using Blocks.Genesis.Entities.Logic;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace XUnitTest.Entities.Logic;
 
@@ -63,7 +69,10 @@ public class LogicEntitiesTests
         ["Blocks.Genesis.Entities.Logic.RunAttempt"] = "C48EF91384B12532133DE5AD7DE06660 F8389498936B3142A7230FDFC7BED498 F8389498936B3142A7230FDFC7BED498",
         ["Blocks.Genesis.Entities.Logic.RunStage"] = "684374E1369D4FC1D40FAD267D8332D3 09A35D17994798A69F81EB8C0549F26E 03D6CDED6C2F625020FD69EA9A903D77",
         ["Blocks.Genesis.Entities.Logic.RunTiming"] = "220970D27C68C29377FC8687832514DB 3A469A49C14533113C19451E42160F01 73932D6042F76EBA1D9CDD38C7BE2D04",
-        ["Blocks.Genesis.Entities.Logic.Schedule"] = "C2F8B649AC3BD54591BF138FC4F7E1C6 13670CA422BB0C8980180962D1A73648 E6858E525FDAAA7750D0866CDF847F3B",
+        // Schedule filled hash changed on purpose 2026-10-26 (owner decision): optional TimeZone ([BsonIgnoreIfNull]); default and all-null bytes unchanged.
+        ["Blocks.Genesis.Entities.Logic.Schedule"] = "F0F27477D293FA2D974DACD068B83A60 13670CA422BB0C8980180962D1A73648 E6858E525FDAAA7750D0866CDF847F3B",
+        // ScheduleExecution is new in Genesis (2026-10-26), not moved from blocks-logic: these are its first hashes.
+        ["Blocks.Genesis.Entities.Logic.ScheduleExecution"] = "46C0104220E4B1C1407650A278931201 F0B08A1FADB05BB7EAA51E3DF1A66DDF 85D0A1CF4D60C022A0DFC4D14A13B141",
         ["Blocks.Genesis.Entities.Logic.SubscriptionFilter"] = "37E7B716AAFA244FDE2A6D12381A782E 77BDD96714A7EA9E0D849051BB502744 B6C9739995C24894ECF7625D14D8B543",
         ["Blocks.Genesis.Entities.Logic.TestWorkflowMeta"] = "85DA441F3D289BEE89146204CAFDB134 684194B17B8083673D7E933AE299B0EC 667384C6537065C79BA6A9E8CDCC4C79",
         ["Blocks.Genesis.Entities.Logic.TriggerConfig"] = "3589F15317BDDBA2D219FD7ED1C212C9 EB462350FE6A2E12066344F913A11A3F 7C7E0435CFCFE9C9132A02315BDF40F0",
@@ -94,4 +103,178 @@ public class LogicEntitiesTests
     [Theory]
     [MemberData(nameof(CatalogClasses))]
     public void CatalogEntity_NameBaseAndIgnoreExtraElements(string cls) => EntityAssertions.CatalogEntity(cls);
+
+    // Schedule.TimeZone and ScheduleExecution (blocks-genesis-net#165). The golden-byte, class-map and catalog
+    // theories above already cover the new class; these pin what they cannot see.
+
+    [Fact]
+    public void Schedule_TimeZone_RoundTripsWhenSet_OmittedWhenNull_OldDocumentReadsNull()
+    {
+        var withZone = new Schedule { Name = "s", TimeZone = "Asia/Dhaka" }.ToBsonDocument();
+        Assert.Equal(new BsonString("Asia/Dhaka"), withZone["TimeZone"]);
+        Assert.Equal("Asia/Dhaka", BsonSerializer.Deserialize<Schedule>(withZone).TimeZone);
+
+        Assert.False(new Schedule { TimeZone = null }.ToBsonDocument().Contains("TimeZone"));
+
+        // A document written before the property existed (same shape as the pre-change class) reads as UTC.
+        var old = EntitySamples.Filled(typeof(PreTimeZoneSchedule)).ToBsonDocument(typeof(PreTimeZoneSchedule));
+        Assert.False(old.Contains("TimeZone"));
+        Assert.Null(BsonSerializer.Deserialize<Schedule>(old).TimeZone);
+    }
+
+    [Fact]
+    public void Schedule_DocumentWithTimeZoneAndUnknownElement_ReadsIntoThePreChangeClass()
+    {
+        // The test-local class really is the pre-change shape: it writes the bytes Schedule writes without a TimeZone.
+        var current = (Schedule)EntitySamples.Filled(typeof(Schedule));
+        current.TimeZone = null;
+        Assert.Equal(EntitySamples.ToBson(current, typeof(Schedule)),
+            EntitySamples.ToBson(EntitySamples.Filled(typeof(PreTimeZoneSchedule)), typeof(PreTimeZoneSchedule)));
+        Assert.Equal(EntitySamples.DefaultBson(typeof(Schedule)), EntitySamples.DefaultBson(typeof(PreTimeZoneSchedule)));
+        Assert.Equal(EntitySamples.NullBson(typeof(Schedule)), EntitySamples.NullBson(typeof(PreTimeZoneSchedule)));
+
+        var doc = ((Schedule)EntitySamples.Filled(typeof(Schedule))).ToBsonDocument();
+        doc["TimeZone"] = "Asia/Dhaka";
+        doc["SomeFieldNobodyKnows"] = 42;
+
+        PreTimeZoneSchedule? read = null;
+        Assert.Null(Record.Exception(() => read = BsonSerializer.Deserialize<PreTimeZoneSchedule>(doc)));
+        Assert.Equal("Name-value", read!.Name);
+    }
+
+    [Fact]
+    public void Schedule_Rules_UnchangedAtNormal_NoTimeZone()
+    {
+        var rules = SystemSchemaRules.For("Schedule")!;
+
+        Assert.Equal(RuleLevel.Normal, rules.Level);
+        string[] preChange =
+        [
+            "Name", "Description", "CronExpression", "StartDate", "EndDate", "Language", "Tags",
+            .. new[] { "Create", "Read", "Update", "Delete" }.SelectMany(op => new[] { $"{op}.Roles", $"{op}.UserIds", $"{op}.Permissions" }),
+        ];
+        Assert.Equal(preChange.Order(StringComparer.Ordinal), rules.Fields.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal((RuleAccess.Blocked, RuleAccess.Blocked), (rules.ValidationFor("TimeZone"), rules.DefaultFor("TimeZone")));
+    }
+
+    [Fact]
+    public void ScheduleExecution_ClosedToRules()
+    {
+        Assert.Null(typeof(ScheduleExecution).GetCustomAttribute<SystemSchemaRulesAttribute>());
+        Assert.Null(SystemSchemaRules.For("ScheduleExecution"));
+        Assert.DoesNotContain("ScheduleExecution", SystemSchemaRules.SchemaNames);
+    }
+
+    [Fact]
+    public void ScheduleExecution_ExactPropertiesAndTypes_OnlyScheduleIdRequired_RestNullable()
+    {
+        var type = typeof(ScheduleExecution);
+        Assert.True(type.IsSealed);
+        Assert.Equal(typeof(BaseEntity), type.BaseType);
+        Assert.Empty(type.GetNestedTypes());
+
+        var declared = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).ToDictionary(p => p.Name);
+        var expected = new Dictionary<string, Type>
+        {
+            ["ScheduleId"] = typeof(string),
+            ["TenantId"] = typeof(string),
+            ["ScheduleName"] = typeof(string),
+            ["FiredUtc"] = typeof(DateTime?),
+            ["FinishedUtc"] = typeof(DateTime?),
+            ["Response"] = typeof(Dictionary<string, object>),
+            ["Snapshot"] = typeof(string),
+        };
+        Assert.Equal(expected.Keys.Order(StringComparer.Ordinal), declared.Keys.Order(StringComparer.Ordinal));
+        Assert.All(expected, e => Assert.Equal(e.Value, declared[e.Key].PropertyType));
+
+        // "new ScheduleExecution()" without ScheduleId fails to compile: the compiler enforces RequiredMemberAttribute.
+        Assert.NotNull(type.GetCustomAttribute<RequiredMemberAttribute>());
+        Assert.Equal(["ScheduleId"], declared.Values.Where(p => p.IsDefined(typeof(RequiredMemberAttribute))).Select(p => p.Name));
+        Assert.Equal("ItemId", BsonClassMap.LookupClassMap(type).IdMemberMap!.MemberName);
+
+        var nullability = new NullabilityInfoContext();
+        Assert.Equal(NullabilityState.NotNull, nullability.Create(declared["ScheduleId"]).ReadState);
+        Assert.All(declared.Values.Where(p => p.Name != "ScheduleId"),
+            p => Assert.Equal(NullabilityState.Nullable, nullability.Create(p).ReadState));
+
+        Assert.Equal("Status", ScheduleExecution.ResponseStatusKey);
+        Assert.Equal("Body", ScheduleExecution.ResponseBodyKey);
+    }
+
+    [Fact]
+    public void ScheduleExecution_Response_IntStatus_NullOmitted_UnknownKeyKept_NoDiscriminator()
+    {
+        // Filled: equal on read-back, Status an Int32 / int, Body a string, no "_t" at the root or inside Response.
+        var fired = new DateTime(2026, 10, 26, 8, 0, 0, DateTimeKind.Utc);
+        var filled = new ScheduleExecution
+        {
+            ItemId = "e1", ScheduleId = "s1", TenantId = "t1", ScheduleName = "Nightly",
+            FiredUtc = fired, FinishedUtc = fired.AddSeconds(30), Snapshot = "{\"name\":\"s1\"}",
+            Response = new() { [ScheduleExecution.ResponseStatusKey] = 504, [ScheduleExecution.ResponseBodyKey] = "Timed out: no response within 30 s." },
+        };
+        var doc = filled.ToBsonDocument();
+        Assert.Equal(BsonType.Int32, doc["Response"]["Status"].BsonType);
+        Assert.Equal(BsonType.String, doc["Response"]["Body"].BsonType);
+        Assert.False(doc.Contains("_t"));
+        Assert.False(doc["Response"].AsBsonDocument.Contains("_t"));
+        // The bag must use AttributeBagSerializer: with the driver's permissive ObjectSerializer an object value
+        // (e.g. a JsonElement) is written as { "_t": ... } and every later read of that row fails.
+        Assert.IsType<Blocks.Genesis.Entities.Iam.AttributeBagSerializer>(BsonClassMap.LookupClassMap(typeof(ScheduleExecution)).GetMemberMap(nameof(ScheduleExecution.Response)).GetSerializer());
+
+        var back = BsonSerializer.Deserialize<ScheduleExecution>(doc);
+        Assert.Equal((filled.ItemId, filled.ScheduleId, filled.TenantId, filled.ScheduleName, filled.FiredUtc, filled.FinishedUtc, filled.Snapshot),
+            (back.ItemId, back.ScheduleId, back.TenantId, back.ScheduleName, back.FiredUtc, back.FinishedUtc, back.Snapshot));
+        Assert.Equal(filled.Response, back.Response);
+        Assert.IsType<int>(back.Response![ScheduleExecution.ResponseStatusKey]);
+        Assert.IsType<string>(back.Response[ScheduleExecution.ResponseBodyKey]);
+        Assert.Equal(doc, back.ToBsonDocument());
+
+        // No body: the key is simply absent.
+        var noBody = new ScheduleExecution { ScheduleId = "s1", Response = new() { [ScheduleExecution.ResponseStatusKey] = 204 } }.ToBsonDocument();
+        Assert.Equal(new BsonDocument("Status", 204), noBody["Response"]);
+        Assert.Equal(new Dictionary<string, object> { ["Status"] = 204 }, BsonSerializer.Deserialize<ScheduleExecution>(noBody).Response);
+
+        // Null Response: no element written, read back as null (not an empty bag); other nullables are BSON null.
+        var minimal = new ScheduleExecution { ScheduleId = "s1" }.ToBsonDocument();
+        Assert.False(minimal.Contains("Response"));
+        Assert.All(new[] { "TenantId", "ScheduleName", "FiredUtc", "FinishedUtc", "Snapshot" }, name => Assert.Equal(BsonNull.Value, minimal[name]));
+        Assert.Null(BsonSerializer.Deserialize<ScheduleExecution>(minimal).Response);
+
+        // An unknown key inside the stored bag is kept; an unknown root element is ignored.
+        minimal["Response"] = new BsonDocument { { "Status", 202 }, { "Attempt", 2 } };
+        minimal["SomeFieldNobodyKnows"] = 42;
+        var withExtra = BsonSerializer.Deserialize<ScheduleExecution>(minimal);
+        Assert.Equal(new Dictionary<string, object> { ["Status"] = 202, ["Attempt"] = 2 }, withExtra.Response);
+    }
+
+    [Fact]
+    public void ScheduleExecution_FilledWith1KbSnapshotAnd1KbBody_IsAtMost3Kb()
+    {
+        // Every member filled, except BaseEntity's per-record access lists: the Worker leaves BaseEntity at its defaults
+        // (spec 6.3), where they are null and not written. With them filled too the sample is 3271 bytes.
+        var sample = (ScheduleExecution)EntitySamples.Filled(typeof(ScheduleExecution));
+        sample.Create = sample.Read = sample.Update = sample.Delete = null;
+        sample.Snapshot = new string('s', 1024);
+        sample.Response = new() { [ScheduleExecution.ResponseStatusKey] = 200, [ScheduleExecution.ResponseBodyKey] = new string('b', 1024) };
+
+        var bytes = EntitySamples.ToBson(sample, typeof(ScheduleExecution));
+        Assert.True(bytes.Length <= 3 * 1024, $"{bytes.Length} bytes");
+    }
+
+    /// <summary>Schedule as it was before TimeZone (dev @ 582c77ae): an older package reading a newer document.</summary>
+    [BsonIgnoreExtraElements]
+    public class PreTimeZoneSchedule : BaseEntity
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string Payload { get; set; } = null!;
+        public string CronExpression { get; set; } = null!;
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public bool IsActive { get; set; } = true;
+        public ScheduleKind Kind { get; set; } = ScheduleKind.Application;
+        public ScheduleTriggerType TriggerType { get; set; } = ScheduleTriggerType.Queue;
+        public WebhookConfiguration? Webhook { get; set; }
+        public QueueConfiguration? Queue { get; set; }
+    }
 }
