@@ -31,9 +31,12 @@ public class OsEntitiesTests
         // Filled-sample hash changed on purpose 2026-10-28 (owner decision, notification spec 1): channels LiveEnabled
         // (default true, left out while true and read as true when missing), PushEnabled, PushTemplate; default and all-null
         // bytes are unchanged.
-        ["Blocks.Genesis.Entities.Os.NotificationConfiguration"] = "E691E5541765A410DEEC1ED73985C39D 6355951BD68EF9849EFEB17220062E3E E12738A6D2ECAE5397612DA0678E0760",
-        // NotificationAudience: new 2026-10-27, stored only inside NotificationConfiguration.
-        ["Blocks.Genesis.Entities.Os.NotificationAudience"] = "649465BF51C9A17DA1984AB57A5B7541 A27BF3D3DE25A99C0D37CCFAF4B12A26 D4BE0C73E9AC14829B299515A7311DAB",
+        // Filled-sample hash changed on purpose 2026-10-29 (owner decision): Audience.AlsoDoneBy ("Done by" tick), left out
+        // while false, so default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Os.NotificationConfiguration"] = "84430745EE96FDA34829887D3981B44D 6355951BD68EF9849EFEB17220062E3E E12738A6D2ECAE5397612DA0678E0760",
+        // NotificationAudience: new 2026-10-27, stored only inside NotificationConfiguration. Filled-sample hash changed
+        // on purpose 2026-10-29 (owner decision): AlsoDoneBy, left out while false.
+        ["Blocks.Genesis.Entities.Os.NotificationAudience"] = "C678A59DD202ED863872210E488B3475 A27BF3D3DE25A99C0D37CCFAF4B12A26 D4BE0C73E9AC14829B299515A7311DAB",
         // NotificationPushTemplate: new 2026-10-28, stored only inside NotificationConfiguration.
         ["Blocks.Genesis.Entities.Os.NotificationPushTemplate"] = "FE5212777477E2B3721E2969A08D673E 7F80CF56B66276D1C7BC68F6C2E45A31 340D1EDC7A7BB4841655585A48A9FE74",
         ["Blocks.Genesis.Entities.Os.ResourceLimit"] = "DEB5AECD71D8731083FCF03B9617E607 05A874D57B670881E235ADF7879190E1 C7861B41C5629ABF18539F8E1395F768",
