@@ -19,7 +19,8 @@ public class WorkflowEntity : BaseEntity
 
     public List<EdgeEnity> Edges { get; set; } = new();
 
-    public Dictionary<string, string> Settings { get; set; } = new();
+    // Was Dictionary<string, string>. Stored documents hold {} or null; both load into this type.
+    public WorkflowSettings? Settings { get; set; } = new();
 
     public bool IsDirty { get; set; } = true;
 

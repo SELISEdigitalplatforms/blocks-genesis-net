@@ -79,10 +79,20 @@ public class LogicEntitiesTests
         ["Blocks.Genesis.Entities.Logic.TriggerMetadata"] = "EA9EDF5743960E72BEDD2EBAE5DA598E 46867C6C0BF5B7B63CDABD337BB3F731 46867C6C0BF5B7B63CDABD337BB3F731",
         ["Blocks.Genesis.Entities.Logic.VariableBinding"] = "B8DB9126E81195DE06027308CBD49E9B BF3F990A275E91C087A2F95CCD000700 C22BE87E8EDF778B1095CCA3840CF24D",
         ["Blocks.Genesis.Entities.Logic.WebhookConfiguration"] = "BF87D6B0647669CA2A05A788DDBFF03C 7DE415E28205F94102C601298C0D3F66 EB867AFD773E3A1A6CE0532E46C73393",
-        ["Blocks.Genesis.Entities.Logic.WorkflowEntity"] = "9F142AA400ABC4AF53523399E40BBE57 98685026F3F019400C502A64374E29BD 0202697A2132574273CFCBEDB09ADBFE",
-        ["Blocks.Genesis.Entities.Logic.WorkflowExecutionEntity"] = "4111B7C6B7B55D68BDFE3ECCEE38C061 0725477EEF14CA034523BA3ECD588C66 A4744968E7E6EDE70241D6329315C016",
+        // WorkflowAlert and WorkflowSettings are new in Genesis (2026-10-28, blocks-genesis-net#175), not moved from blocks-logic: these are their first hashes.
+        ["Blocks.Genesis.Entities.Logic.WorkflowAlert"] = "8417690A27B3351BC5BE9AD391C6509A C902C069169F2CCCB10AA6D2D536F8B6 C902C069169F2CCCB10AA6D2D536F8B6",
+        // Filled and default hashes changed on purpose 2026-10-28 (owner decision, blocks-genesis-net#175): Settings is a typed
+        // WorkflowSettings instead of Dictionary<string, string>, so the default writes { Alert: null } instead of {}. All-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Logic.WorkflowEntity"] = "22E7F2C1384B42DB974798A696596BF2 9A3C9658DD1D45BCEB8F9AAC629CF2E0 0202697A2132574273CFCBEDB09ADBFE",
+        // Filled hash changed on purpose 2026-10-28 (owner decision, blocks-genesis-net#175): the WorkflowSnapshot has the typed
+        // Settings. Default and all-null bytes are unchanged (the snapshot is null there).
+        ["Blocks.Genesis.Entities.Logic.WorkflowExecutionEntity"] = "DD9E48CB68D1E6CADA143841E00A0700 0725477EEF14CA034523BA3ECD588C66 A4744968E7E6EDE70241D6329315C016",
         ["Blocks.Genesis.Entities.Logic.WorkflowItemExecutionEntity"] = "6F4AA65CDE19525DA3DDACD959C6C9A8 5F2D26C50FFB1F9C0B5039B0B80D2A61 7EF878EB0195BD49D3984E4707D3A05C",
-        ["Blocks.Genesis.Entities.Logic.WorkflowVersionEntity"] = "6539413C3D2C5353C8D5BB6D99854967 F6E0B59965DF31CB4420CE988EA2F3C6 E66BCC9278D19E1E7029ED97234A2F27",
+        // WorkflowSettings: new 2026-10-28 (blocks-genesis-net#175), see WorkflowAlert above.
+        ["Blocks.Genesis.Entities.Logic.WorkflowSettings"] = "414530681FDA47E892620BB3115CEA23 8515C07C6CECD8F26F62625EBD8A2D24 8515C07C6CECD8F26F62625EBD8A2D24",
+        // Filled hash changed on purpose 2026-10-28 (owner decision, blocks-genesis-net#175): the Snapshot has the typed
+        // Settings. Default and all-null bytes are unchanged (the snapshot is null there).
+        ["Blocks.Genesis.Entities.Logic.WorkflowVersionEntity"] = "FB9891C17038B64AEBF7094E92C3E093 F6E0B59965DF31CB4420CE988EA2F3C6 E66BCC9278D19E1E7029ED97234A2F27",
     };
 
     public static TheoryData<string> DocumentClasses() => EntityAssertions.DocumentClassesOf("Logic");
