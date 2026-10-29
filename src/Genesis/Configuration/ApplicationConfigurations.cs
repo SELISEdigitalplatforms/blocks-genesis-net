@@ -161,6 +161,9 @@ public static class ApplicationConfigurations
         // IDelegationGrantFactory to stamp the DelegationGrant header at send time.
         services.AddBlocksDelegation();
 
+        // Blocks Event Trigger: the message clients forward enabled catalog events to blocks-logic.
+        services.AddBlocksEventTrigger();
+
         ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
         services.AddHttpContextAccessor();
