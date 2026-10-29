@@ -10,6 +10,15 @@ public class ClientCredential : BaseEntity
 {
     public string? Name { get; set; }
     public string? ClientSecret { get; set; }
+
+    /// <summary>
+    /// The Blocks Secrets id of the client secret. When set, the value lives in the secret store and
+    /// <see cref="ClientSecret"/> is empty; when null (every credential saved before this field existed),
+    /// <see cref="ClientSecret"/> holds the plaintext. Not stored when null.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? ClientSecretReference { get; set; }
+
     public int AccessTokenValidForNumberMinutes { get; set; } = 5;
     public List<string> Roles { get; set; } = new List<string>();
     public List<string> Permissions { get; set; } = new List<string>();
