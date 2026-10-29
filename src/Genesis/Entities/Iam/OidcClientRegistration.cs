@@ -64,4 +64,8 @@ public class OidcClientRegistration : BaseEntity
     [BsonIgnoreIfNull]
     public OidcClientTokenLifetimes? TokenLifetimes { get; set; }
 
+    /// <summary>How this client narrows the tenant's sign-in policy. Null = Default method and providers. Not stored when null.</summary>
+    [BsonIgnoreIfNull]
+    public OidcClientLoginPolicy? LoginPolicy { get; set; }
+
 }

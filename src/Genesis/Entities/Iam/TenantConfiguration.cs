@@ -31,4 +31,8 @@ public class TenantConfiguration : BaseEntity
     /// </para>
     /// </summary>
     public bool IsOrgNameUniquenessEnabled { get; set; }
+
+    /// <summary>Where and how users may sign in. Null (older documents) = everything allowed. Not stored when null.</summary>
+    [BsonIgnoreIfNull]
+    public TenantLoginPolicy? LoginPolicy { get; set; }
 }

@@ -29,14 +29,15 @@ public class IamEntitiesTests
         // Filled-sample hash changed on purpose 2026-10-27 (owner decision): Blocks Secrets references ClientSecretReference and
         // PrivateKeyReference, [BsonIgnoreIfNull], so the default and all-null bytes are unchanged.
         ["Blocks.Genesis.Entities.Iam.IdentityProvider"] = "784768712580470189CA9881EE5651B7 E0A7768A540F7121B1103C62A5737C55 A5F2A7FD8B998DF9314D192556BCE80C",
-        ["Blocks.Genesis.Entities.Iam.IdpSessionAccount"] = "04CE4A113EF054B300BCD25FA7D80F4B 17A2F635383973C477BF987B34536A31 C33F2A5EF1F3CC89AAAF43870B1CA295",
-        ["Blocks.Genesis.Entities.Iam.IdpSessionModel"] = "71B88C318A5AE5EFDE15AEC73130E26F 00EEF75CE2CAEEDB7A477C2037699A79 6AFBCCD9D7C532BC65AC900D1530015A",
+        ["Blocks.Genesis.Entities.Iam.IdpSessionAccount"] = "E9B24CA2B2850C30F5276636F4612C5A 17A2F635383973C477BF987B34536A31 C33F2A5EF1F3CC89AAAF43870B1CA295",
+        ["Blocks.Genesis.Entities.Iam.IdpSessionModel"] = "820901CD791A96E7CB5F772C96A28649 00EEF75CE2CAEEDB7A477C2037699A79 6AFBCCD9D7C532BC65AC900D1530015A",
         ["Blocks.Genesis.Entities.Iam.ImpersonationSession"] = "1A2195E0C5C28045C82C069215940A2F 7B848E419145FA9BBFAEDCFC93D873BD AF0D9CB00EDAF0F64EAA19D33E1CC809",
         ["Blocks.Genesis.Entities.Iam.MfaConfiguration"] = "6BFE2F90667A9996A88720855C416B5B 31B4283C0E9FF88188F3E596638F2E53 4A392AF19DFF8F2D18EFA5AEB72ECD6D",
         ["Blocks.Genesis.Entities.Iam.MfaTemplate"] = "37C0B5BBCA615BB27A5D51953EABA266 584362245DA1DA0D63148E242712802C 584362245DA1DA0D63148E242712802C",
         // Filled-sample hash changed on purpose 2026-10-29 (owner decision): Blocks Secrets reference ClientSecretReference,
         // [BsonIgnoreIfNull], so the default and all-null bytes are unchanged.
-        ["Blocks.Genesis.Entities.Iam.OidcClientRegistration"] = "5628F820F8E9B72ED28F1A1E8B81E4F3 8C84A944934695E349CB07EC86392C3B F6432652E911FEFC91590CA0102CC2E9",
+        ["Blocks.Genesis.Entities.Iam.OidcClientRegistration"] = "DAA2D0D60AC2C4A94FC268F1883B3611 8C84A944934695E349CB07EC86392C3B F6432652E911FEFC91590CA0102CC2E9",
+        ["Blocks.Genesis.Entities.Iam.OidcClientLoginPolicy"] = "7C70FF5DC6ECC5B434E5CBE010C75139 806E784CA6C845B1466D1E88EC23D315 FA09258A829B3A02435AEE04245A1C60",
         ["Blocks.Genesis.Entities.Iam.OidcClientTokenLifetimes"] = "4BDF085E759254B9865BA70468702A66 B1D985892FBBBEAC57446D282F7F8477 B1D985892FBBBEAC57446D282F7F8477",
         ["Blocks.Genesis.Entities.Iam.Organization"] = "D9018E5E669B646EBD9A8CB0489F87E5 41BA6F34953C97FA626821402B6E19A8 B92381EDD35AD58658C0BF87B7900C4E",
         ["Blocks.Genesis.Entities.Iam.Permission"] = "D68EFCEE23E92222DFE1689B2649BE8E 290415232C6F6F3FE33E5DF0F5093DC9 333A50A7AB62C653ED58D1548E178F61",
@@ -45,7 +46,8 @@ public class IamEntitiesTests
         ["Blocks.Genesis.Entities.Iam.Secret"] = "0864F1EFEE27F7C5F9215400B2C7D052 6B0CA0BD30D00F665FEE384D0560F53A 64471E22A0F2BE57767BFE5F70FD958E",
         ["Blocks.Genesis.Entities.Iam.SignupLink"] = "C26D6690D540F91749B06C1964DAA0E9 34F604BA2804B196BE23AA663977B497 CCD51B8A51F56807C45AE81230B4577C",
         ["Blocks.Genesis.Entities.Iam.SignupLinkConfiguration"] = "B274E8642906F4586A167EA60EEB1EF5 898F62AE00AD1FD0C9C330F359F70C2C DF71CC955860A86E667BE6CEC63E0E75",
-        ["Blocks.Genesis.Entities.Iam.TenantConfiguration"] = "4EF0B5173C186FFFF3E0B4652B48ADD6 433F6E2063FC00EBE979819C0CABEC5A 7AE0848372E0597F5977BCF22A4FC2D5",
+        ["Blocks.Genesis.Entities.Iam.TenantConfiguration"] = "92563758924C2FE079E112DF517BDB1E 433F6E2063FC00EBE979819C0CABEC5A 7AE0848372E0597F5977BCF22A4FC2D5",
+        ["Blocks.Genesis.Entities.Iam.TenantLoginPolicy"] = "877BCDDBF4F62B2FFF049A2DCC463552 877BCDDBF4F62B2FFF049A2DCC463552 877BCDDBF4F62B2FFF049A2DCC463552",
         ["Blocks.Genesis.Entities.Iam.Theme"] = "A69D7F38B931C94488E5D0C0AC51FA30 E91BFA85DC0B2850755BA0A8AA016502 37C890EEE8840440E665795AE460D2C1",
         ["Blocks.Genesis.Entities.Iam.TokenRevocationModel"] = "F9703E68476977EBEFC6C0E11F453934 1DA5B0DB1E18DDE049E81940C32C6ADD 1DA5B0DB1E18DDE049E81940C32C6ADD",
         ["Blocks.Genesis.Entities.Iam.User"] = "D57111B5B68A34D5F80B131C09EE4EF0 5D5DCDA100D5CB6A8D7ADBFDD3CC37BD 3A31B548139502962003BA80DD0F37C9",
@@ -141,6 +143,58 @@ public class IamEntitiesTests
         read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.ClientCredential>(doc);
         Assert.Equal(string.Empty, read.ClientSecret);
         Assert.Equal("s1", read.ClientSecretReference);
+    }
+
+    [Fact]
+    public void LoginPolicy_OldDocumentsReadAsAllowAll_AndNullIsNotStored()
+    {
+        var tenant = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.TenantConfiguration>(new BsonDocument("IsMultiOrgEnabled", true));
+        Assert.Null(tenant.LoginPolicy);
+        Assert.False(tenant.ToBsonDocument().Contains("LoginPolicy"));
+
+        var client = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.OidcClientRegistration>(new BsonDocument("ClientId", "c1"));
+        Assert.Null(client.LoginPolicy);
+        Assert.False(client.ToBsonDocument().Contains("LoginPolicy"));
+    }
+
+    [Fact]
+    public void TenantLoginPolicy_MissingSwitchReadsAsOn()
+    {
+        var policy = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.TenantLoginPolicy>(new BsonDocument("AllowSocial", false));
+
+        Assert.True(policy.AllowEmbedded);
+        Assert.True(policy.AllowOidc);
+        Assert.True(policy.AllowPassword);
+        Assert.False(policy.AllowSocial);
+    }
+
+    [Theory]
+    [InlineData(true, true, true, true, true)]
+    [InlineData(false, true, false, true, true)]
+    [InlineData(false, false, true, true, false)]
+    [InlineData(true, true, false, false, false)]
+    public void TenantLoginPolicy_AllowsAnySignIn_NeedsOnePlaceAndOneMethod(bool embedded, bool oidc, bool password, bool social, bool expected)
+    {
+        var policy = new Blocks.Genesis.Entities.Iam.TenantLoginPolicy
+        {
+            AllowEmbedded = embedded, AllowOidc = oidc, AllowPassword = password, AllowSocial = social
+        };
+
+        Assert.Equal(expected, policy.AllowsAnySignIn());
+    }
+
+    [Fact]
+    public void OidcClientLoginPolicy_DefaultsAndKnownValues()
+    {
+        var policy = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.OidcClientLoginPolicy>(new BsonDocument());
+
+        Assert.Equal(Blocks.Genesis.Entities.Iam.OidcClientLoginMethods.Default, policy.Method);
+        Assert.Equal(Blocks.Genesis.Entities.Iam.OidcClientProviderModes.Default, policy.Providers);
+        Assert.Empty(policy.SelectedProviderIds);
+        Assert.True(Blocks.Genesis.Entities.Iam.OidcClientLoginMethods.IsKnown("social"));
+        Assert.False(Blocks.Genesis.Entities.Iam.OidcClientLoginMethods.IsKnown("Social"));
+        Assert.True(Blocks.Genesis.Entities.Iam.OidcClientProviderModes.IsKnown("selected"));
+        Assert.False(Blocks.Genesis.Entities.Iam.OidcClientProviderModes.IsKnown(null));
     }
 
     [Fact]
