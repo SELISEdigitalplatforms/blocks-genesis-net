@@ -81,6 +81,13 @@ public sealed class IdpSessionAccount
     public string TenantId { get; set; } = string.Empty;
     public string? DisplayName { get; set; }
     public DateTime LoginAt { get; set; }
+
+    /// <summary>
+    /// How this account signed in: <c>password</c> or <c>social</c>. Lets a silent sign-in follow an OIDC
+    /// client's allowed method. Null for sessions made before it existed (not blocked). Not stored when null.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? LoginMethod { get; set; }
 }
 
 [BsonIgnoreExtraElements]
