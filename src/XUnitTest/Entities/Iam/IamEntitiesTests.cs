@@ -19,7 +19,9 @@ public class IamEntitiesTests
         ["Blocks.Genesis.Entities.Iam.BiometricCredential"] = "C15F1347BFEA6DFE6ADE107268A86DC9 2C8CBBFA31B62516B47595C73B633598 77CB6946DC4376914FFB0A48264F24C1",
         ["Blocks.Genesis.Entities.Iam.BlocksClientConfig"] = "21EF47EFD285537CC43C4AF59C5D56A0 66725764A88CF05813E53E6709570169 C9F41DCA744732C666F7F28BF0FD33CF",
         ["Blocks.Genesis.Entities.Iam.BuiltInPermission"] = "22029E4D7174E9A2289C2C4AB6A71AE5 43B50CC8D787B0E83E5CF61C44378AF5 AAA3F3ED557686894496C947C166C86C",
-        ["Blocks.Genesis.Entities.Iam.ClientCredential"] = "0FB43C75C4CB54961209757C9289056E 365D6CF7783C6978C3512063D072073B A1539E53AAD1FF5A09B9CD26D8F054E2",
+        // Filled-sample hash changed on purpose 2026-10-29 (owner decision): Blocks Secrets reference ClientSecretReference,
+        // [BsonIgnoreIfNull], so the default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Iam.ClientCredential"] = "673772B79D4B0E350E0B6EC66EF15F1B 365D6CF7783C6978C3512063D072073B A1539E53AAD1FF5A09B9CD26D8F054E2",
         ["Blocks.Genesis.Entities.Iam.DeviceAuthorizationRequestModel"] = "01D92349D9D2333EB56B9E04286EAA13 1633FCD68935D98639D882BA444A2288 BF3B90ED5097B180932AEDDE27693D4E",
         ["Blocks.Genesis.Entities.Iam.DeviceInformation"] = "1808150F01E61EE5A85EC008F88C8060 77F22838EFC48F88F9CE54B1BF875C34 77F22838EFC48F88F9CE54B1BF875C34",
         ["Blocks.Genesis.Entities.Iam.ExternalIdentity"] = "5365F322978B7D6878C60DCFE9900B17 5D9B863D18EC094B6377F5C44051EF18 70E01D67BA79E0F703E5A68BF283CD4D",
@@ -115,6 +117,28 @@ public class IamEntitiesTests
         read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.IdentityProvider>(doc);
         Assert.Equal("s1", read.ClientSecretReference);
         Assert.Equal("s2", read.PrivateKeyReference);
+    }
+
+    [Fact]
+    public void ClientCredential_SecretReference_NotStoredWhenNull_OldDocumentKeepsPlaintext()
+    {
+        var credential = new Blocks.Genesis.Entities.Iam.ClientCredential
+        {
+            ItemId = "cc1", Name = "service", ClientSecret = "plain", IsActive = true,
+        };
+        var doc = credential.ToBsonDocument();
+        Assert.False(doc.Contains("ClientSecretReference"));
+
+        // A document saved before the reference existed: plaintext read as before, no reference.
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.ClientCredential>(doc);
+        Assert.Equal("plain", read.ClientSecret);
+        Assert.Null(read.ClientSecretReference);
+
+        doc["ClientSecret"] = string.Empty; // blocks-iam writing through Blocks Secrets
+        doc["ClientSecretReference"] = "s1";
+        read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.ClientCredential>(doc);
+        Assert.Equal(string.Empty, read.ClientSecret);
+        Assert.Equal("s1", read.ClientSecretReference);
     }
 
     [Fact]
