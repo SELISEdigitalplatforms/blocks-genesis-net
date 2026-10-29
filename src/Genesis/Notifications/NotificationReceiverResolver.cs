@@ -38,11 +38,19 @@ internal sealed class NotificationReceiverResolver : INotificationReceiverResolv
         IReadOnlyList<string> console = [];
         if (scope != NotificationScope.App)
         {
-            var notProjectUsers = item.NamedUserIds.Except(project.ProjectUserIds, StringComparer.Ordinal).ToList();
+            var notProjectUsers = ConsoleCandidates(item, configuration).Except(project.ProjectUserIds, StringComparer.Ordinal).ToList();
             console = [.. await _directory.GetConsoleMembersAsync(item.TenantId, notProjectUsers, cancellationToken)];
         }
 
         return project with { ConsoleUserIds = console };
+    }
+
+    /// <summary>Named users, plus the "Done by" user when a Selected audience asks for them.</summary>
+    private static IEnumerable<string> ConsoleCandidates(QueuedNotification item, NotificationConfiguration configuration)
+    {
+        var audience = configuration.EffectiveAudience();
+        var doneBy = audience.Level == NotificationAudienceLevel.Selected && audience.AlsoDoneBy ? item.DoneByUserId() : null;
+        return doneBy is null ? item.NamedUserIds : item.NamedUserIds.Append(doneBy).Distinct(StringComparer.Ordinal);
     }
 
     private async Task<NotificationReceivers> ResolveProjectAsync(QueuedNotification item, NotificationConfiguration configuration, CancellationToken cancellationToken)
@@ -89,6 +97,11 @@ internal sealed class NotificationReceiverResolver : INotificationReceiverResolv
         if (audience.AlsoNamedUsers)
         {
             selected.AddRange(await NamedIdsAsync(item, cancellationToken));
+        }
+
+        if (audience.AlsoDoneBy && item.DoneByUserId() is { } doneBy)
+        {
+            selected.AddRange(await ActiveIdsAsync(item.TenantId, null, [doneBy], cancellationToken));
         }
 
         return selected.Distinct(StringComparer.Ordinal).ToList();

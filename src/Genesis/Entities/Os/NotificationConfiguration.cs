@@ -189,6 +189,10 @@ public class NotificationAudience
     [BsonIgnoreIfDefault]
     public bool AlsoNamedUsers { get; set; }
 
+    /// <summary>Selected level: also send to the user who did the action ("Done by"), when a person did it.</summary>
+    [BsonIgnoreIfDefault]
+    public bool AlsoDoneBy { get; set; }
+
     /// <summary>True when the Selected rule lists name at least one user, role or permission.</summary>
     public bool HasRules() => UserIds.Count > 0 || Roles.Count > 0 || Permissions.Count > 0;
 }

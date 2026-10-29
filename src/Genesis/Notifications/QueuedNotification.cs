@@ -23,6 +23,17 @@ internal sealed record QueuedNotification
     public DateTime QueuedAt { get; init; }
     public NotificationSender Sender { get; init; } = NotificationSender.None;
 
+    /// <summary>
+    /// "Done by": the user who did the action. Null when no person did it in their own name in this tenant: a job or
+    /// key with no user, an impersonated session, or a sender from another tenant.
+    /// </summary>
+    public string? DoneByUserId()
+    {
+        var otherTenant = !string.IsNullOrWhiteSpace(Sender.OriginalTenantId)
+            && !string.Equals(Sender.OriginalTenantId, TenantId, StringComparison.Ordinal);
+        return string.IsNullOrWhiteSpace(Sender.UserId) || Sender.Impersonated || otherTenant ? null : Sender.UserId;
+    }
+
     /// <summary>The context the worker runs this item in: the target tenant and the sender.</summary>
     public BlocksContext ToContext() => BlocksContext.Create(
         tenantId: TenantId,
