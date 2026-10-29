@@ -34,7 +34,9 @@ public class IamEntitiesTests
         ["Blocks.Genesis.Entities.Iam.ImpersonationSession"] = "1A2195E0C5C28045C82C069215940A2F 7B848E419145FA9BBFAEDCFC93D873BD AF0D9CB00EDAF0F64EAA19D33E1CC809",
         ["Blocks.Genesis.Entities.Iam.MfaConfiguration"] = "6BFE2F90667A9996A88720855C416B5B 31B4283C0E9FF88188F3E596638F2E53 4A392AF19DFF8F2D18EFA5AEB72ECD6D",
         ["Blocks.Genesis.Entities.Iam.MfaTemplate"] = "37C0B5BBCA615BB27A5D51953EABA266 584362245DA1DA0D63148E242712802C 584362245DA1DA0D63148E242712802C",
-        ["Blocks.Genesis.Entities.Iam.OidcClientRegistration"] = "1E4D5BADCA66C34FD313DA7FBBA313D5 8C84A944934695E349CB07EC86392C3B F6432652E911FEFC91590CA0102CC2E9",
+        // Filled-sample hash changed on purpose 2026-10-29 (owner decision): Blocks Secrets reference ClientSecretReference,
+        // [BsonIgnoreIfNull], so the default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Iam.OidcClientRegistration"] = "5628F820F8E9B72ED28F1A1E8B81E4F3 8C84A944934695E349CB07EC86392C3B F6432652E911FEFC91590CA0102CC2E9",
         ["Blocks.Genesis.Entities.Iam.OidcClientTokenLifetimes"] = "4BDF085E759254B9865BA70468702A66 B1D985892FBBBEAC57446D282F7F8477 B1D985892FBBBEAC57446D282F7F8477",
         ["Blocks.Genesis.Entities.Iam.Organization"] = "D9018E5E669B646EBD9A8CB0489F87E5 41BA6F34953C97FA626821402B6E19A8 B92381EDD35AD58658C0BF87B7900C4E",
         ["Blocks.Genesis.Entities.Iam.Permission"] = "D68EFCEE23E92222DFE1689B2649BE8E 290415232C6F6F3FE33E5DF0F5093DC9 333A50A7AB62C653ED58D1548E178F61",
@@ -137,6 +139,28 @@ public class IamEntitiesTests
         doc["ClientSecret"] = string.Empty; // blocks-iam writing through Blocks Secrets
         doc["ClientSecretReference"] = "s1";
         read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.ClientCredential>(doc);
+        Assert.Equal(string.Empty, read.ClientSecret);
+        Assert.Equal("s1", read.ClientSecretReference);
+    }
+
+    [Fact]
+    public void OidcClientRegistration_SecretReference_NotStoredWhenNull_OldDocumentKeepsPlaintext()
+    {
+        var client = new Blocks.Genesis.Entities.Iam.OidcClientRegistration
+        {
+            ItemId = "oc1", ClientId = "oc1", ClientSecret = "plain", ClientName = "portal",
+        };
+        var doc = client.ToBsonDocument();
+        Assert.False(doc.Contains("ClientSecretReference"));
+
+        // A document saved before the reference existed: plaintext read as before, no reference.
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.OidcClientRegistration>(doc);
+        Assert.Equal("plain", read.ClientSecret);
+        Assert.Null(read.ClientSecretReference);
+
+        doc["ClientSecret"] = string.Empty; // blocks-iam writing through Blocks Secrets
+        doc["ClientSecretReference"] = "s1";
+        read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.OidcClientRegistration>(doc);
         Assert.Equal(string.Empty, read.ClientSecret);
         Assert.Equal("s1", read.ClientSecretReference);
     }
