@@ -184,6 +184,56 @@ public sealed class NotificationReceiverResolverTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Selected_AlsoDoneBy_AddsTheUserWhoDidTheAction_NotTheOwner()
+    {
+        await _mongo.AddUserAsync("doer", [OtherOrg]);
+        await _mongo.AddUserAsync("owner", [Org]);
+        var audience = new NotificationAudience { Level = NotificationAudienceLevel.Selected, AlsoDoneBy = true };
+        var item = Sample.Item(Org, "owner") with { Sender = new NotificationSender("doer", NotificationMongo.TenantId, false) };
+
+        var result = await ResolveAsync(item, Sample.Config(audience));
+
+        Assert.Equal(["doer"], result.ProjectUserIds);
+    }
+
+    [Fact]
+    public async Task Selected_OwnerAndDoneBy_SamePerson_ReceivesOnce()
+    {
+        await _mongo.AddUserAsync("sara", [Org]);
+        var audience = new NotificationAudience { Level = NotificationAudienceLevel.Selected, AlsoNamedUsers = true, AlsoDoneBy = true };
+        var item = Sample.Item(Org, "sara") with { Sender = new NotificationSender("sara", NotificationMongo.TenantId, false) };
+
+        var result = await ResolveAsync(item, Sample.Config(audience));
+
+        Assert.Equal(["sara"], result.ProjectUserIds);
+    }
+
+    [Fact]
+    public async Task Selected_AlsoDoneBy_InactiveOrUnknownDoer_NeverReceives()
+    {
+        await _mongo.AddUserAsync("inactive", [Org], active: false);
+        var audience = new NotificationAudience { Level = NotificationAudienceLevel.Selected, AlsoDoneBy = true };
+
+        var inactive = await ResolveAsync(Sample.Item(Org) with { Sender = new NotificationSender("inactive", "", false) }, Sample.Config(audience));
+        var apiKey = await ResolveAsync(Sample.Item(Org) with { Sender = new NotificationSender("client-id", "", false) }, Sample.Config(audience));
+
+        Assert.True(inactive.IsEmpty);
+        Assert.True(apiKey.IsEmpty);
+    }
+
+    [Fact]
+    public async Task Console_DoneByRootUserWithProjectAccess_Receives()
+    {
+        await _mongo.AddProjectPeopleAsync("root-doer", NotificationMongo.TenantId);
+        var audience = new NotificationAudience { Level = NotificationAudienceLevel.Selected, AlsoDoneBy = true };
+        var item = Sample.Item(Org) with { Sender = new NotificationSender("root-doer", NotificationMongo.TenantId, false) };
+
+        var result = await ResolveAsync(item, Sample.Config(audience, NotificationScope.Console));
+
+        Assert.Equal(["root-doer"], result.ConsoleUserIds);
+    }
+
+    [Fact]
     public async Task Filters_OnlyNarrow_NeverAddASubscriberOutsideTheAudience()
     {
         await _mongo.AddUserAsync("subscribed", [Org], roles: new() { [Org] = ["admin"] });
