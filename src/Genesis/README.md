@@ -182,6 +182,9 @@ Use `.env.example` as the baseline for environment variables.
 - `ConsumerMessage.ScheduledEnqueueTimeUtc` is the corrected property name; `SccheduledEnqueueTimeUtc` remains as an obsolete alias.
 - `ConfigureAzureServiceBus` replaces `ConfigerAzureServiceBus`; the old name remains as an obsolete shim and will be removed in the next major version.
 - `SecretEndPointAttribute` replaces the misspelled `SecretEnpPointAttribute`, which has been removed.
+- `WorkflowEntity.Settings` changes from `Dictionary<string, string>` to `WorkflowSettings?`, which holds the per-workflow failure `Alert`. This is a deliberate breaking change with no `[Obsolete]` alias; blocks-logic adopts it in blocks-logic#380. No data migration is needed: a stored `Settings` that is missing, `null`, `{}` or holds unknown keys still loads, and a default workflow now writes `Settings: { Alert: null }` instead of `Settings: {}`.
+- The one incompatible stored shape is a `Settings.Alert` that is neither a document nor null, e.g. `{ "Alert": "text" }`; reading it throws `FormatException`.
+- Rules for adding workflow settings: every new property is nullable and null means "use the default"; only add properties, never rename or retype one; every class has `[BsonIgnoreExtraElements]`; enums are stored as numbers.
 
 ## License
 
