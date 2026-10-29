@@ -130,7 +130,7 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(
+            _logger.LogWarning( // NOSONAR S6667 — type only: the exception can quote message content
                 "Blocks event trigger catalog read failed for tenant {TenantId} ({ErrorType}); no events are forwarded for {Seconds} s",
                 tenantId, ex.GetType().Name, BlocksEventTriggerConstants.FailureCacheLifetime.TotalSeconds);
 
@@ -156,7 +156,7 @@ internal sealed class BlocksEventCatalogCache : IBlocksEventCatalogCache
         }
         catch (TimeoutException)
         {
-            cancellation.Cancel();
+            await cancellation.CancelAsync().ConfigureAwait(false);
             // The abandoned read may still fault; observe it so it is not reported as unobserved.
             _ = read.ContinueWith(
                 static t => _ = t.Exception,

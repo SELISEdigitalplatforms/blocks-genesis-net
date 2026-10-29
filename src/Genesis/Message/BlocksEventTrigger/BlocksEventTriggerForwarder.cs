@@ -66,7 +66,7 @@ internal sealed class BlocksEventTriggerForwarder : IBlocksEventTriggerForwarder
         try
         {
             var lookup = _catalogCache.GetEnabledEventsAsync(tenantId);
-            var enabled = lookup.IsCompletedSuccessfully ? lookup.Result : await lookup.ConfigureAwait(false);
+            var enabled = await lookup.ConfigureAwait(false);
 
             if (!enabled.Contains(wireType))
             {
@@ -115,7 +115,7 @@ internal sealed class BlocksEventTriggerForwarder : IBlocksEventTriggerForwarder
         catch (Exception ex)
         {
             // The exception message is left out: a serializer or transport error can quote message content.
-            _logger.LogWarning(
+            _logger.LogWarning( // NOSONAR S6667 — type only: the exception can quote message content
                 "Blocks event trigger forward failed for tenant {TenantId}, event {EventName} ({ErrorType})",
                 tenantId, wireType, ex.GetType().Name);
             Skip(producerActivity, SkipFailed);

@@ -129,7 +129,7 @@ public sealed class AzureMessageClient : IMessageClient
             {
                 // The forwarder is a public extension point. If one throws anyway, the original was still
                 // delivered, so the caller must not see a failure (and resend it). Type only: no message content.
-                _logger.LogWarning(
+                _logger.LogWarning( // NOSONAR S6667 — type only: the exception can quote message content
                     "Blocks event trigger forwarder threw after a completed send to {ConsumerName} ({ErrorType})",
                     consumerMessage.ConsumerName, ex.GetType().Name);
             }

@@ -8,6 +8,8 @@ namespace Blocks.Genesis;
 
 public sealed class RabbitMessageClient : IMessageClient
 {
+    private const string UnknownValue = "unknown";
+
     private readonly ILogger<RabbitMessageClient> _logger;
     private readonly IRabbitMqService _rabbitMqService;
     private readonly MessageConfiguration _messageConfiguration;
@@ -117,7 +119,7 @@ public sealed class RabbitMessageClient : IMessageClient
             var body = ReadTopLevelString(envelope, nameof(Message.Body));
             if (body is not null)
             {
-                return ReadTopLevelString(Encoding.UTF8.GetBytes(body), nameof(BlocksEventTriggerMessage.EventName)) ?? "unknown";
+                return ReadTopLevelString(Encoding.UTF8.GetBytes(body), nameof(BlocksEventTriggerMessage.EventName)) ?? UnknownValue;
             }
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
@@ -125,7 +127,7 @@ public sealed class RabbitMessageClient : IMessageClient
             // Not a forward envelope.
         }
 
-        return "unknown";
+        return UnknownValue;
     }
 
     // The string value of one top-level property, or null. Other values are skipped without being decoded.
@@ -157,14 +159,14 @@ public sealed class RabbitMessageClient : IMessageClient
     {
         try
         {
-            return ReadTopLevelString(envelope, nameof(Message.Type)) ?? "unknown";
+            return ReadTopLevelString(envelope, nameof(Message.Type)) ?? UnknownValue;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             // Not a Genesis envelope (InvalidOperationException: a Type that is not valid UTF-8).
         }
 
-        return "unknown";
+        return UnknownValue;
     }
 
     private static string ReadHeader(IDictionary<string, object?>? headers, string name)
@@ -241,7 +243,7 @@ public sealed class RabbitMessageClient : IMessageClient
                 {
                     // The forwarder is a public extension point. If one throws anyway, the original was still
                     // published: not a "Failed to send message" error. Type only: no message content.
-                    _logger.LogWarning(
+                    _logger.LogWarning( // NOSONAR S6667 — type only: the exception can quote message content
                         "Blocks event trigger forwarder threw after a completed send to {ConsumerName} ({ErrorType})",
                         consumerMessage.ConsumerName, ex.GetType().Name);
                 }

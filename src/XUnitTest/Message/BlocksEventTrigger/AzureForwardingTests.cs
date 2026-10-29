@@ -410,7 +410,7 @@ public sealed class AzureForwardingTests : IDisposable
         Assert.Null(forwarded.GetTagItem("blocks.event_trigger.skip_reason"));
 
         var notEnabled = producers.Single(a => a.GetTagItem("messaging.message_type") as string == "SmsQueued");
-        Assert.Equal(false, notEnabled.GetTagItem("blocks.event_trigger.forwarded"));
+        Assert.True(notEnabled.GetTagItem("blocks.event_trigger.forwarded") is false);
         Assert.Equal("not_enabled", notEnabled.GetTagItem("blocks.event_trigger.skip_reason"));
 
         Assert.Contains(producers, a => "no_tenant".Equals(a.GetTagItem("blocks.event_trigger.skip_reason")));
