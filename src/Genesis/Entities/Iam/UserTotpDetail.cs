@@ -11,4 +11,11 @@ public class UserTotpDetail : BaseEntity
     public string? ImageUri { get; set; }
     public string? TowFactorId { get; set; }
     public string? Secret { get; set; }
+
+    /// <summary>
+    /// The Blocks Secrets id of the TOTP secret. When set, the value lives only in the secret store and
+    /// <see cref="Secret"/> is empty; a document without it holds an old plaintext secret. Not stored when null.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    public string? SecretReference { get; set; }
 }
