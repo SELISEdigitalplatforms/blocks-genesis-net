@@ -54,7 +54,9 @@ public class IamEntitiesTests
         ["Blocks.Genesis.Entities.Iam.UserActivity"] = "9C398DD7F02CB477CBE7055F5E9DFEBD 8303FA258A627C927327F5DC9469C15E 3A56DBB1940EADF9E2460D185974D87D",
         ["Blocks.Genesis.Entities.Iam.UserKeyMap"] = "D403E7E0E263E88EE52DFD72067C547A 56ABE72D8000A2E7BBA75D83AA50DCC4 2F8D9B864A86AD9409D2B0CD72284295",
         ["Blocks.Genesis.Entities.Iam.UserMfaEnrollment"] = "3F9B6E6FA7342DC449ACD83968C106A8 3E14672E4930C14339D5466D483940BA 7CCB31415576DF8A3BFBC94276085136",
-        ["Blocks.Genesis.Entities.Iam.UserTotpDetail"] = "41963F1E1C3F8F65B71B0198FC7AEBD2 BCA9B0C39449EFC94B554705D564DF19 E65DC312B4F0717504492215E24C96A8",
+        // Filled-sample hash changed on purpose 2026-11-01 (owner decision): Blocks Secrets reference SecretReference,
+        // [BsonIgnoreIfNull], so the default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Iam.UserTotpDetail"] = "760AD5425EAF7D2395B98D129B91EA8B BCA9B0C39449EFC94B554705D564DF19 E65DC312B4F0717504492215E24C96A8",
     };
 
     public static TheoryData<string> DocumentClasses() => EntityAssertions.DocumentClassesOf("Iam");
@@ -217,6 +219,25 @@ public class IamEntitiesTests
         read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.OidcClientRegistration>(doc);
         Assert.Equal(string.Empty, read.ClientSecret);
         Assert.Equal("s1", read.ClientSecretReference);
+    }
+
+    [Fact]
+    public void UserTotpDetail_SecretReference_NotStoredWhenNull_OldDocumentKeepsPlaintext()
+    {
+        var detail = new Blocks.Genesis.Entities.Iam.UserTotpDetail { ItemId = "t1", CreatedBy = "u1", Secret = "plain" };
+        var doc = detail.ToBsonDocument();
+        Assert.False(doc.Contains("SecretReference"));
+
+        // A document saved before the reference existed: plaintext read as before, no reference.
+        var read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.UserTotpDetail>(doc);
+        Assert.Equal("plain", read.Secret);
+        Assert.Null(read.SecretReference);
+
+        doc["Secret"] = string.Empty; // blocks-iam writing through Blocks Secrets
+        doc["SecretReference"] = "s1";
+        read = BsonSerializer.Deserialize<Blocks.Genesis.Entities.Iam.UserTotpDetail>(doc);
+        Assert.Equal(string.Empty, read.Secret);
+        Assert.Equal("s1", read.SecretReference);
     }
 
     [Fact]
