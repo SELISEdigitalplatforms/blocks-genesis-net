@@ -30,6 +30,37 @@ public class GlobalExceptionMapTests
         Assert.Equal(StatusCodes.Status400BadRequest, InvokeMap(ex));
     }
 
+#pragma warning disable CA1707 // same naming as the tests around them
+    [Theory]
+    [InlineData(StatusCodes.Status400BadRequest, StatusCodes.Status400BadRequest)]
+    [InlineData(StatusCodes.Status408RequestTimeout, StatusCodes.Status408RequestTimeout)]
+    [InlineData(StatusCodes.Status413PayloadTooLarge, StatusCodes.Status413PayloadTooLarge)]
+    [InlineData(StatusCodes.Status431RequestHeaderFieldsTooLarge, StatusCodes.Status431RequestHeaderFieldsTooLarge)]
+    [InlineData(499, 499)]
+    [InlineData(399, StatusCodes.Status500InternalServerError)]
+    [InlineData(StatusCodes.Status500InternalServerError, StatusCodes.Status500InternalServerError)]
+    [InlineData(StatusCodes.Status503ServiceUnavailable, StatusCodes.Status500InternalServerError)]
+    public void MapException_ShouldUseOwnStatus_OnlyForClientBadHttpRequest(int exceptionStatus, int expectedStatus)
+    {
+        Assert.Equal(expectedStatus, InvokeMap(new BadHttpRequestException("bad request", exceptionStatus)));
+    }
+
+    [Theory]
+    [InlineData(StatusCodes.Status400BadRequest)]
+    [InlineData(StatusCodes.Status408RequestTimeout)]
+    public void MapException_ShouldMapKestrelBadHttpRequest_LikeItsBaseType(int status)
+    {
+        Assert.Equal(status, InvokeMap(GlobalExceptionClientAbortTests.CreateKestrelBadHttpRequestException(status)));
+    }
+
+    [Fact]
+    public void MapException_ShouldKeep500_ForStreamErrors()
+    {
+        // The aborted-request 499 needs HttpContext and is decided in HandleExceptionAsync, not here.
+        Assert.Equal(StatusCodes.Status500InternalServerError, InvokeMap(new IOException("The client reset the request stream.")));
+    }
+#pragma warning restore CA1707
+
     private static int InvokeMap(Exception exception)
     {
         var type = typeof(BlocksException).Assembly.GetType("Blocks.Genesis.GlobalExceptionHandlerMiddleware")!;
