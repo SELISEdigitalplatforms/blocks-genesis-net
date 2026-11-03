@@ -299,7 +299,7 @@ Every API service exposes health endpoints: `/ping` (all checks), `/health/live`
 
 Middleware order set up by `ConfigureMiddleware`:
 
-`HSTS -> CORS -> Health endpoints -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> UserRateLimit -> Antiforgery -> Controllers`
+`HSTS -> CORS -> Health endpoints -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> UserRateLimit -> OnboardingApiAccess -> Antiforgery -> Controllers`
 
 ## Rate limiting per user and per OAuth client
 

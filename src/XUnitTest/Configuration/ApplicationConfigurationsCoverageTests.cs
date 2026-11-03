@@ -650,7 +650,7 @@ public class ApplicationConfigurationsCoverageTests
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         RegisterApiPrerequisites(builder.Services);
-        builder.Services.AddSingleton<IBlocksSecret>(new BlocksSecret { EnableHsts = false });
+        builder.Services.AddSingleton<IBlocksSecret>(new BlocksSecret { EnableHsts = false, DatabaseConnectionString = "mongodb://127.0.0.1:27017", RootDatabaseName = "live-endpoints-root" });
         builder.Services.AddSingleton(Mock.Of<ICryptoService>());
         builder.Services.AddHealthChecks()
             .AddCheck("ready-probe", () => HealthCheckResult.Healthy(), tags: ["ready"]);
