@@ -20,9 +20,10 @@ public class GenesisHealthPingBackgroundServiceScaffoldTests
     [Theory]
     [InlineData(60, 0, 60)]
     [InlineData(0, 0, 60)]
-    [InlineData(60, 1, 120)]
-    [InlineData(60, 2, 240)]
-    [InlineData(120, 10, 300)]
+    [InlineData(60, 1, 3)]
+    [InlineData(60, 3, 3)]
+    [InlineData(60, 4, 60)]
+    [InlineData(120, 10, 120)]
     public void CalculateDelay_ShouldReturnExpectedSeconds(int interval, int failures, int expectedSeconds)
     {
         var method = typeof(GenesisHealthPingBackgroundService).GetMethod("CalculateDelay", BindingFlags.Static | BindingFlags.NonPublic);
