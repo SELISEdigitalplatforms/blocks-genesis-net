@@ -109,6 +109,19 @@ publisher.Publish(new NotificationRequest
 - Live goes to `NotificationHub` groups over the Redis backplane; the hub itself is mapped by blocks-logic only.
 - Push sends `PushRequested` to queue `blocks_notification_push_listener` (consumed by the logic worker).
 
+## Actions
+
+```csharp
+// After a successful save. IActionPublisher is registered by ConfigureServices (API and worker).
+await actionPublisher.PublishAsync("iam-user-created", new { userId, organizationId });
+```
+
+- Reads the tenant's `actions` list in `KeyValueStores` (no cache, 2 s limit). Nothing is sent when the action is missing or all its targets are off.
+- Keeps only the top-level data fields named in the action's `Payload` (case-sensitive, System.Text.Json default names); no data gives `{}`.
+- Sends one `BlocksAction` per target that is on: `blocks_logic_action_workflow_listener`, `blocks_logic_action_function_listener`, `blocks_os_action_webhook_listener`. Tenant, user and trace travel in the message properties.
+- `organizationId` null takes the organization from `BlocksContext`; empty means none.
+- Best-effort: never throws; an envelope over 64 KB is dropped and logged; the data is never logged.
+
 ## Configuration
 
 `ConfigureLogAndSecretsAsync` loads a `.env` file when one exists at or above the working directory, then resolves secrets from Azure Key Vault (`VaultType.Azure`) or environment variables (`VaultType.OnPrem`, prefixed with `BlocksSecret__`). `DatabaseConnectionString` and `CacheConnectionString` are required; startup fails with a descriptive error when they are missing.
@@ -194,6 +207,7 @@ Use `.env.example` as the baseline for environment variables.
 - The one incompatible stored shape is a `Settings.Alert` that is neither a document nor null, e.g. `{ "Alert": "text" }`; reading it throws `FormatException`.
 - Rules for adding workflow settings: every new property is nullable and null means "use the default"; only add properties, never rename or retype one; every class has `[BsonIgnoreExtraElements]`; enums are stored as numbers.
 - `OnboardingApiAccessMiddleware` now reads the root `AllowedApis` only for root cross-tenant requests, caches it for 5 minutes (an empty or missing list included), and answers those requests with `503` and `Retry-After: 30` instead of a `500` when the list cannot be loaded and none has loaded before. A list that was already loaded is now refreshed every 5 minutes instead of only on restart. Its public constructor now throws `ArgumentNullException` for a null `blocksSecret`, and it creates its root MongoDB client when the pipeline is built, so an invalid `DatabaseConnectionString` fails at startup instead of at the first request.
+- 4.6.2 removes the Blocks Event Trigger forwarder (breaking): `IBlocksEventTriggerForwarder`, `BlocksEventTriggerMessage`, `BlocksEventCatalogEntry`, `BlocksEventTriggerConstants` and the message clients' forwarder constructors are gone. Message clients no longer forward sends; publish an action with `IActionPublisher` instead.
 
 ## License
 

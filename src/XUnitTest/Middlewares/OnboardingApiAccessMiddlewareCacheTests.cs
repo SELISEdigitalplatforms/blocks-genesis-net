@@ -6,7 +6,7 @@ using MongoDB.Driver;
 using MongoDB.Driver.Core.Connections;
 using Moq;
 using System.Net;
-using XUnitTest.Message.BlocksEventTrigger;
+using XUnitTest.TestDoubles;
 
 namespace XUnitTest.Middlewares;
 
@@ -532,7 +532,7 @@ public class OnboardingApiAccessMiddlewareCacheTests
 
         public CountingSource Source { get; } = new();
 
-        public TriggerClock Clock { get; } = new();
+        public ManualClock Clock { get; } = new();
 
         public Mock<ITenants> Tenants { get; } = new();
 

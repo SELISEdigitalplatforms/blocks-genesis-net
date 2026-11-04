@@ -15,43 +15,23 @@ public sealed class RabbitMessageClient : IMessageClient
     private readonly MessageConfiguration _messageConfiguration;
     private readonly ActivitySource _activitySource;
     private readonly IDelegationGrantFactory _delegationGrantFactory;
-    private readonly IBlocksEventTriggerForwarder? _forwarder;
-    private readonly Func<ConsumerMessage<BlocksEventTriggerMessage>, string, Task> _sendForward;
 
     private IChannel? _channel;
     private Task? _initializationTask;
     private bool _isInitialized;
 
-    /// <summary>Creates a client that does not forward Blocks Event Trigger events.</summary>
     public RabbitMessageClient(
         ILogger<RabbitMessageClient> logger,
         IRabbitMqService rabbitMqService,
         MessageConfiguration messageConfiguration,
         ActivitySource activitySource,
         IDelegationGrantFactory delegationGrantFactory)
-        : this(logger, rabbitMqService, messageConfiguration, activitySource, delegationGrantFactory, null)
-    {
-    }
-
-    /// <summary>
-    /// Creates a client that, after each completed publish, lets <paramref name="blocksEventTriggerForwarder"/>
-    /// forward enabled catalog events. Dependency injection uses this constructor.
-    /// </summary>
-    public RabbitMessageClient(
-        ILogger<RabbitMessageClient> logger,
-        IRabbitMqService rabbitMqService,
-        MessageConfiguration messageConfiguration,
-        ActivitySource activitySource,
-        IDelegationGrantFactory delegationGrantFactory,
-        IBlocksEventTriggerForwarder? blocksEventTriggerForwarder)
     {
         _logger = logger;
         _rabbitMqService = rabbitMqService;
         _messageConfiguration = messageConfiguration;
         _activitySource = activitySource;
         _delegationGrantFactory = delegationGrantFactory;
-        _forwarder = blocksEventTriggerForwarder;
-        _sendForward = PublishForwardAsync;
     }
 
     private async Task EnsureInitializedAsync()
@@ -93,41 +73,10 @@ public sealed class RabbitMessageClient : IMessageClient
             // Never the body: it is payload content.
             var wireType = ReadWireType(ea.Body.Span);
             var tenantId = ReadHeader(ea.BasicProperties?.Headers, "TenantId");
-            if (wireType == nameof(BlocksEventTriggerMessage))
-            {
-                // A returned forward (C6): the tenant and the forwarded event's name, still without the payload.
-                _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}, Type={MessageType}, TenantId={TenantId}, EventName={EventName}",
-                    ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length, wireType, tenantId, ReadForwardEventName(ea.Body.Span));
-            }
-            else
-            {
-                _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}, Type={MessageType}, TenantId={TenantId}",
-                    ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length, wireType, tenantId);
-            }
+            _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}, Type={MessageType}, TenantId={TenantId}",
+                ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length, wireType, tenantId);
             await Task.CompletedTask;
         };
-    }
-
-    /// <summary>
-    /// The <c>EventName</c> of a forward envelope (<c>Body</c> is a serialized <see cref="BlocksEventTriggerMessage"/>);
-    /// <c>unknown</c> when unreadable. Reads only that field; <c>PayloadJson</c> is never returned.
-    /// </summary>
-    internal static string ReadForwardEventName(ReadOnlySpan<byte> envelope)
-    {
-        try
-        {
-            var body = ReadTopLevelString(envelope, nameof(Message.Body));
-            if (body is not null)
-            {
-                return ReadTopLevelString(Encoding.UTF8.GetBytes(body), nameof(BlocksEventTriggerMessage.EventName)) ?? UnknownValue;
-            }
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-        {
-            // Not a forward envelope.
-        }
-
-        return UnknownValue;
     }
 
     // The string value of one top-level property, or null. Other values are skipped without being decoded.
@@ -224,60 +173,11 @@ public sealed class RabbitMessageClient : IMessageClient
 
             _logger.LogDebug("Message sent to {ConsumerName} with routing key {RoutingKey}",
                 consumerMessage.ConsumerName, consumerMessage.RoutingKey ?? string.Empty);
-
-            // Reached only when the original publish completed.
-            if (_forwarder is not null)
-            {
-                try
-                {
-                    await _forwarder.TryForwardAsync(
-                        consumerMessage,
-                        messageBody.Type,
-                        messageBody.Body,
-                        securityContext?.TenantId,
-                        isExchange,
-                        activity,
-                        _sendForward);
-                }
-                catch (Exception ex)
-                {
-                    // The forwarder is a public extension point. If one throws anyway, the original was still
-                    // published: not a "Failed to send message" error. Type only: no message content.
-                    _logger.LogWarning( // NOSONAR S6667 — type only: the exception can quote message content
-                        "Blocks event trigger forwarder threw after a completed send to {ConsumerName} ({ErrorType})",
-                        consumerMessage.ConsumerName, ex.GetType().Name);
-                }
-            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send message to {ConsumerName}", consumerMessage.ConsumerName);
         }
-    }
-
-    // The forward's own publish. Unlike an original it is not forwarded again, and its failures are not swallowed
-    // here: they reach the forwarder, which logs them as forward failures. RabbitMQ has no scheduling, so
-    // ScheduledEnqueueTimeUtc is ignored, as it is for originals.
-    private async Task PublishForwardAsync(ConsumerMessage<BlocksEventTriggerMessage> forward, string envelopeJson)
-    {
-        var securityContext = BlocksContext.GetContext();
-
-        using var activity = _activitySource.StartActivity("messaging.rabbitmq.send", ActivityKind.Producer, Activity.Current?.Context ?? default);
-
-        if (activity is not null) activity.DisplayName = $"Rabbit Send to {forward.ConsumerName}";
-        activity?.SetTag("messaging.system", "rabbitmq");
-        activity?.SetTag("messaging.destination.name", forward.ConsumerName);
-        activity?.SetTag("messaging.destination.kind", "queue");
-        activity?.SetTag("messaging.rabbitmq.routing_key", forward.ConsumerName);
-
-        await PublishEnvelopeAsync(
-            string.Empty,
-            forward.ConsumerName,
-            envelopeJson,
-            securityContext,
-            activity,
-            forward.Context,
-            forward.DelegationTtl);
     }
 
     private async Task PublishEnvelopeAsync(
