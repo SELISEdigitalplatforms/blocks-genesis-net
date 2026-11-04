@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -126,23 +127,8 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
                 // 2. If disabled / not found, wait and retry — never exit the loop.
                 //    This allows the service to self-activate when config is added.
                 // -----------------------------------------------------------------
-                if (config is null)
+                if (!IsReadyToPing(config))
                 {
-                    GenesisHealthPingLog.NoConfigurationFound(_logger, _serviceName, _disabledPollInterval);
-                    await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (!config.HealthCheckEnabled)
-                {
-                    GenesisHealthPingLog.HealthCheckDisabled(_logger, _serviceName, _disabledPollInterval);
-                    await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(config.Endpoint))
-                {
-                    _logger.LogWarning("[{Service}] Endpoint is empty - skipping ping", _serviceName);
                     await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
@@ -153,23 +139,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
                 var success = await PingAsync(config, stoppingToken);
 
                 failureCount = success ? 0 : failureCount + 1;
-
-                if (failureCount is > 0 and <= MaxRetryAttempts)
-                {
-                    _logger.LogWarning(
-                        "[{Service}] Ping failed — retry {Attempt}/{MaxAttempts} in {Delay}s",
-                        _serviceName,
-                        failureCount,
-                        MaxRetryAttempts,
-                        RetryDelaySeconds);
-                }
-                else if (failureCount > MaxRetryAttempts)
-                {
-                    _logger.LogError(
-                        "[{Service}] Ping failed after {MaxAttempts} retries — resuming normal interval",
-                        _serviceName,
-                        MaxRetryAttempts);
-                }
+                LogPingOutcome(failureCount);
 
                 // -----------------------------------------------------------------
                 // 4. Wait before next ping (short fixed-gap retries on failure)
@@ -194,6 +164,54 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
         }
 
         _logger.LogInformation("[{Service}] Health ping worker stopped", _serviceName);
+    }
+
+    /// <summary>
+    /// Logs why there is nothing to ping (no configuration, health check disabled, empty endpoint)
+    /// and returns false; the caller waits the disabled poll interval and tries again.
+    /// </summary>
+    private bool IsReadyToPing([NotNullWhen(true)] BlocksServicesHealthConfiguration? config)
+    {
+        if (config is null)
+        {
+            GenesisHealthPingLog.NoConfigurationFound(_logger, _serviceName, _disabledPollInterval);
+            return false;
+        }
+
+        if (!config.HealthCheckEnabled)
+        {
+            GenesisHealthPingLog.HealthCheckDisabled(_logger, _serviceName, _disabledPollInterval);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.Endpoint))
+        {
+            _logger.LogWarning("[{Service}] Endpoint is empty - skipping ping", _serviceName);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Logs a failed ping as a pending retry, or as exhausted once the retries are used up.</summary>
+    private void LogPingOutcome(int failureCount)
+    {
+        if (failureCount is > 0 and <= MaxRetryAttempts)
+        {
+            _logger.LogWarning(
+                "[{Service}] Ping failed — retry {Attempt}/{MaxAttempts} in {Delay}s",
+                _serviceName,
+                failureCount,
+                MaxRetryAttempts,
+                RetryDelaySeconds);
+        }
+        else if (failureCount > MaxRetryAttempts)
+        {
+            _logger.LogError(
+                "[{Service}] Ping failed after {MaxAttempts} retries — resuming normal interval",
+                _serviceName,
+                MaxRetryAttempts);
+        }
     }
 
     // =========================================================================
