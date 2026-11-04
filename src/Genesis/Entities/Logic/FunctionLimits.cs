@@ -282,6 +282,12 @@ public class VariableBinding
 {
     public string Key { get; set; } = string.Empty;
     public string Value { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The function runs without this variable: when its bound configuration variable is gone, the key is
+    /// left out of <c>ctx.env</c> instead of failing the run. Old rows read as false (required).
+    /// </summary>
+    public bool Optional { get; set; }
 }
 
 /// <summary>The tenant's editable source. Hashed to decide whether a rebuild is needed.</summary>
