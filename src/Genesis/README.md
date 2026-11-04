@@ -153,7 +153,15 @@ MaxFailedBatches=100
 
 ## Middleware pipeline (API)
 
-`HSTS -> CORS -> Health endpoints (/ping, /health/live, /health/ready) -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> UserRateLimit -> Antiforgery -> Controllers`
+`HSTS -> CORS -> Health endpoints (/ping, /health/live, /health/ready) -> Swagger (when configured) -> Routing -> TenantValidation -> GlobalExceptionHandler -> Authentication -> Authorization -> UserRateLimit -> OnboardingApiAccess -> Antiforgery -> Controllers`
+
+## Root cross-tenant API access
+
+`OnboardingApiAccess` applies only when a root-tenant token calls another tenant (its `tenant_id` is the root tenant and the request's tenant, from the `x-blocks-key` header or query, is a different one). Such a request may reach only the paths listed in the `AllowedApis` array of the root database's `IdentityConfigurations` document. A path matches when it equals an entry case-insensitively, ignoring leading and trailing `/`. Every other request passes through without reading that list.
+
+- The list is read at most once per 5 minutes per service instance, including when it is missing or empty, so a change to `AllowedApis` applies within 5 minutes. Non-string and blank entries are ignored.
+- A path not in the list gets `403` with `"Forbidden: Cross_Tenant_Access_Not_Allowed"`.
+- If the read fails or takes more than 2 s, the last good list keeps being used and the read is retried after 30 s. If no list has loaded yet, the request gets **`503 Service Unavailable`** with `Retry-After: 30` and `"Service_Unavailable: Os_Allowed_Apis_Unavailable"` until a read succeeds; retries are again 30 s apart.
 
 ## Rate limiting
 
@@ -185,6 +193,7 @@ Use `.env.example` as the baseline for environment variables.
 - `WorkflowEntity.Settings` changes from `Dictionary<string, string>` to `WorkflowSettings?`, which holds the per-workflow failure `Alert`. This is a deliberate breaking change with no `[Obsolete]` alias; blocks-logic adopts it in blocks-logic#380. No data migration is needed: a stored `Settings` that is missing, `null`, `{}` or holds unknown keys still loads, and a default workflow now writes `Settings: { Alert: null }` instead of `Settings: {}`.
 - The one incompatible stored shape is a `Settings.Alert` that is neither a document nor null, e.g. `{ "Alert": "text" }`; reading it throws `FormatException`.
 - Rules for adding workflow settings: every new property is nullable and null means "use the default"; only add properties, never rename or retype one; every class has `[BsonIgnoreExtraElements]`; enums are stored as numbers.
+- `OnboardingApiAccessMiddleware` now reads the root `AllowedApis` only for root cross-tenant requests, caches it for 5 minutes (an empty or missing list included), and answers those requests with `503` and `Retry-After: 30` instead of a `500` when the list cannot be loaded and none has loaded before. A list that was already loaded is now refreshed every 5 minutes instead of only on restart. Its public constructor now throws `ArgumentNullException` for a null `blocksSecret`, and it creates its root MongoDB client when the pipeline is built, so an invalid `DatabaseConnectionString` fails at startup instead of at the first request.
 
 ## License
 
