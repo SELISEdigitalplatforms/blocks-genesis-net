@@ -191,7 +191,7 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
     }
 
     // -------------------------------------------------------------------------
-    // Retry with per-attempt timeout: 5s timeout, 3 retries 3s apart, then the
+    // Retry with per-attempt timeout: 10s timeout, 3 retries 3s apart, then the
     // normal interval. Real timings; only the startup delay is shortened.
     // -------------------------------------------------------------------------
 
@@ -234,7 +234,7 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldAbandonEachAttemptAfterFiveSeconds_AndRetry_WhenEndpointHangs()
+    public async Task ExecuteAsync_ShouldAbandonEachAttemptAfterTenSeconds_AndRetry_WhenEndpointHangs()
     {
         await using var run = PingLoopRun.Start(async (_, ct) =>
         {
@@ -242,18 +242,18 @@ public class GenesisHealthPingBackgroundServiceCoverageTests
             throw new InvalidOperationException("unreachable");
         }, intervalSeconds: 600);
 
-        Assert.True(await run.WaitForAttemptsAsync(4, TimeSpan.FromSeconds(35)));
-        Assert.True(await run.WaitForCompletedAttemptsAsync(4, TimeSpan.FromSeconds(10)));
+        Assert.True(await run.WaitForAttemptsAsync(4, TimeSpan.FromSeconds(55)));
+        Assert.True(await run.WaitForCompletedAttemptsAsync(4, TimeSpan.FromSeconds(15)));
 
         var attempts = run.Attempts;
         foreach (var attempt in attempts)
-            Assert.InRange((attempt.End!.Value - attempt.Start).TotalSeconds, 4.5, 6);
+            Assert.InRange((attempt.End!.Value - attempt.Start).TotalSeconds, 9.5, 11);
 
-        // 4 x 5s timeout + 3 x 3s gap = 29s worst case per cycle.
-        Assert.InRange((attempts[3].End!.Value - attempts[0].Start).TotalSeconds, 0, 31);
+        // 4 x 10s timeout + 3 x 3s gap = 49s worst case per cycle.
+        Assert.InRange((attempts[3].End!.Value - attempts[0].Start).TotalSeconds, 0, 51);
 
         var messages = run.Logger.Messages;
-        Assert.Equal(4, messages.Count(m => m.Level == LogLevel.Warning && m.Text.Contains("timed out after 5s")));
+        Assert.Equal(4, messages.Count(m => m.Level == LogLevel.Warning && m.Text.Contains("timed out after 10s")));
         Assert.Single(messages, m => m.Level == LogLevel.Error && m.Text.Contains("after 3 retries"));
         Assert.DoesNotContain(messages, m => m.Text.Contains(PingLoopRun.SecretPathPart));
     }
