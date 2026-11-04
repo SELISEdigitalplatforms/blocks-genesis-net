@@ -1,6 +1,4 @@
 ﻿using Azure.Messaging.ServiceBus;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using OpenTelemetry;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -14,47 +12,16 @@ public sealed class AzureMessageClient : IMessageClient
     private readonly ConcurrentDictionary<string, ServiceBusSender> _senders;
     private readonly ActivitySource _activitySource;
     private readonly IDelegationGrantFactory _delegationGrantFactory;
-    private readonly IBlocksEventTriggerForwarder? _forwarder;
-    private readonly Func<ConsumerMessage<BlocksEventTriggerMessage>, string, Task> _sendForward;
-    private readonly ILogger<AzureMessageClient> _logger;
 
-    // Forwards go through their own client, created on the first forward, whose SDK retry policy makes a single
-    // attempt: the forward is best-effort and must not wait through a retry ladder on the send path. Originals
-    // keep _client and its default retries. The cost is one more AMQP connection in a process that forwards.
-    private readonly Lazy<ServiceBusClient> _forwardClient;
-    private readonly ConcurrentDictionary<string, ServiceBusSender> _forwardSenders = new();
-
-    /// <summary>Creates a client that does not forward Blocks Event Trigger events.</summary>
     public AzureMessageClient(
         MessageConfiguration messageConfiguration,
         ActivitySource activitySource,
         IDelegationGrantFactory delegationGrantFactory)
-        : this(messageConfiguration, activitySource, delegationGrantFactory, null)
-    {
-    }
-
-    /// <summary>
-    /// Creates a client that, after each completed send, lets <paramref name="blocksEventTriggerForwarder"/>
-    /// forward enabled catalog events. Dependency injection uses this constructor.
-    /// </summary>
-    /// <param name="logger">Receives a warning if the forwarder throws; the original send still succeeds.</param>
-    public AzureMessageClient(
-        MessageConfiguration messageConfiguration,
-        ActivitySource activitySource,
-        IDelegationGrantFactory delegationGrantFactory,
-        IBlocksEventTriggerForwarder? blocksEventTriggerForwarder,
-        ILogger<AzureMessageClient>? logger = null)
     {
         _client = new ServiceBusClient(messageConfiguration.Connection);
         _senders = new ConcurrentDictionary<string, ServiceBusSender>();
         _activitySource = activitySource;
         _delegationGrantFactory = delegationGrantFactory;
-        _forwarder = blocksEventTriggerForwarder;
-        _sendForward = SendForwardAsync;
-        _logger = logger ?? NullLogger<AzureMessageClient>.Instance;
-
-        var connection = messageConfiguration.Connection;
-        _forwardClient = new Lazy<ServiceBusClient>(() => new ServiceBusClient(connection, CreateForwardClientOptions()));
 
         InitializeSenders(messageConfiguration);
     }
@@ -75,17 +42,6 @@ public sealed class AzureMessageClient : IMessageClient
     private ServiceBusSender GetSender(string consumerName)
     {
         return _senders.GetOrAdd(consumerName, name => _client.CreateSender(name));
-    }
-
-    /// <summary>Options of the forwards' client: one attempt, no SDK-level retries.</summary>
-    internal static ServiceBusClientOptions CreateForwardClientOptions() => new()
-    {
-        RetryOptions = new ServiceBusRetryOptions { MaxRetries = 0 }
-    };
-
-    private ServiceBusSender GetForwardSender(string consumerName)
-    {
-        return _forwardSenders.GetOrAdd(consumerName, name => _forwardClient.Value.CreateSender(name));
     }
 
     private async Task SendToAzureBusAsync<T>(ConsumerMessage<T> consumerMessage, bool isTopic = false) where T : class
@@ -110,47 +66,6 @@ public sealed class AzureMessageClient : IMessageClient
             consumerMessage.Context,
             consumerMessage.DelegationTtl,
             consumerMessage.ScheduledEnqueueTimeUtc);
-
-        // Reached only when the original send or schedule completed.
-        if (_forwarder is not null)
-        {
-            try
-            {
-                await _forwarder.TryForwardAsync(
-                    consumerMessage,
-                    messageBody.Type,
-                    messageBody.Body,
-                    securityContext?.TenantId,
-                    isTopic,
-                    activity,
-                    _sendForward);
-            }
-            catch (Exception ex)
-            {
-                // The forwarder is a public extension point. If one throws anyway, the original was still
-                // delivered, so the caller must not see a failure (and resend it). Type only: no message content.
-                _logger.LogWarning( // NOSONAR S6667 — type only: the exception can quote message content
-                    "Blocks event trigger forwarder threw after a completed send to {ConsumerName} ({ErrorType})",
-                    consumerMessage.ConsumerName, ex.GetType().Name);
-            }
-        }
-    }
-
-    // The forward's own send. Unlike an original it is not forwarded again, and its failures reach the forwarder.
-    private async Task SendForwardAsync(ConsumerMessage<BlocksEventTriggerMessage> forward, string envelopeJson)
-    {
-        var securityContext = BlocksContext.GetContext();
-
-        using var activity = StartSendActivity(forward.ConsumerName, isTopic: false, nameof(BlocksEventTriggerMessage));
-
-        await SendEnvelopeAsync(
-            GetForwardSender(forward.ConsumerName),
-            envelopeJson,
-            securityContext,
-            activity,
-            forward.Context,
-            forward.DelegationTtl,
-            forward.ScheduledEnqueueTimeUtc);
     }
 
     private Activity? StartSendActivity(string consumerName, bool isTopic, string messageType)
