@@ -29,12 +29,16 @@ public class LogicEntitiesTests
         ["Blocks.Genesis.Entities.Logic.FunctionAuditEventEntity"] = "B9D5893D69C28394E69EC21D835BE069 0221ED0E62E9651C0B14132D83744BBB 174C63737407D962058F53B22F9F4FDA",
         ["Blocks.Genesis.Entities.Logic.FunctionBuildEntity"] = "8DAB71F20FE1DAD5EE03C1C70DBC2C7C E7E552FD128EFCE5E3F4FEF98D4D6330 E8C6D317D52DF1876AFB4824410B7F5D",
         ["Blocks.Genesis.Entities.Logic.FunctionDeletion"] = "9B46951E2F772BCF10548DE712C8A820 893E6D0A851141148595DCF58120B81A 893E6D0A851141148595DCF58120B81A",
-        ["Blocks.Genesis.Entities.Logic.FunctionEntity"] = "80B99B759F7F18ECAAACC119EAC2D37A B1FB78BE73167615FCD9CE031422553A F5DEF68B5301AA494A77C86B727F964B",
+        // Filled hash changed on purpose 2026-11-04 (owner decision): VariableBinding gained Optional ([BsonIgnoreIfDefault], 26e3f5b);
+        // FunctionEntity and FunctionVersionEntity hold bindings. Default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Logic.FunctionEntity"] = "6CC480B4469E58DF9E8F2B80F7899767 B1FB78BE73167615FCD9CE031422553A F5DEF68B5301AA494A77C86B727F964B",
         ["Blocks.Genesis.Entities.Logic.FunctionLimits"] = "7D94E8C04785408E09BA3295B2BEA604 ADA1E27BC4BB40004B84F7BE3D9B5BC7 ADA1E27BC4BB40004B84F7BE3D9B5BC7",
         ["Blocks.Genesis.Entities.Logic.FunctionRunEntity"] = "490FCCFB36924E8689C077F7A406B3E2 638DADE505D0064DF680C01C78302BED 700B0F6B73AFDD643CF91B11D92B9B2C",
         ["Blocks.Genesis.Entities.Logic.FunctionRunLogEntity"] = "8CF02969169C937AB78494298BC80A1B B4C9E19C96E8875B46A83BB59EAD5B69 C289BB52BBA7E089DC631FF109D1F522",
         ["Blocks.Genesis.Entities.Logic.FunctionSource"] = "6ED0E106789AF2F0CB30A4F292F67D49 1512E157B597D6B760BC88F591B08951 1D85A7E556A886414160C9E35197E462",
-        ["Blocks.Genesis.Entities.Logic.FunctionVersionEntity"] = "FD90B1D95A8E6159F8804777972B4E50 B694A2634134793982AE151B19C96BE8 A883ECEFB7FF79F0534BEA4AC4453754",
+        // Filled hash changed on purpose 2026-11-04 (owner decision): VariableBinding gained Optional ([BsonIgnoreIfDefault], 26e3f5b);
+        // FunctionEntity and FunctionVersionEntity hold bindings. Default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Logic.FunctionVersionEntity"] = "1D508854A6F6F77505C768155BCCD203 B694A2634134793982AE151B19C96BE8 A883ECEFB7FF79F0534BEA4AC4453754",
         ["Blocks.Genesis.Entities.Logic.Handle"] = "3CF14937A9BE619BE8EA3C3169722547 CFBA923EB5C9E3A3865F6BB22B5B95F0 B5D6C6159A9F469B4E927751ADA3FD00",
         ["Blocks.Genesis.Entities.Logic.MailBoxEntity"] = "5A4B760AFEACA87D70EEF6721CC43B81 7F36D7AD537519D477648E7D37EB3B36 834331064FA32D1991F29812F653C62C",
         ["Blocks.Genesis.Entities.Logic.MailBoxSyncCursor"] = "8F4E7FAEC8B2AC051D50FA2F26C0E033 B9E7B4311FDDA29830742B5A830DD9C8 442A6F2C18550B080DC3C5833CC63DBF",
@@ -77,7 +81,9 @@ public class LogicEntitiesTests
         ["Blocks.Genesis.Entities.Logic.TestWorkflowMeta"] = "85DA441F3D289BEE89146204CAFDB134 684194B17B8083673D7E933AE299B0EC 667384C6537065C79BA6A9E8CDCC4C79",
         ["Blocks.Genesis.Entities.Logic.TriggerConfig"] = "3589F15317BDDBA2D219FD7ED1C212C9 EB462350FE6A2E12066344F913A11A3F 7C7E0435CFCFE9C9132A02315BDF40F0",
         ["Blocks.Genesis.Entities.Logic.TriggerMetadata"] = "EA9EDF5743960E72BEDD2EBAE5DA598E 46867C6C0BF5B7B63CDABD337BB3F731 46867C6C0BF5B7B63CDABD337BB3F731",
-        ["Blocks.Genesis.Entities.Logic.VariableBinding"] = "B8DB9126E81195DE06027308CBD49E9B BF3F990A275E91C087A2F95CCD000700 C22BE87E8EDF778B1095CCA3840CF24D",
+        // Filled hash changed on purpose 2026-11-04 (owner decision): VariableBinding gained Optional ([BsonIgnoreIfDefault], 26e3f5b);
+        // FunctionEntity and FunctionVersionEntity hold bindings. Default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Logic.VariableBinding"] = "D6C0B4F4DAB1E7F178A2A179998C1652 BF3F990A275E91C087A2F95CCD000700 C22BE87E8EDF778B1095CCA3840CF24D",
         ["Blocks.Genesis.Entities.Logic.WebhookConfiguration"] = "BF87D6B0647669CA2A05A788DDBFF03C 7DE415E28205F94102C601298C0D3F66 EB867AFD773E3A1A6CE0532E46C73393",
         // WorkflowAlert and WorkflowSettings are new in Genesis (2026-10-28, blocks-genesis-net#175), not moved from blocks-logic: these are their first hashes.
         ["Blocks.Genesis.Entities.Logic.WorkflowAlert"] = "8417690A27B3351BC5BE9AD391C6509A C902C069169F2CCCB10AA6D2D536F8B6 C902C069169F2CCCB10AA6D2D536F8B6",
@@ -116,6 +122,21 @@ public class LogicEntitiesTests
 
     // Schedule.TimeZone and ScheduleExecution (blocks-genesis-net#165). The golden-byte, class-map and catalog
     // theories above already cover the new class; these pin what they cannot see.
+
+    [Fact]
+    public void VariableBinding_Optional_StoredOnlyWhenTrue_OldDocumentReadsRequired()
+    {
+        var required = new VariableBinding { Key = "K", Value = "V" }.ToBsonDocument();
+        Assert.False(required.Contains("Optional"));
+        Assert.Equal(new BsonDocument { { "Key", "K" }, { "Value", "V" } }, required);
+
+        var optional = new VariableBinding { Key = "K", Value = "V", Optional = true }.ToBsonDocument();
+        Assert.Equal(BsonBoolean.True, optional["Optional"]);
+        Assert.True(BsonSerializer.Deserialize<VariableBinding>(optional).Optional);
+
+        // A row written before the flag existed reads as required.
+        Assert.False(BsonSerializer.Deserialize<VariableBinding>(new BsonDocument { { "Key", "K" }, { "Value", "V" } }).Optional);
+    }
 
     [Fact]
     public void Schedule_TimeZone_RoundTripsWhenSet_OmittedWhenNull_OldDocumentReadsNull()
