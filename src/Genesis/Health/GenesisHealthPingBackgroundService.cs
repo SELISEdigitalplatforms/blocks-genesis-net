@@ -33,7 +33,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     // A failed attempt is retried RetryDelaySeconds later, up to MaxRetryAttempts times, then the
     // normal interval resumes. Worst case per cycle: 4 attempts x 5s timeout + 3 gaps x 3s = 29s,
     // inside blocks-monitor's default 30s grace period, so a transient failure raises no incident.
-    private const int RequestTimeoutSeconds = 5;
+    private const int RequestTimeoutSeconds = 10;
     private const int RetryDelaySeconds = 3;
     private const int MaxRetryAttempts = 3;
 
