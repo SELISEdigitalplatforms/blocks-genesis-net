@@ -58,6 +58,12 @@ public class MailServerConfiguration : BaseEntity
 
     [AllowRules(Validation = RuleAccess.Warned)]
     public string? MailboxAddress { get; set; }
+
+    /// <summary>
+    /// True for the configuration an organization uses when a template names none. At most one per
+    /// organization (enforced by blocks-os). Documents saved before this field existed read as false.
+    /// </summary>
+    public bool IsOrganizationDefault { get; set; }
 }
 
 /// <summary>

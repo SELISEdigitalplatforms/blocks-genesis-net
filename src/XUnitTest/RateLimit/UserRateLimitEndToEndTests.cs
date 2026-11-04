@@ -79,7 +79,7 @@ public class UserRateLimitEndToEndTests
             builder.Services.AddSingleton(cache);
             builder.Services.AddSingleton(new Mock<ITenants>().Object);
             builder.Services.AddSingleton(new Mock<ICryptoService>().Object);
-            builder.Services.AddSingleton(new Mock<IBlocksSecret>().Object);
+            builder.Services.AddSingleton(Mock.Of<IBlocksSecret>(x => x.DatabaseConnectionString == "mongodb://127.0.0.1:27017" && x.RootDatabaseName == "rate-limit-e2e-root"));
             builder.Services.AddRouting();
             builder.Services
                 .AddAuthentication("Test")

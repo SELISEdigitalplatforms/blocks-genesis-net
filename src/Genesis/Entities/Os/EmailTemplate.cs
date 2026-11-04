@@ -23,4 +23,10 @@ public class EmailTemplate : BaseEntity
     [AllowRules(Validation = RuleAccess.Allowed, Default = RuleAccess.Allowed)]
     public string? TemplateSubject { get; set; }
     public string? GeneratedBy { get; set; }
+
+    /// <summary>
+    /// True when blocks-os copied this template from the Default organization's template. Set once by OS and
+    /// never changed afterwards. Documents saved before this field existed read as false.
+    /// </summary>
+    public bool CreatedFromDefault { get; set; }
 }
