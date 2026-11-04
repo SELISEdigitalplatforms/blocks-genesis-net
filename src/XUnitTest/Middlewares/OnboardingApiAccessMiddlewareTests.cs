@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Moq;
-using System.Reflection;
 
 namespace XUnitTest.Middlewares;
 
@@ -39,6 +38,26 @@ public class OnboardingApiAccessMiddlewareTests
 
         Assert.Equal("logger", ex.ParamName);
     }
+
+#pragma warning disable CA1707 // same naming as the constructor tests above
+    [Fact]
+    public void Constructor_ShouldThrow_WhenBlocksSecretIsNull()
+    {
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            new OnboardingApiAccessMiddleware(_ => Task.CompletedTask, Mock.Of<ITenants>(), null!, Mock.Of<ILogger<OnboardingApiAccessMiddleware>>(), []));
+
+        Assert.Equal("blocksSecret", ex.ParamName);
+    }
+
+    [Fact]
+    public void Constructor_ShouldCheckNextBeforeBlocksSecret_WhenBothAreNull()
+    {
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            new OnboardingApiAccessMiddleware(null!, Mock.Of<ITenants>(), null!, Mock.Of<ILogger<OnboardingApiAccessMiddleware>>(), []));
+
+        Assert.Equal("next", ex.ParamName);
+    }
+#pragma warning restore CA1707
 
     [Fact]
     public async Task InvokeAsync_ShouldCallNext_WhenNoEndpointIsSet()
@@ -98,9 +117,8 @@ public class OnboardingApiAccessMiddlewareTests
             SetCurrentContext("root-tenant", "other-tenant");
 
             var nextCalled = false;
-            var middleware = CreateMiddleware(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out var logger);
+            var middleware = CreateMiddlewareWithAllowedApis(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out var logger, "api/allowed");
             tenants.Setup(t => t.GetTenantByID("root-tenant")).Returns(MakeTenant("root-tenant", isRootTenant: true));
-            SeedAllowedApis(middleware, "api/allowed");
             var context = CreateContextWithEndpoint("/api/private", "Sample.Controller.Action");
 
             await middleware.InvokeAsync(context);
@@ -131,9 +149,8 @@ public class OnboardingApiAccessMiddlewareTests
             SetCurrentContext("root-tenant", "other-tenant");
 
             var nextCalled = false;
-            var middleware = CreateMiddleware(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _);
+            var middleware = CreateMiddlewareWithAllowedApis(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _, "api/allowed");
             tenants.Setup(t => t.GetTenantByID("root-tenant")).Returns(MakeTenant("root-tenant", isRootTenant: true));
-            SeedAllowedApis(middleware, "api/allowed");
             var context = CreateContextWithEndpoint("/", "Sample.Controller.Action");
 
             await middleware.InvokeAsync(context);
@@ -158,9 +175,8 @@ public class OnboardingApiAccessMiddlewareTests
             SetCurrentContext("root-tenant", "other-tenant");
 
             var nextCalled = false;
-            var middleware = CreateMiddleware(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _);
+            var middleware = CreateMiddlewareWithAllowedApis(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _, "api/allowed");
             tenants.Setup(t => t.GetTenantByID("root-tenant")).Returns(MakeTenant("root-tenant", isRootTenant: true));
-            SeedAllowedApis(middleware, "api/allowed");
             var context = CreateContextWithEndpoint("/api/allowed/", "Sample.Controller.Action");
 
             await middleware.InvokeAsync(context);
@@ -184,9 +200,8 @@ public class OnboardingApiAccessMiddlewareTests
             SetCurrentContext("plain-tenant", "other-tenant");
 
             var nextCalled = false;
-            var middleware = CreateMiddleware(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _);
+            var middleware = CreateMiddlewareWithAllowedApis(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _, "api/allowed");
             tenants.Setup(t => t.GetTenantByID("plain-tenant")).Returns(MakeTenant("plain-tenant", isRootTenant: false));
-            SeedAllowedApis(middleware, "api/allowed");
             var context = CreateContextWithEndpoint("/api/private", "Sample.Controller.Action");
 
             await middleware.InvokeAsync(context);
@@ -210,9 +225,8 @@ public class OnboardingApiAccessMiddlewareTests
             SetCurrentContext("ghost-tenant", "other-tenant");
 
             var nextCalled = false;
-            var middleware = CreateMiddleware(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _);
+            var middleware = CreateMiddlewareWithAllowedApis(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _, "api/allowed");
             tenants.Setup(t => t.GetTenantByID("ghost-tenant")).Returns((Blocks.Genesis.Tenant?)null);
-            SeedAllowedApis(middleware, "api/allowed");
             var context = CreateContextWithEndpoint("/api/private", "Sample.Controller.Action");
 
             await middleware.InvokeAsync(context);
@@ -236,8 +250,7 @@ public class OnboardingApiAccessMiddlewareTests
             SetCurrentContext(string.Empty, "other-tenant");
 
             var nextCalled = false;
-            var middleware = CreateMiddleware(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _);
-            SeedAllowedApis(middleware, "api/allowed");
+            var middleware = CreateMiddlewareWithAllowedApis(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _, "api/allowed");
             var context = CreateContextWithEndpoint("/api/private", "Sample.Controller.Action");
 
             await middleware.InvokeAsync(context);
@@ -262,9 +275,8 @@ public class OnboardingApiAccessMiddlewareTests
             SetCurrentContext("root-tenant", "root-tenant");
 
             var nextCalled = false;
-            var middleware = CreateMiddleware(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _);
+            var middleware = CreateMiddlewareWithAllowedApis(_ => { nextCalled = true; return Task.CompletedTask; }, out var tenants, out _, "api/allowed");
             tenants.Setup(t => t.GetTenantByID("root-tenant")).Returns(MakeTenant("root-tenant", isRootTenant: true));
-            SeedAllowedApis(middleware, "api/allowed");
             var context = CreateContextWithEndpoint("/api/private", "Sample.Controller.Action");
 
             await middleware.InvokeAsync(context);
@@ -506,10 +518,22 @@ public class OnboardingApiAccessMiddlewareTests
             tenantId, [], "", true, "", "", DateTime.MinValue, "", [], "", "", "", "", originalTenantId));
     }
 
-    private static void SeedAllowedApis(OnboardingApiAccessMiddleware middleware, params string[] allowedApis)
+    // Builds the middleware through the internal seam with a fixed allow-list, in place of seeding a private field.
+    private static OnboardingApiAccessMiddleware CreateMiddlewareWithAllowedApis(
+        RequestDelegate next,
+        out Mock<ITenants> tenants,
+        out Mock<ILogger<OnboardingApiAccessMiddleware>> logger,
+        params string[] allowedApis)
     {
-        var field = typeof(OnboardingApiAccessMiddleware).GetField("_osAllowedApis", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(field);
-        field!.SetValue(middleware, allowedApis.ToHashSet(StringComparer.OrdinalIgnoreCase));
+        tenants = new Mock<ITenants>();
+        logger = new Mock<ILogger<OnboardingApiAccessMiddleware>>();
+        var source = new FixedAllowedApiSource(new BsonDocument { { "AllowedApis", new BsonArray(allowedApis) } });
+
+        return new OnboardingApiAccessMiddleware(next, tenants.Object, logger.Object, source, TimeProvider.System);
+    }
+
+    private sealed class FixedAllowedApiSource(BsonDocument document) : IOsAllowedApiSource
+    {
+        public Task<BsonDocument?> ReadAsync(CancellationToken cancellationToken) => Task.FromResult<BsonDocument?>(document);
     }
 }
