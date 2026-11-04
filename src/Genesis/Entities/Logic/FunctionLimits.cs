@@ -286,7 +286,9 @@ public class VariableBinding
     /// <summary>
     /// The function runs without this variable: when its bound configuration variable is gone, the key is
     /// left out of <c>ctx.env</c> instead of failing the run. Old rows read as false (required).
+    /// Not stored when false, so required bindings keep the bytes written before the flag existed.
     /// </summary>
+    [BsonIgnoreIfDefault]
     public bool Optional { get; set; }
 }
 
