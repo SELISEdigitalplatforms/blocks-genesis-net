@@ -1,14 +1,23 @@
 namespace Blocks.Genesis;
 
 /// <summary>
-/// Shared contract values for Blocks actions. OS owns the lists stored under <see cref="ActionsKey"/> and
-/// <see cref="WebhooksKey"/>; Genesis reads the tenant's actions and sends one <see cref="BlocksAction"/> per
-/// enabled target queue.
+/// Shared contract values for Blocks actions. OS owns the root catalog (<see cref="ActionsKey"/>), the tenant's
+/// switched-on actions (<see cref="ActionKey"/>) and <see cref="WebhooksKey"/>; Genesis reads the tenant entry of one
+/// action and sends one <see cref="BlocksAction"/> per enabled target queue.
 /// </summary>
 public static class ActionConstants
 {
-    /// <summary>KeyValueStores key: the root holds the master list, each tenant a copy with its flags.</summary>
+    /// <summary>Root KeyValueStores key of the action catalog: a list of every action, all flags off.</summary>
     public const string ActionsKey = "actions";
+
+    /// <summary>
+    /// Key prefix of a tenant's switched-on actions: one entry per action (<see cref="ActionKey"/>), holding a copy
+    /// of the catalog entry with its flags. No entry means the action is off for every target.
+    /// </summary>
+    public const string ActionKeyPrefix = "actions:";
+
+    /// <summary>Tenant KeyValueStores key of one action, for example <c>actions:iam.user.created</c>.</summary>
+    public static string ActionKey(string name) => ActionKeyPrefix + name;
 
     /// <summary>KeyValueStores key of the tenant's webhook list (owned by OS).</summary>
     public const string WebhooksKey = "webhooks";

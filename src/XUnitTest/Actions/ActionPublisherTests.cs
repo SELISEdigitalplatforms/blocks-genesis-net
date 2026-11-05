@@ -14,6 +14,7 @@ public sealed class ActionPublisherTests : IDisposable
 {
     private const string Tenant = "T1";
     private const string ActionName = "iam-user-created";
+    private const string ActionKey = ActionConstants.ActionKeyPrefix + ActionName;
     private const string Marker = "DATA-MARKER-5b1e";
     private static readonly string[] Roles = ["admin"];
 
@@ -45,10 +46,10 @@ public sealed class ActionPublisherTests : IDisposable
         Webhook = webhook
     };
 
-    private void StoreReturns(params ActionDefinition[] definitions) =>
+    private void StoreReturns(ActionDefinition definition, string key = ActionKey) =>
         _store
-            .Setup(s => s.GetAsync<List<ActionDefinition>>(ActionConstants.ActionsKey, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(definitions.ToList());
+            .Setup(s => s.GetAsync<ActionDefinition>(key, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(definition);
 
     private static BlocksContext Context(string tenantId = Tenant, string organizationId = "ctx-org") =>
         BlocksContext.Create(tenantId, [], "user-1", true, "", organizationId, DateTime.MinValue, "", [], "", "", "", "", tenantId);
@@ -86,7 +87,7 @@ public sealed class ActionPublisherTests : IDisposable
     public async Task ListReadFailure_SendsNothing_AndLogsTheTypeOnly()
     {
         _store
-            .Setup(s => s.GetAsync<List<ActionDefinition>>(ActionConstants.ActionsKey, true, It.IsAny<CancellationToken>()))
+            .Setup(s => s.GetAsync<ActionDefinition>(ActionKey, true, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("read broke " + Marker));
 
         await Publish(Context(), new { userId = "u" });
@@ -100,9 +101,9 @@ public sealed class ActionPublisherTests : IDisposable
     [Fact]
     public async Task ListReadTimeout_SendsNothing_AfterTwoSeconds()
     {
-        var neverEnds = new TaskCompletionSource<List<ActionDefinition>?>();
+        var neverEnds = new TaskCompletionSource<ActionDefinition?>();
         _store
-            .Setup(s => s.GetAsync<List<ActionDefinition>>(ActionConstants.ActionsKey, true, It.IsAny<CancellationToken>()))
+            .Setup(s => s.GetAsync<ActionDefinition>(ActionKey, true, It.IsAny<CancellationToken>()))
             .Returns(neverEnds.Task);
 
         BlocksContext.SetContext(Context());
@@ -130,6 +131,31 @@ public sealed class ActionPublisherTests : IDisposable
         StoreReturns(Definition(workflow: true));
 
         await Publish(Context(), new { userId = "u" }, action: "iam-user-deleted");
+
+        Assert.Empty(_sent);
+        Assert.Single(_logger.At(LogLevel.Information));
+    }
+
+    [Fact]
+    public async Task ReadsOnlyTheTenantEntryOfTheAction()
+    {
+        StoreReturns(Definition(workflow: true));
+
+        await Publish(Context(), new { userId = "u" });
+
+        Assert.Single(_sent);
+        _store.Verify(s => s.GetAsync<ActionDefinition>("actions:" + ActionName, true, It.IsAny<CancellationToken>()), Times.Once);
+        _store.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task EntryNamingAnotherAction_SendsNothing()
+    {
+        var other = Definition(workflow: true);
+        other.Name = "iam-user-deleted";
+        StoreReturns(other);
+
+        await Publish(Context(), new { userId = "u" });
 
         Assert.Empty(_sent);
         Assert.Single(_logger.At(LogLevel.Information));
@@ -235,7 +261,7 @@ public sealed class ActionPublisherTests : IDisposable
             BlocksContext.SetContext(null);
         }
 
-        _store.Verify(s => s.GetAsync<List<ActionDefinition>>(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        _store.Verify(s => s.GetAsync<ActionDefinition>(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
