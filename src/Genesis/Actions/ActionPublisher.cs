@@ -35,7 +35,7 @@ internal sealed class ActionPublisher : IActionPublisher
     internal const string EmptyData = "{}";
 
     /// <summary>
-    /// Longest the publish waits for the tenant's action list. The caller awaits it after its own save, so a slow
+    /// Longest the publish waits for the tenant's action entry. The caller awaits it after its own save, so a slow
     /// or unreachable tenant DB must not hold the caller for the driver's own timeout.
     /// </summary>
     internal static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(2);
@@ -146,35 +146,36 @@ internal sealed class ActionPublisher : IActionPublisher
     // Null when the action is not published; the reason is already logged and tagged.
     private async Task<ActionDefinition?> FindDefinitionAsync(string action, string tenantId, Activity? activity, CancellationToken cancellationToken)
     {
-        List<ActionDefinition>? definitions;
+        ActionDefinition? definition;
         try
         {
-            definitions = await ReadActionsAsync(cancellationToken).ConfigureAwait(false);
+            definition = await ReadActionAsync(action, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning( // NOSONAR S6667 — type only: the exception can quote stored values
-                "Action {Action} not published: action list read failed for tenant {TenantId} ({ErrorType})",
+                "Action {Action} not published: action read failed for tenant {TenantId} ({ErrorType})",
                 action, tenantId, ex.GetType().Name);
             Skip(activity, SkipReadFailed);
             return null;
         }
 
-        var definition = definitions?.Find(d => d is not null && string.Equals(d.Name, action, StringComparison.Ordinal));
-        if (definition is null)
+        // The name check guards a hand-edited entry whose value names another action.
+        if (definition is null || !string.Equals(definition.Name, action, StringComparison.Ordinal))
         {
-            _logger.LogInformation("Action {Action} is not in the action list of tenant {TenantId}", action, tenantId);
+            _logger.LogInformation("Action {Action} is not switched on for tenant {TenantId}", action, tenantId);
             Skip(activity, SkipNotFound);
+            return null;
         }
 
         return definition;
     }
 
     // Starts the read synchronously on the caller's flow, so the impersonated read resolves the caller's tenant.
-    private async Task<List<ActionDefinition>?> ReadActionsAsync(CancellationToken cancellationToken)
+    private async Task<ActionDefinition?> ReadActionAsync(string action, CancellationToken cancellationToken)
     {
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var read = _keyValueStore.GetAsync<List<ActionDefinition>>(ActionConstants.ActionsKey, impersonated: true, cancellation.Token);
+        var read = _keyValueStore.GetAsync<ActionDefinition>(ActionConstants.ActionKey(action), impersonated: true, cancellation.Token);
 
         try
         {

@@ -3,8 +3,8 @@ using MongoDB.Bson.Serialization.Attributes;
 namespace Blocks.Genesis;
 
 /// <summary>
-/// One action in the list stored under <see cref="ActionConstants.ActionsKey"/>. The root list is the master;
-/// each tenant keeps a copy whose flags say where the action is sent.
+/// One action: an item of the root catalog (<see cref="ActionConstants.ActionsKey"/>), or the value of a tenant's
+/// <see cref="ActionConstants.ActionKey"/> entry, whose flags say where the action is sent.
 /// </summary>
 [BsonIgnoreExtraElements]
 public sealed class ActionDefinition
