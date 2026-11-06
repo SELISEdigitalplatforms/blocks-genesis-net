@@ -8,6 +8,8 @@ namespace Blocks.Genesis;
 
 public sealed class RabbitMessageClient : IMessageClient
 {
+    private const string UnknownValue = "unknown";
+
     private readonly ILogger<RabbitMessageClient> _logger;
     private readonly IRabbitMqService _rabbitMqService;
     private readonly MessageConfiguration _messageConfiguration;
@@ -68,11 +70,62 @@ public sealed class RabbitMessageClient : IMessageClient
 
         _channel.BasicReturnAsync += async (sender, ea) =>
         {
-            var body = Encoding.UTF8.GetString(ea.Body.ToArray());
-            _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, Body={Body}",
-                ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, body);
+            // Never the body: it is payload content.
+            var wireType = ReadWireType(ea.Body.Span);
+            var tenantId = ReadHeader(ea.BasicProperties?.Headers, "TenantId");
+            _logger.LogWarning("Message returned: ReplyCode={ReplyCode}, ReplyText={ReplyText}, Exchange={Exchange}, RoutingKey={RoutingKey}, BodySize={BodySize}, Type={MessageType}, TenantId={TenantId}",
+                ea.ReplyCode, ea.ReplyText, ea.Exchange, ea.RoutingKey, ea.Body.Length, wireType, tenantId);
             await Task.CompletedTask;
         };
+    }
+
+    // The string value of one top-level property, or null. Other values are skipped without being decoded.
+    private static string? ReadTopLevelString(ReadOnlySpan<byte> json, string name)
+    {
+        var reader = new Utf8JsonReader(json);
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            return null;
+        }
+
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            var matches = reader.ValueTextEquals(name);
+            reader.Read();
+            if (matches && reader.TokenType == JsonTokenType.String)
+            {
+                return reader.GetString();
+            }
+
+            reader.Skip();
+        }
+
+        return null;
+    }
+
+    /// <summary>The envelope's top-level <c>Type</c>, without decoding the body; <c>unknown</c> when unreadable.</summary>
+    internal static string ReadWireType(ReadOnlySpan<byte> envelope)
+    {
+        try
+        {
+            return ReadTopLevelString(envelope, nameof(Message.Type)) ?? UnknownValue;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            // Not a Genesis envelope (InvalidOperationException: a Type that is not valid UTF-8).
+        }
+
+        return UnknownValue;
+    }
+
+    private static string ReadHeader(IDictionary<string, object?>? headers, string name)
+    {
+        if (headers is null || !headers.TryGetValue(name, out var value) || value is null)
+        {
+            return string.Empty;
+        }
+
+        return value is byte[] bytes ? Encoding.UTF8.GetString(bytes) : value.ToString() ?? string.Empty;
     }
 
     public Task SendMessageToConsumerAsync<T>(ConsumerMessage<T> consumerMessage, bool isExchange = false) where T : class
@@ -105,48 +158,18 @@ public sealed class RabbitMessageClient : IMessageClient
             };
 
             var messageJson = JsonSerializer.Serialize(messageBody);
-            var body = Encoding.UTF8.GetBytes(messageJson);
-
-            var headers = new Dictionary<string, object>
-            {
-                ["TenantId"] = securityContext?.TenantId ?? string.Empty,
-                ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty,
-                ["SpanId"] = activity?.SpanId.ToString() ?? string.Empty,
-                ["SecurityContext"] = BuildTransportContextJson(securityContext, consumerMessage.Context),
-                ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
-            };
-
-            // Written while a validated user token is still in scope. SecurityContext above is context
-            // and tracing only; this grant is what carries authority. No user, no grant, no header.
-            var delegationGrant = await _delegationGrantFactory
-                .CreateForSendAsync(consumerMessage.DelegationTtl)
-                .ConfigureAwait(false);
-
-            if (!string.IsNullOrWhiteSpace(delegationGrant))
-            {
-                headers[DelegationConstants.DelegationGrantHeader] = delegationGrant;
-            }
-
-            var properties = new BasicProperties
-            {
-                DeliveryMode = DeliveryModes.Persistent,
-                Headers = headers
-            };
-
-            if (_messageConfiguration?.RabbitMqConfiguration?.MessageTtlSeconds > 0)
-            {
-                properties.Expiration = (_messageConfiguration.RabbitMqConfiguration.MessageTtlSeconds * 1000).ToString();
-            }
 
             var exchange = isExchange ? consumerMessage.ConsumerName : string.Empty;
             var routingKey = isExchange ? (consumerMessage.RoutingKey ?? string.Empty) : consumerMessage.ConsumerName;
 
-            await _channel!.BasicPublishAsync(
-                exchange: exchange,
-                routingKey: routingKey,
-                mandatory: true,
-                basicProperties: properties,
-                body: body);
+            await PublishEnvelopeAsync(
+                exchange,
+                routingKey,
+                messageJson,
+                securityContext,
+                activity,
+                consumerMessage.Context,
+                consumerMessage.DelegationTtl);
 
             _logger.LogDebug("Message sent to {ConsumerName} with routing key {RoutingKey}",
                 consumerMessage.ConsumerName, consumerMessage.RoutingKey ?? string.Empty);
@@ -155,6 +178,56 @@ public sealed class RabbitMessageClient : IMessageClient
         {
             _logger.LogError(ex, "Failed to send message to {ConsumerName}", consumerMessage.ConsumerName);
         }
+    }
+
+    private async Task PublishEnvelopeAsync(
+        string exchange,
+        string routingKey,
+        string envelopeJson,
+        BlocksContext? securityContext,
+        Activity? activity,
+        string? providedContext,
+        TimeSpan? delegationTtl)
+    {
+        var body = Encoding.UTF8.GetBytes(envelopeJson);
+
+        var headers = new Dictionary<string, object>
+        {
+            ["TenantId"] = securityContext?.TenantId ?? string.Empty,
+            ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty,
+            ["SpanId"] = activity?.SpanId.ToString() ?? string.Empty,
+            ["SecurityContext"] = BuildTransportContextJson(securityContext, providedContext),
+            ["Baggage"] = JsonSerializer.Serialize(Activity.Current?.Baggage?.ToDictionary(b => b.Key, b => b.Value))
+        };
+
+        // Written while a validated user token is still in scope. SecurityContext above is context
+        // and tracing only; this grant is what carries authority. No user, no grant, no header.
+        var delegationGrant = await _delegationGrantFactory
+            .CreateForSendAsync(delegationTtl)
+            .ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(delegationGrant))
+        {
+            headers[DelegationConstants.DelegationGrantHeader] = delegationGrant;
+        }
+
+        var properties = new BasicProperties
+        {
+            DeliveryMode = DeliveryModes.Persistent,
+            Headers = headers
+        };
+
+        if (_messageConfiguration?.RabbitMqConfiguration?.MessageTtlSeconds > 0)
+        {
+            properties.Expiration = (_messageConfiguration.RabbitMqConfiguration.MessageTtlSeconds * 1000).ToString();
+        }
+
+        await _channel!.BasicPublishAsync(
+            exchange: exchange,
+            routingKey: routingKey,
+            mandatory: true,
+            basicProperties: properties,
+            body: body);
     }
 
     public Task SendToConsumerAsync<T>(ConsumerMessage<T> consumerMessage) where T : class =>

@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Text.Json;
@@ -169,31 +169,35 @@ internal static class TenantContextHelper
         }));
     }
 
-    public static bool IsValidOriginOrReferer(string? origin, string? referer, Tenant tenant)
+    /// <summary>
+    /// A browser call must come from one of the tenant's application domains, judged by Origin
+    /// only. Referer is not used: it can be hidden by the page and a caller controls it anyway.
+    /// A call without Origin is treated as a server-to-server call and passes.
+    /// Localhost and plain http:// origins pass only when <paramref name="isDevelopment"/> is true:
+    /// an http page can be changed by anyone on the network path.
+    /// </summary>
+    public static bool IsValidOrigin(string? origin, Tenant tenant, bool isDevelopment = false)
     {
-        // Allow local development origins in tenant middleware.
-        if (IsLocalhostHeader(origin) || IsLocalhostHeader(referer))
+        if (string.IsNullOrWhiteSpace(origin))
         {
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(origin) && string.IsNullOrWhiteSpace(referer))
+        if (IsLocalhostHeader(origin))
         {
-            return true;
+            return isDevelopment;
         }
 
-        if (!string.IsNullOrWhiteSpace(origin) && !IsDomainAllowed(origin, tenant))
-        {
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(referer) && !IsDomainAllowed(referer, tenant))
+        if (!isDevelopment && !IsHttpsOrigin(origin))
         {
             return false;
         }
 
-        return true;
+        return IsDomainAllowed(origin, tenant);
     }
+
+    public static bool IsHttpsOrigin(string? origin) =>
+        Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 
     public static string ResolveApplicationDomain(Tenant tenant, string? origin, string? referer)
     {

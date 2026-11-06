@@ -10,7 +10,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
 
@@ -21,7 +21,7 @@ jobs:
 
       # The solution targets net10.0.
       - name: Initialize dotnet
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: |
             8.0.x

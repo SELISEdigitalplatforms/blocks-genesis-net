@@ -1,0 +1,149 @@
+{
+  "NotEmpty v0 []": [
+    "Name | NotEmpty | Field \u0027Name\u0027 is invalid."
+  ],
+  "NotEmpty v0 [  ]": [
+    "Name | NotEmpty | Field \u0027Name\u0027 is invalid."
+  ],
+  "NotEmpty v0 [null]": [
+    "Name | NotEmpty | Field \u0027Name\u0027 is invalid."
+  ],
+  "NotEmpty v0 [x]": [],
+  "NotEmpty v0 with a Value (as Almora)": [
+    "Email | NotEmpty | Field \u0027Email\u0027 is invalid."
+  ],
+  "Regex fails": [
+    "Code | Regex | Field \u0027Code\u0027 is invalid."
+  ],
+  "Regex passes": [],
+  "MinLength v0": [
+    "Name | MinLength | Field \u0027Name\u0027 is invalid."
+  ],
+  "MaxLength v0": [
+    "Name | MaxLength | Field \u0027Name\u0027 is invalid."
+  ],
+  "LengthRange v0": [
+    "Name | LengthRange | Field \u0027Name\u0027 is invalid."
+  ],
+  "MinLength v1": [
+    "Name | MinLength | Field \u0027Name\u0027 is invalid."
+  ],
+  "MaxLength v1": [
+    "Name | MaxLength | Field \u0027Name\u0027 is invalid."
+  ],
+  "LengthRange v1": [
+    "Name | LengthRange | Field \u0027Name\u0027 is invalid."
+  ],
+  "Equal String fails": [
+    "V | Equal | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal String passes": [],
+  "NotEqual String fails": [
+    "V | NotEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal Int fails": [
+    "V | Equal | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal Int passes": [],
+  "NotEqual Int fails": [
+    "V | NotEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal Float fails": [
+    "V | Equal | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal Float passes": [],
+  "NotEqual Float fails": [
+    "V | NotEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal DateTime fails": [
+    "V | Equal | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal DateTime passes": [],
+  "NotEqual DateTime fails": [
+    "V | NotEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal Boolean fails": [
+    "V | Equal | Field \u0027V\u0027 is invalid."
+  ],
+  "Equal Boolean passes": [],
+  "NotEqual Boolean fails": [
+    "V | NotEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "GreaterThan Int": [
+    "V | GreaterThan | Field \u0027V\u0027 is invalid."
+  ],
+  "LessThan Int": [],
+  "GreaterThanOrEqual Int": [
+    "V | GreaterThanOrEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "LessThanOrEqual Int": [],
+  "GreaterThan Float": [],
+  "LessThan Float": [
+    "V | LessThan | Field \u0027V\u0027 is invalid."
+  ],
+  "GreaterThanOrEqual Float": [],
+  "LessThanOrEqual Float": [
+    "V | LessThanOrEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "GreaterThan DateTime": [
+    "V | GreaterThan | Field \u0027V\u0027 is invalid."
+  ],
+  "LessThan DateTime": [],
+  "GreaterThanOrEqual DateTime": [
+    "V | GreaterThanOrEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "LessThanOrEqual DateTime": [],
+  "GreaterThan String": [
+    "V | GreaterThan | Field \u0027V\u0027 is invalid."
+  ],
+  "LessThan String": [],
+  "GreaterThanOrEqual String": [
+    "V | GreaterThanOrEqual | Field \u0027V\u0027 is invalid."
+  ],
+  "LessThanOrEqual String": [],
+  "Range Int out": [
+    "Age | Range | Field \u0027Age\u0027 is invalid."
+  ],
+  "Range Int in": [],
+  "Reference never fails here": [],
+  "List MaxLength v0 (whole list)": [
+    "Tags | MaxLength | Field \u0027Tags\u0027 is invalid."
+  ],
+  "List MaxLength v1 (each item)": [
+    "Tags[1] | MaxLength | Field \u0027Tags[1]\u0027 is invalid."
+  ],
+  "List NotEmpty v1 empty": [
+    "Tags | NotEmpty | Field \u0027Tags\u0027 cannot be empty."
+  ],
+  "List NotEmpty v0 empty": [],
+  "Variable from input": [
+    "EndDate | GreaterThan | EndDate must be greater than Employee.StartDate (2025-01-10)"
+  ],
+  "Variable from stored (partial update)": [
+    "EndDate | GreaterThan | EndDate must be greater than Employee.StartDate (2025-01-10)"
+  ],
+  "Variable with no value skips": [],
+  "Variable v0 stays text": [
+    "EndDate | GreaterThan | Field \u0027EndDate\u0027 is invalid."
+  ],
+  "Variable Range message": [
+    "Mid | Range | Mid must be between Employee.StartDate (2025-01-10) and Employee.EndDate (2025-01-12)"
+  ],
+  "Nested object": [
+    "Address.City | MinLength | Field \u0027Address.City\u0027 is invalid."
+  ],
+  "List of objects": [
+    "Items[1].Qty | GreaterThan | Field \u0027Items[1].Qty\u0027 is invalid."
+  ],
+  "Inactive rule skipped": [],
+  "Unknown field skipped": [],
+  "Field not sent is not checked": [],
+  "Custom message": [
+    "Name | MaxLength | Too long"
+  ],
+  "Several rules, several errors": [
+    "Name | MinLength | Field \u0027Name\u0027 is invalid.",
+    "Name | Regex | Field \u0027Name\u0027 is invalid.",
+    "Name | NotEqual | Field \u0027Name\u0027 is invalid."
+  ]
+}

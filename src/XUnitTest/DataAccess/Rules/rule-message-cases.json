@@ -1,0 +1,111 @@
+{
+  "_note": "Shared by Genesis (RuleMessageCasesTests) and the blocks-data client. Change a message here and in the code together; the client copy must follow.",
+  "messages": {
+    "AuthNotAllowed": "Auth values aren't available in validation rules: use an access policy",
+    "CommaInSingleValue": "A single value can't contain a comma: use \"is one of\" for a list",
+    "ConditionGroupEmpty": "Each group of conditions needs at least one condition",
+    "ConditionInsideList": "A rule on a property inside a list of objects can't have a condition yet",
+    "ConditionNamesListItem": "A condition can't name a property inside a list of objects yet",
+    "ConditionLeftMustBeProperty": "A condition must start with a property of the record",
+    "ConditionNeedsValue": "Enter a value to compare with",
+    "ConditionOnLookup": "\"Exists in\" and \"must not exist in\" rules can't have a condition yet: use a filter on the other schema",
+    "CountMustBeWholeNumber": "Enter a whole number of items, 0 or more",
+    "FieldComparisonItemId": "ItemId can't be compared with another property",
+    "FieldComparisonOperator": "Two properties can only be compared with equals, is not, greater than or less than",
+    "FilterMustUseFixedValues": "A filter compares the other schema's properties with fixed values only",
+    "FilterOnlyForReferences": "Only \"exists in\" and \"must not exist in\" rules take a filter",
+    "NotExistsInOwnSchema": "A property can't be checked against its own schema: mark it as unique instead",
+    "NotOnSystemSchemas": "This rule can't be used on a system schema: system schemas take only the older rule types, with no condition, filter or date relative to now",
+    "NowOnlyForComparisons": "A date relative to now only works in greater than, less than and range rules",
+    "NowOnlyForDates": "A date relative to now only works on a date-time property",
+    "OnlyForLists": "This rule checks a list, so it only works on a list property",
+    "PlaceholderNotAllowed": "A fixed value can't contain {{…}}: compare with a property instead",
+    "TargetSchemaRequired": "Choose the schema to check against",
+    "TooManyValues": "Is one of / is not one of takes at most 500 values",
+    "UniqueItemsNeedsValues": "No duplicates works on a list of values, not a list of objects",
+    "ValuesMustBeAList": "Is one of / is not one of needs a list of values",
+    "ValuesMustNotBeEmpty": "Is one of / is not one of needs at least one value"
+  },
+  "formatted": [
+    {
+      "name": "ValuesNotForType",
+      "args": [
+        "date-time"
+      ],
+      "text": "Is one of / is not one of can't be used on a date-time property"
+    },
+    {
+      "name": "ValueDoesNotFit",
+      "args": [
+        "x",
+        "whole number"
+      ],
+      "text": "\"x\" isn't a valid value here (expected: whole number)"
+    },
+    {
+      "name": "DuplicateValue",
+      "args": [
+        "DE"
+      ],
+      "text": "\"DE\" is listed twice"
+    },
+    {
+      "name": "UnknownProperty",
+      "args": [
+        "Nope"
+      ],
+      "text": "Nope isn't a property of this schema"
+    },
+    {
+      "name": "FieldComparisonKind",
+      "args": [
+        "Age",
+        "BirthDate"
+      ],
+      "text": "Age and BirthDate hold different kinds of value and can't be compared"
+    },
+    {
+      "name": "InvalidPattern",
+      "args": [
+        "a(b"
+      ],
+      "text": "\"a(b\" isn't a valid regular expression"
+    },
+    {
+      "name": "InvalidNow",
+      "args": [
+        "{{Now+x}}"
+      ],
+      "text": "\"{{Now+x}}\" isn't a date relative to now: write {{Now}}, {{Now-18y}} or {{Now+30d}} (units y, mo, d, h, min)"
+    }
+  ],
+  "relativeNow": {
+    "valid": [
+      "{{Now}}",
+      "{{Now-18y}}",
+      "{{Now+30d}}",
+      "{{Now-1mo}}",
+      "{{Now+2h}}",
+      "{{Now-15min}}",
+      "{{ Now - 18y }}",
+      "{{Now+9999d}}"
+    ],
+    "invalid": [
+      "{{Now+x}}",
+      "{{Now-18}}",
+      "{{Now-18w}}",
+      "{{Now-0d}}",
+      "{{Now--1d}}",
+      "{{Now+10000d}}",
+      "{{Now-1.5d}}"
+    ],
+    "notThisForm": [
+      "{{Nowhere}}",
+      "{{Now.Date}}",
+      "{{Employee.Now}}",
+      "Now",
+      "now-18y",
+      "2025-01-01"
+    ]
+  }
+}

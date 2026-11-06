@@ -25,4 +25,10 @@ public interface IBlocksSecret
     public string LmtBlobStorageConnectionString { get; set; }
     public string ProdVaultUrl { get; set; }
     public string AllowedCorsOrigins { get; set; }
+
+    /// <summary>
+    /// Requests per second allowed per authenticated subject on protected endpoints.
+    /// 0 means unset. The <c>UserRateLimitPerSecond</c> environment variable takes priority.
+    /// </summary>
+    public int UserRateLimitPerSecond { get; set; }
 }

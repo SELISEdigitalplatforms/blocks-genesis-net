@@ -3,6 +3,11 @@ services:
   mongo:
     image: mongo:7.0
     container_name: blocks-mongo
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     ports:
       - "27017:27017"
     volumes:
@@ -11,12 +16,23 @@ services:
   redis:
     image: redis:7.4
     container_name: blocks-redis
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /data
     ports:
       - "6379:6379"
 
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: blocks-rabbitmq
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     ports:
       - "5672:5672"
       - "15672:15672"

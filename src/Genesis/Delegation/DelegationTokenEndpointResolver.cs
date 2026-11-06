@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
@@ -26,6 +27,7 @@ namespace Blocks.Genesis;
 /// </summary>
 public sealed class DelegationTokenEndpointResolver : IDelegationTokenEndpointResolver
 {
+    private readonly ActivitySource? _activitySource;
     private readonly IConfiguration? _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<DelegationTokenEndpointResolver> _logger;
@@ -33,14 +35,23 @@ public sealed class DelegationTokenEndpointResolver : IDelegationTokenEndpointRe
     private readonly ConcurrentDictionary<string, string> _discovered = new(StringComparer.Ordinal);
     private int _fallbackWarningLogged;
 
+    // Preserve the original constructor for already compiled package consumers.
     public DelegationTokenEndpointResolver(
         IHttpClientFactory httpClientFactory,
         ILogger<DelegationTokenEndpointResolver> logger,
         IConfiguration? configuration = null)
+        : this(httpClientFactory, logger, configuration, null) { }
+
+    public DelegationTokenEndpointResolver(
+        IHttpClientFactory httpClientFactory,
+        ILogger<DelegationTokenEndpointResolver> logger,
+        IConfiguration? configuration,
+        ActivitySource? activitySource)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
         _configuration = configuration;
+        _activitySource = activitySource;
     }
 
     public void EnsureConfigured()
@@ -101,7 +112,8 @@ public sealed class DelegationTokenEndpointResolver : IDelegationTokenEndpointRe
         try
         {
             using var client = _httpClientFactory.CreateClient(DelegationConstants.ExchangeHttpClientName);
-            using var response = await client.GetAsync(url, ct).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await HttpService.SendProtocolAsync(client, request, _activitySource, ct).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {

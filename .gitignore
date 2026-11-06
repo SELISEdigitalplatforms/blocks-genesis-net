@@ -17,6 +17,8 @@ packages/
 # Build results
 [Dd]ebug/
 [Rr]elease/
+!src/Genesis/Entities/Release/
+!src/XUnitTest/Entities/Release/
 x64/
 x86/
 AnyCPU/
@@ -221,3 +223,12 @@ scripts/scan.sh
 QWEN.md
 .clinerules
 .windsurfrules
+
+# --- local tooling scripts (Windows + bash) - do not commit ---
+scripts/scan.ps1
+scripts/deploy.sh
+scripts/deploy.ps1
+scripts/th_transform.py
+scripts/secrets.local.ps1
+deploy.log
+/scripts

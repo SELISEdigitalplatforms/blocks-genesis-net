@@ -131,8 +131,52 @@ public class ThirdPartyFallbackAcceptanceTests
         Assert.Equal("org-7", Assert.Single(identity.FindAll(BlocksContext.ORGANIZATION_ID_CLAIM)).Value);
     }
 
+    [Fact]
+    public async Task Roles_ComeOnlyFromTheMappedNestedClaim_NotFromARoleClaimOnTheToken()
+    {
+        var context = await RunMessageReceivedAsync(
+            rolesMapping: "realm_access.roles",
+            extraClaims: new Dictionary<string, object>
+            {
+                ["realm_access"] = new Dictionary<string, object> { ["roles"] = new[] { "realm-user" } },
+                ["role"] = "admin"
+            });
+
+        var identity = (ClaimsIdentity)context.Result!.Principal!.Identity!;
+
+        Assert.Equal(["realm-user"], BlocksContext.CreateFromClaimsIdentity(identity).Roles);
+    }
+
+    [Theory]
+    [InlineData("roles")]
+    [InlineData("role")]
+    public async Task Roles_AreFound_WhenTheMappedClaimWasRenamedByTheInboundClaimMap(string mappedName)
+    {
+        var context = await RunMessageReceivedAsync(
+            rolesMapping: mappedName,
+            extraClaims: new Dictionary<string, object> { [mappedName] = new[] { "editor" } });
+
+        var identity = (ClaimsIdentity)context.Result!.Principal!.Identity!;
+
+        Assert.Equal(["editor"], BlocksContext.CreateFromClaimsIdentity(identity).Roles);
+    }
+
+    [Fact]
+    public async Task Roles_AreEmpty_WhenTheMappingNamesNoRoleClaim_EvenIfTheTokenCarriesOne()
+    {
+        var context = await RunMessageReceivedAsync(
+            rolesMapping: string.Empty,
+            extraClaims: new Dictionary<string, object> { ["role"] = "admin", ["roles"] = new[] { "admin" } });
+
+        var identity = (ClaimsIdentity)context.Result!.Principal!.Identity!;
+
+        Assert.Empty(BlocksContext.CreateFromClaimsIdentity(identity).Roles);
+    }
+
     private static async Task<MessageReceivedContext> RunMessageReceivedAsync(
-        string? providerOrganizationId = null)
+        string? providerOrganizationId = null,
+        string rolesMapping = NsRoles,
+        IDictionary<string, object>? extraClaims = null)
     {
         var crypto = new CryptoService();
 
@@ -172,7 +216,7 @@ public class ThirdPartyFallbackAcceptanceTests
                 Email = NsEmail,
                 UserName = NsEmail,
                 Name = NsName,
-                Roles = NsRoles
+                Roles = rolesMapping
             }
         };
 
@@ -190,7 +234,7 @@ public class ThirdPartyFallbackAcceptanceTests
 
         var http = CreateHttpContext(tenants.Object, store.Object, crypto);
         http.Request.Headers[BlocksConstants.BlocksKey] = TenantId;
-        http.Request.Headers.Authorization = $"Bearer {CreateProviderToken()}";
+        http.Request.Headers.Authorization = $"Bearer {CreateProviderToken(extraClaims)}";
 
         // OnMessageReceived only runs for endpoints that require authorization.
         http.SetEndpoint(new Endpoint(_ => Task.CompletedTask,
@@ -213,26 +257,33 @@ public class ThirdPartyFallbackAcceptanceTests
         return context;
     }
 
-    private static string CreateProviderToken()
+    private static string CreateProviderToken(IDictionary<string, object>? extraClaims = null)
     {
+        var claims = new Dictionary<string, object>
+        {
+            ["sub"] = Subject,
+            [NsUserId] = Subject,
+            [NsEmail] = "asif.rafeen.auth0@yopmail.com",
+            [NsName] = "asif.rafeen.auth0@yopmail.com",
+            [NsRoles] = new[] { "TestAuth0Role" },
+
+            // Forged: none of these may survive onto the principal.
+            [BlocksContext.TENANT_ID_CLAIM] = "a-tenant-this-provider-does-not-own",
+            [BlocksContext.PERMISSION_CLAIM] = new[] { "blocks-iam::iam::mutate-users" },
+            [BlocksContext.ORGANIZATION_ID_CLAIM] = "default"
+        };
+
+        foreach (var (name, value) in extraClaims ?? new Dictionary<string, object>())
+        {
+            claims[name] = value;
+        }
+
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = Issuer,
             Audience = Audience,
             Expires = DateTime.UtcNow.AddMinutes(10),
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = Subject,
-                [NsUserId] = Subject,
-                [NsEmail] = "asif.rafeen.auth0@yopmail.com",
-                [NsName] = "asif.rafeen.auth0@yopmail.com",
-                [NsRoles] = new[] { "TestAuth0Role" },
-
-                // Forged: none of these may survive onto the principal.
-                [BlocksContext.TENANT_ID_CLAIM] = "a-tenant-this-provider-does-not-own",
-                [BlocksContext.PERMISSION_CLAIM] = new[] { "blocks-iam::iam::mutate-users" },
-                [BlocksContext.ORGANIZATION_ID_CLAIM] = "default"
-            },
+            Claims = claims,
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningSecret)),
                 SecurityAlgorithms.HmacSha256)

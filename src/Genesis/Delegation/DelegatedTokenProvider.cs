@@ -171,8 +171,8 @@ public sealed class DelegatedTokenProvider : IDelegatedTokenProvider
 
     private async Task<CachedToken?> ExchangeAsync(string tenantId, string delegationId, CancellationToken ct)
     {
-        // This is the one outbound call that does not go through HttpService -- it cannot, or
-        // redeeming a grant would recurse into redeeming a grant -- so it carries its own span.
+        // Use HttpService's raw protocol transport so tracing is shared without
+        // acquiring another delegated token or retrying a signed nonce.
         // Exchange latency and rate are the metrics that tell you whether delegation is healthy.
         using var activity = _activitySource?.StartActivity(
             "blocks.delegation.token_exchange",
@@ -211,7 +211,7 @@ public sealed class DelegatedTokenProvider : IDelegatedTokenProvider
         };
         request.Headers.TryAddWithoutValidation(BlocksConstants.BlocksKey, tenantId);
 
-        using var response = await client.SendAsync(request, ct).ConfigureAwait(false);
+        using var response = await HttpService.SendProtocolAsync(client, request, _activitySource, ct).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
         activity?.SetTag("http.response.status_code", (int)response.StatusCode);

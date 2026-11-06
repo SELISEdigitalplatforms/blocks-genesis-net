@@ -135,6 +135,7 @@ public static class ApplicationConfigurations
             .WithTracing(tracingBuilder =>
             {
                 tracingBuilder
+                    .AddSource(_serviceName, HttpService.ProtocolActivitySourceName)
                     .SetSampler(new AlwaysOnSampler())
                     .AddAspNetCoreInstrumentation()
                     .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
@@ -148,9 +149,20 @@ public static class ApplicationConfigurations
 
         services.AddSingleton<IHttpService, HttpService>();
 
+        // Per-service, per-subject rate limit on authorized and protected endpoints. The limit is
+        // resolved once (env var, then vault, then default) when the pipeline is built.
+        services.AddUserRateLimiting(sp =>
+        {
+            var configuredName = sp.GetService<IBlocksSecret>()?.ServiceName;
+            return string.IsNullOrWhiteSpace(configuredName) ? _serviceName : configuredName;
+        });
+
         // Delegated access must be registered before the message client: the client depends on
         // IDelegationGrantFactory to stamp the DelegationGrant header at send time.
         services.AddBlocksDelegation();
+
+        // Actions: services call IActionPublisher after a save; it sends to the targets each tenant turned on.
+        services.AddActions();
 
         ConfigureMessageClient(services, messageConfiguration).GetAwaiter().GetResult();
 
@@ -359,6 +371,10 @@ public static class ApplicationConfigurations
         app.UseAuthentication();
         app.UseAuthorization();
 
+        // Resolve the limit now so the startup log line is written once, at pipeline build.
+        _ = app.ApplicationServices.GetService<UserRateLimitSettings>();
+        app.UseMiddleware<UserRateLimitMiddleware>();
+
         app.UseMiddleware<OnboardingApiAccessMiddleware>((object)tenantPrefixes);
 
         afterAuthorization?.Invoke(app);
@@ -488,6 +504,12 @@ public static class ApplicationConfigurations
         if (allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
         {
             return true;
+        }
+
+        // Domain lookup drops the scheme, so an http:// page of a registered domain would pass.
+        if (!environment.IsDevelopment() && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
         }
 
         var normalizedOrigin = uri.GetLeftPart(UriPartial.Authority);

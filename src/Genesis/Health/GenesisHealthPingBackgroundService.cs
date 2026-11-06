@@ -1,4 +1,6 @@
-﻿using System.Text.Json;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
@@ -9,7 +11,8 @@ namespace Blocks.Genesis.Health;
 /// <summary>
 /// Background service that periodically pings a configured health endpoint.
 /// Configuration is loaded from MongoDB and cached in Redis.
-/// Supports dynamic config refresh and exponential backoff on failure.
+/// Supports dynamic config refresh, a per-attempt request timeout and short
+/// fixed-gap retries on failure.
 /// </summary>
 public sealed class GenesisHealthPingBackgroundService : BackgroundService
 {
@@ -17,6 +20,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     private readonly IDbContextProvider _dbContextProvider;
     private readonly IDatabase _cacheDb;
     private readonly HttpClient _httpClient;
+    private readonly ActivitySource? _activitySource;
 
     private readonly string _serviceName;
     private readonly string _connectionString;
@@ -26,8 +30,15 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     private const string CollectionName = "BlocksServicesHealthConfigurations";
     private const int CacheExpirationMinutes = 15;
     private const int DefaultPingIntervalSecs = 60;
-    private const int MaxBackoffSeconds = 300;
 
+    // A failed attempt is retried RetryDelaySeconds later, up to MaxRetryAttempts times, then the
+    // normal interval resumes. Worst case per cycle: 4 attempts x 5s timeout + 3 gaps x 3s = 29s,
+    // inside blocks-monitor's default 30s grace period, so a transient failure raises no incident.
+    private const int RequestTimeoutSeconds = 10;
+    private const int RetryDelaySeconds = 3;
+    private const int MaxRetryAttempts = 3;
+
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(RequestTimeoutSeconds);
     private static readonly TimeSpan ConfigRefreshInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DisabledPollInterval = TimeSpan.FromHours(1);
@@ -40,13 +51,23 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
 
     private volatile BlocksServicesHealthConfiguration? _currentConfig;
 
+    // Preserve the original constructor for already compiled package consumers.
     public GenesisHealthPingBackgroundService(
         ILogger<GenesisHealthPingBackgroundService> logger,
         IDbContextProvider dbContextProvider,
         ICacheClient cacheClient,
         IBlocksSecret blocksSecret)
+        : this(logger, dbContextProvider, cacheClient, blocksSecret, null) { }
+
+    public GenesisHealthPingBackgroundService(
+        ILogger<GenesisHealthPingBackgroundService> logger,
+        IDbContextProvider dbContextProvider,
+        ICacheClient cacheClient,
+        IBlocksSecret blocksSecret,
+        ActivitySource? activitySource)
     {
         _logger = logger;
+        _activitySource = activitySource;
         _dbContextProvider = dbContextProvider;
         _cacheDb = cacheClient.CacheDatabase();
 
@@ -64,7 +85,7 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
 
         _httpClient = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = RequestTimeout
         };
 
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Genesis.HealthPing/1.0");
@@ -106,23 +127,8 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
                 // 2. If disabled / not found, wait and retry — never exit the loop.
                 //    This allows the service to self-activate when config is added.
                 // -----------------------------------------------------------------
-                if (config is null)
+                if (!IsReadyToPing(config))
                 {
-                    GenesisHealthPingLog.NoConfigurationFound(_logger, _serviceName, _disabledPollInterval);
-                    await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (!config.HealthCheckEnabled)
-                {
-                    GenesisHealthPingLog.HealthCheckDisabled(_logger, _serviceName, _disabledPollInterval);
-                    await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(config.Endpoint))
-                {
-                    _logger.LogWarning("[{Service}] Endpoint is empty - skipping ping", _serviceName);
                     await Task.Delay(_disabledPollInterval, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
@@ -133,11 +139,17 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
                 var success = await PingAsync(config, stoppingToken);
 
                 failureCount = success ? 0 : failureCount + 1;
+                LogPingOutcome(failureCount);
 
                 // -----------------------------------------------------------------
-                // 4. Wait before next ping (exponential backoff on failure)
+                // 4. Wait before next ping (short fixed-gap retries on failure)
                 // -----------------------------------------------------------------
                 var delay = CalculateDelay(config.PingIntervalSeconds, failureCount);
+
+                // Retries exhausted: the next scheduled ping starts a fresh retry cycle.
+                if (failureCount > MaxRetryAttempts)
+                    failureCount = 0;
+
                 await Task.Delay(delay, stoppingToken);
             }
             catch (OperationCanceledException)
@@ -152,6 +164,54 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
         }
 
         _logger.LogInformation("[{Service}] Health ping worker stopped", _serviceName);
+    }
+
+    /// <summary>
+    /// Logs why there is nothing to ping (no configuration, health check disabled, empty endpoint)
+    /// and returns false; the caller waits the disabled poll interval and tries again.
+    /// </summary>
+    private bool IsReadyToPing([NotNullWhen(true)] BlocksServicesHealthConfiguration? config)
+    {
+        if (config is null)
+        {
+            GenesisHealthPingLog.NoConfigurationFound(_logger, _serviceName, _disabledPollInterval);
+            return false;
+        }
+
+        if (!config.HealthCheckEnabled)
+        {
+            GenesisHealthPingLog.HealthCheckDisabled(_logger, _serviceName, _disabledPollInterval);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.Endpoint))
+        {
+            _logger.LogWarning("[{Service}] Endpoint is empty - skipping ping", _serviceName);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Logs a failed ping as a pending retry, or as exhausted once the retries are used up.</summary>
+    private void LogPingOutcome(int failureCount)
+    {
+        if (failureCount is > 0 and <= MaxRetryAttempts)
+        {
+            _logger.LogWarning(
+                "[{Service}] Ping failed — retry {Attempt}/{MaxAttempts} in {Delay}s",
+                _serviceName,
+                failureCount,
+                MaxRetryAttempts,
+                RetryDelaySeconds);
+        }
+        else if (failureCount > MaxRetryAttempts)
+        {
+            _logger.LogError(
+                "[{Service}] Ping failed after {MaxAttempts} retries — resuming normal interval",
+                _serviceName,
+                MaxRetryAttempts);
+        }
     }
 
     // =========================================================================
@@ -248,11 +308,22 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     // =========================================================================
     // Pinging
     // =========================================================================
+    /// <summary>
+    /// Sends one ping attempt, abandoned after RequestTimeout. Returns false on any failure
+    /// (non-2xx, timeout, network or unexpected error) so the caller can retry.
+    /// Host shutdown is not a failure: the cancellation propagates to end the loop.
+    /// </summary>
     private async Task<bool> PingAsync(BlocksServicesHealthConfiguration config, CancellationToken ct)
     {
+        // Enforced here as well as by HttpClient.Timeout, so every attempt is bounded
+        // whichever client is in use.
+        using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        attemptCts.CancelAfter(RequestTimeout);
+
         try
         {
-            var response = await _httpClient.GetAsync(config.Endpoint, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Get, config.Endpoint);
+            using var response = await HttpService.SendProtocolAsync(_httpClient, request, _activitySource, attemptCts.Token);
 
             if (response.IsSuccessStatusCode)
             {
@@ -263,7 +334,8 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
             var statusCode = (int)response.StatusCode;
 
             // 4xx → configuration/auth problem; log as warning (no point in loud retries)
-            // 5xx → transient server error; log as error (backoff will kick in)
+            // 5xx → transient server error; log as error
+            // Either way the attempt counts as failed and is retried.
             if (statusCode is >= 400 and < 500)
             {
                 _logger.LogWarning(
@@ -283,9 +355,14 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
 
             return false;
         }
-        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "[{Service}] Ping timed out for {Endpoint}", _serviceName, MaskUrl(config.Endpoint));
+            // Host is stopping: not a timeout, not a failure, no retry.
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "[{Service}] Ping timed out after {Timeout}s for {Endpoint}", _serviceName, RequestTimeoutSeconds, MaskUrl(config.Endpoint));
             return false;
         }
         catch (HttpRequestException ex)
@@ -305,20 +382,19 @@ public sealed class GenesisHealthPingBackgroundService : BackgroundService
     // =========================================================================
 
     /// <summary>
-    /// Returns the normal interval on success.
-    /// On failure, applies exponential backoff (base = configured interval) capped at MaxBackoffSeconds.
+    /// Returns RetryDelaySeconds for failures 1..MaxRetryAttempts; otherwise (success, or
+    /// retries exhausted) the normal interval. Never waits longer than the interval, so a
+    /// failure cannot push the next ping past the monitor's deadline (interval + grace).
     /// </summary>
     private static TimeSpan CalculateDelay(int intervalSeconds, int failureCount)
     {
         if (intervalSeconds <= 0)
             intervalSeconds = DefaultPingIntervalSecs;
 
-        if (failureCount == 0)
-            return TimeSpan.FromSeconds(intervalSeconds);
+        if (failureCount is > 0 and <= MaxRetryAttempts)
+            return TimeSpan.FromSeconds(RetryDelaySeconds);
 
-        // Scale backoff from the configured interval, not from 1s
-        var backoffSeconds = Math.Min(intervalSeconds * Math.Pow(2, failureCount), MaxBackoffSeconds);
-        return TimeSpan.FromSeconds(backoffSeconds);
+        return TimeSpan.FromSeconds(intervalSeconds);
     }
 
     /// <summary>

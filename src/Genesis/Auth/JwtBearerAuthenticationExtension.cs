@@ -156,6 +156,15 @@ public static class JwtBearerAuthenticationExtension
 
         if (context.Principal?.Identity is ClaimsIdentity claimsIdentity)
         {
+            // A session signed out in IAM is refused here, on its next request, instead of when its
+            // access token expires.
+            if (await IsSessionRevokedAsync(context.HttpContext, claimsIdentity).ConfigureAwait(true))
+            {
+                SecurityLog("session_revoked", "Access token refused: its session was signed out.");
+                context.Fail("session_revoked");
+                return;
+            }
+
             HandleTokenIssuer(
                 claimsIdentity,
                 context.Request.GetDisplayUrl(),
@@ -166,45 +175,148 @@ public static class JwtBearerAuthenticationExtension
         }
     }
 
+    // Fails open: a cache outage must not sign every user out, so a missing cache client or a failed
+    // lookup lets the token through and is logged.
+    private static async Task<bool> IsSessionRevokedAsync(HttpContext httpContext, ClaimsIdentity identity)
+    {
+        var sessionId = identity.FindFirst(BlocksContext.SESSION_ID_CLAIM)?.Value;
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return false;
+        }
+
+        try
+        {
+            var cache = httpContext.RequestServices?.GetService<ICacheClient>();
+            return cache != null && await RevokedSessions.IsRevokedAsync(cache, sessionId).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SecurityLog("session_revocation_check_failed", "Revoked-session lookup failed; token accepted.", ex, isWarning: true);
+            return false;
+        }
+    }
+
     private static async Task HandleAuthenticationFailedAsync(AuthenticationFailedContext context)
     {
         BlocksHttpContextAccessor.EnsureInitialized(context.HttpContext);
-        var tenants = ResolveTenants(context.HttpContext);
-        var httpClientFactory = ResolveHttpClientFactory(context.HttpContext);
         var ex = context.Exception;
 
+        // Expired tokens never use fallback; skip service resolution so a disposed
+        // request scope cannot turn an expected auth failure into a 500.
         if (ex is SecurityTokenExpiredException)
         {
             SecurityLog("token_expired", "Fallback skipped for expired token.");
             return;
         }
 
+        if (!TryResolveServicesForAuthFailure(context.HttpContext, out var tenants, out var httpClientFactory))
+        {
+            SecurityLog(
+                "authentication_failed",
+                "Fallback skipped: request services disposed or unavailable.",
+                detail: new { reason = "request_services_disposed" },
+                isWarning: true);
+            return;
+        }
+
         SecurityLog("authentication_failed", "Primary token validation failed, attempting fallback.", ex);
-        await TryFallbackAsync(
-            context,
-            tenants,
-            GetRequestAccessToken(context.HttpContext),
-            GetRequestTenantId(context.HttpContext),
-            httpClientFactory,
-            ex);
+        try
+        {
+            await TryFallbackAsync(
+                context,
+                tenants,
+                GetRequestAccessToken(context.HttpContext),
+                GetRequestTenantId(context.HttpContext),
+                httpClientFactory,
+                ex);
+        }
+        catch (ObjectDisposedException ode)
+        {
+            // Request scope can be torn down while fallback is in flight (aborted client).
+            SecurityLog(
+                "authentication_failed",
+                "Fallback aborted: request services disposed during fallback.",
+                ode,
+                detail: new { reason = "request_services_disposed" },
+                isWarning: true);
+        }
+    }
+
+    /// <summary>
+    /// Resolves services needed by the auth-failure fallback path.
+    /// Returns false when the request <see cref="IServiceProvider"/> is missing or disposed
+    /// so callers can soft-fail authentication instead of throwing ObjectDisposedException.
+    /// When the provider is alive but a required service is unregistered, preserves the
+    /// existing <see cref="InvalidOperationException"/> (assumption A4).
+    /// </summary>
+    private static bool TryResolveServicesForAuthFailure(
+        HttpContext httpContext,
+        out ITenants tenants,
+        out IHttpClientFactory httpClientFactory)
+    {
+        tenants = null!;
+        httpClientFactory = null!;
+
+        var services = httpContext.RequestServices;
+        if (services is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            tenants = services.GetService<ITenants>()
+                ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
+            httpClientFactory = services.GetService<IHttpClientFactory>()
+                ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            tenants = null!;
+            httpClientFactory = null!;
+            return false;
+        }
     }
 
     private static ITenants ResolveTenants(HttpContext context)
     {
-        return context.RequestServices?.GetService<ITenants>()
-            ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
+        try
+        {
+            return context.RequestServices?.GetService<ITenants>()
+                ?? throw new InvalidOperationException("ITenants service could not be resolved from the request services.");
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("ITenants service could not be resolved from the request services.", ex);
+        }
     }
 
     private static IDatabase ResolveCacheDatabase(HttpContext context)
     {
-        return context.RequestServices?.GetService<ICacheClient>()?.CacheDatabase()
-            ?? throw new InvalidOperationException("The cache database could not be resolved from the request services.");
+        try
+        {
+            return context.RequestServices?.GetService<ICacheClient>()?.CacheDatabase()
+                ?? throw new InvalidOperationException("The cache database could not be resolved from the request services.");
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("The cache database could not be resolved from the request services.", ex);
+        }
     }
 
     private static IHttpClientFactory ResolveHttpClientFactory(HttpContext context)
     {
-        return context.RequestServices?.GetService<IHttpClientFactory>()
-            ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
+        try
+        {
+            return context.RequestServices?.GetService<IHttpClientFactory>()
+                ?? throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.");
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("IHttpClientFactory service could not be resolved from the request services.", ex);
+        }
     }
 
     private static async Task ConfigureTokenValidationAsync(
@@ -1056,12 +1168,7 @@ public static class JwtBearerAuthenticationExtension
                 tokenClaims = identity.Claims.Select(c => c.Type).Distinct().ToArray()
             });
 
-        var roleClaim = identity.FindAll(identity.RoleClaimType).Select(r => r.Value).ToArray();
-
-        if (roleClaim.Length == 0)
-        {
-            roleClaim = ExtractRolesFromClaim(identity, mapping.Roles);
-        }
+        var roleClaim = ExtractRolesFromClaim(identity, mapping.Roles);
 
         var subClaim = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
         var emailClaim = identity.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
@@ -1312,7 +1419,8 @@ public static class JwtBearerAuthenticationExtension
     /// <see cref="JwtSecurityTokenHandler"/> already flattens a JSON array claim into one
     /// <see cref="Claim"/> per element, so a namespaced Auth0 or Okta roles claim is read straight
     /// off the identity with no JSON parsing at all -- which is why this collects every matching
-    /// claim rather than the first. The legacy <c>claim.property</c> form (a claim holding a JSON
+    /// claim rather than the first. When the handler renamed the mapped claim through its inbound
+    /// claim map (for example <c>roles</c>), the renamed claim is read too. The legacy <c>claim.property</c> form (a claim holding a JSON
     /// object, as in Keycloak's <c>realm_access.roles</c>) remains the fallback.
     /// </para>
     /// <para>
@@ -1333,6 +1441,17 @@ public static class JwtBearerAuthenticationExtension
 
         if (literalRoles.Length > 0)
             return literalRoles;
+
+        if (JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.TryGetValue(rolesMapping, out var renamedClaimType))
+        {
+            var renamedRoles = identity.FindAll(renamedClaimType)
+                                       .Select(c => c.Value)
+                                       .Where(v => !string.IsNullOrWhiteSpace(v))
+                                       .ToArray();
+
+            if (renamedRoles.Length > 0)
+                return renamedRoles;
+        }
 
         var claimName = GetClaimObjectName(rolesMapping);
         var claimValue = identity.FindFirst(claimName)?.Value;

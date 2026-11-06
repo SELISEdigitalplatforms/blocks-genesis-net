@@ -104,6 +104,67 @@ public class DelegationGrantFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateForSendAsync_ShouldKeepTheHeldGrantsImpersonation_WhenChaining()
+    {
+        // The message SecurityContext carries Impersonated but never ImpersonationSessionId. The
+        // chained grant must still name the session, or IAM treats it as a plain user grant and
+        // looks the impersonating user up in the target tenant.
+        var (factory, store) = CreateFactory();
+        var heldGrant = DelegationTestDoubles.SampleGrantId('1');
+        var newGrant = DelegationTestDoubles.SampleGrantId('2');
+        BlocksContext? written = null;
+
+        store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
+        {
+            TenantId = "tenant-1", UserId = "user-1", OrganizationId = "org-1", TokenVersion = "4", SecurityStamp = "stamp-4",
+            ImpersonationSessionId = "session-9", OriginalTenantId = "root-tenant"
+        });
+        store
+            .Setup(s => s.CreateAsync(It.IsAny<BlocksContext>(), "4", "stamp-4", It.IsAny<TimeSpan?>()))
+            .Callback<BlocksContext, string, string, TimeSpan?>((ctx, _, _, _) => written = ctx)
+            .ReturnsAsync(newGrant);
+
+        // As a worker rebuilds it from the message: no session id, and an OriginalTenantId the
+        // grant must not take on trust.
+        BlocksContext.SetContext(BlocksContext.Create(
+            tenantId: "tenant-1", roles: ["admin"], userId: "user-1", isAuthenticated: true,
+            requestUri: "https://unit.test", organizationId: "org-1", expireOn: DateTime.UtcNow.AddHours(1),
+            email: null, permissions: null, userName: null, phoneNumber: null, displayName: null,
+            oauthToken: null, originalTenantId: "tenant-1", impersonated: true, impersonationSessionId: ""));
+        DelegatedTokenContext.Set(heldGrant);
+
+        Assert.Equal(newGrant, await factory.CreateForSendAsync());
+        Assert.NotNull(written);
+        Assert.True(written!.Impersonated);
+        Assert.Equal("session-9", written.ImpersonationSessionId);
+        Assert.Equal("root-tenant", written.OriginalTenantId);
+        Assert.Equal("tenant-1", written.TenantId);
+        Assert.Equal("user-1", written.UserId);
+        Assert.Equal("org-1", written.OrganizationId);
+    }
+
+    [Fact]
+    public async Task CreateForSendAsync_ShouldPassTheContextUnchanged_WhenTheHeldGrantIsNotImpersonated()
+    {
+        var (factory, store) = CreateFactory();
+        var heldGrant = DelegationTestDoubles.SampleGrantId('3');
+        var newGrant = DelegationTestDoubles.SampleGrantId('4');
+        var context = Context(authenticated: true);
+
+        store.Setup(s => s.GetAsync(heldGrant)).ReturnsAsync(new DelegationGrantRecord
+        {
+            TenantId = "tenant-1", UserId = "user-1", OrganizationId = "org-1", TokenVersion = "4", SecurityStamp = "stamp-4"
+        });
+        store.Setup(s => s.CreateAsync(context, "4", "stamp-4", It.IsAny<TimeSpan?>())).ReturnsAsync(newGrant);
+
+        BlocksContext.SetContext(context);
+        DelegatedTokenContext.Set(heldGrant);
+
+        Assert.Equal(newGrant, await factory.CreateForSendAsync());
+        store.Verify(s => s.CreateAsync(context, "4", "stamp-4", It.IsAny<TimeSpan?>()), Times.Once);
+    }
+
+    [Fact]
     public async Task CreateForSendAsync_ShouldForwardTheTtlOverride()
     {
         var (factory, store) = CreateFactory();

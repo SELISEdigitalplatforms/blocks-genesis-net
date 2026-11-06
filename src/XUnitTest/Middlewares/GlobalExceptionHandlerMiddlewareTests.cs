@@ -43,9 +43,30 @@ public class GlobalExceptionHandlerMiddlewareTests
         Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
         Assert.Equal("application/problem+json", context.Response.ContentType);
         Assert.Contains("Internal Server Error", body);
-        Assert.Contains("boom", body);
+        Assert.DoesNotContain("boom", body);
+        Assert.Contains("An unexpected error occurred.", body);
         Assert.Contains(context.TraceIdentifier, body);
     }
+
+#pragma warning disable CA1707, CA2007 // same naming and await style as the tests around them
+    [Fact]
+    public async Task Invoke_ShouldWrite403WithForbiddenCode_WhenPolicyDenies()
+    {
+        var logger = new Mock<ILogger<GlobalExceptionHandlerMiddleware>>();
+        var middleware = new GlobalExceptionHandlerMiddleware(
+            _ => throw new BlocksForbiddenException("No policy grants access to this resource."), logger.Object);
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        await middleware.Invoke(context);
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        Assert.Contains("\"code\":\"FORBIDDEN\"", body, StringComparison.Ordinal);
+        Assert.Contains("No policy grants access to this resource.", body, StringComparison.Ordinal);
+    }
+#pragma warning restore CA1707, CA2007
 
     [Fact]
     public async Task Invoke_ShouldLogEmptyPayload_WhenContentTypeIsNotJson()
