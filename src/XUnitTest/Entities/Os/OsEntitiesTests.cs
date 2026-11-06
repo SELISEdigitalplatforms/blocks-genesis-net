@@ -43,7 +43,9 @@ public class OsEntitiesTests
         ["Blocks.Genesis.Entities.Os.NotificationAudience"] = "C678A59DD202ED863872210E488B3475 A27BF3D3DE25A99C0D37CCFAF4B12A26 D4BE0C73E9AC14829B299515A7311DAB",
         // NotificationPushTemplate: new 2026-10-28, stored only inside NotificationConfiguration.
         ["Blocks.Genesis.Entities.Os.NotificationPushTemplate"] = "FE5212777477E2B3721E2969A08D673E 7F80CF56B66276D1C7BC68F6C2E45A31 340D1EDC7A7BB4841655585A48A9FE74",
-        ["Blocks.Genesis.Entities.Os.ResourceLimit"] = "DEB5AECD71D8731083FCF03B9617E607 05A874D57B670881E235ADF7879190E1 C7861B41C5629ABF18539F8E1395F768",
+        // All three hashes changed on purpose 2026-11-06 (owner decision): quota fields from blocks-os feature/quota-enforcement
+        // (Service, Environment, PeriodKey, Kind, Purchased, FailMode "open", Enforcement "enforced"; Limit/Usage int -> long).
+        ["Blocks.Genesis.Entities.Os.ResourceLimit"] = "B42DB3D124976BCED9F74A1A3A3C7AB0 69DA21A4984B0846DD3051E4A4F5817D 5BC5216F0D5A46BDC175A3CAE607DB90",
         ["Blocks.Genesis.Entities.Os.ServiceMigrationStatus"] = "734C5D156AC1BA21CF7CD46F41B6B290 9C10A420C9B4522BD3C3290213BCA70F 9C10A420C9B4522BD3C3290213BCA70F",
         ["Blocks.Genesis.Entities.Os.ThirdPartyJWTClaims"] = "974BE3DA9AD4C1FB5FD9835A16EFDD65 7AD1DC03E69173D527DD3FC25C892030 8977FAFC5089CE10B270DBDDFF528C68",
     };

@@ -104,7 +104,7 @@ public class SystemSchemaRulesTests
 
     [Theory]
     [InlineData("Role", "Description", true)]           // string, never null on a typed entity
-    [InlineData("ResourceLimit", "Limit", true)]        // int
+    [InlineData("ResourceLimit", "Limit", true)]        // long
     [InlineData("User", "FirstName", false)]            // string?
     [InlineData("Schedule", "StartDate", false)]        // DateTime?
     [InlineData("Role", "Read.Roles", false)]           // the parent object can be null
