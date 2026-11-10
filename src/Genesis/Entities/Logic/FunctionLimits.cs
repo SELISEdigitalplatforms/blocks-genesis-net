@@ -94,7 +94,7 @@ public class FunctionLimits
 
         public const int PidLimit = 64;
         public const int TmpfsMb = 64;
-        public const long InputBytes = 1024 * 1024;
+        public const long InputBytes = 2L * 1024 * 1024;
         public const long ResultBytes = 5L * 1024 * 1024;
         public const long LogBytes = 1024 * 1024;
         public const int LogLines = 10_000;
