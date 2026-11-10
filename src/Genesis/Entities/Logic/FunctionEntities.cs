@@ -175,7 +175,7 @@ public class FunctionRunEntity : BaseEntity
     /// <summary>Workflow execution id, replayed run id, or null.</summary>
     public string? InvokedById { get; set; }
 
-    /// <summary>The input as sent, capped at 1 MB by admission before the run is created.</summary>
+    /// <summary>The input as sent, capped at 2 MB by admission before the run is created.</summary>
     public string? Input { get; set; }
 
     /// <summary>The returned value, or null when the run did not produce one.</summary>
