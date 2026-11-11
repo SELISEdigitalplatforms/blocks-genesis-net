@@ -10,6 +10,7 @@ using MongoDB.Driver;
 using OpenTelemetry;
 using StackExchange.Redis;
 using Serilog;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Json;
@@ -998,15 +999,45 @@ public static class JwtBearerAuthenticationExtension
         }
     }
 
-    public static async Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
+    public static Task<X509Certificate2?> GetCertificateAsync(string tenantId, ITenants tenants, IDatabase cacheDb, IHttpClientFactory httpClientFactory)
+        => GetCertificateAsync(tenantId, tenants, cacheDb, httpClientFactory, CertificateFallbackCache.Shared);
+
+    /// <summary>
+    /// Resolves the tenant's public certificate: Redis first, then the in-memory fallback cache,
+    /// then the configured path. A Redis failure is treated as a cache miss, so a Redis outage never
+    /// turns a loadable certificate into an exception. The fallback cache only holds entries written
+    /// after a Redis failure, so while Redis works fully the behaviour is the same as without it.
+    /// </summary>
+    internal static async Task<X509Certificate2?> GetCertificateAsync(
+        string tenantId,
+        ITenants tenants,
+        IDatabase cacheDb,
+        IHttpClientFactory httpClientFactory,
+        CertificateFallbackCache fallbackCache)
     {
         string cacheKey = $"{BlocksConstants.TenantTokenPublicCertificateCachePrefix}{tenantId}";
 
-        var cachedCertificate = await cacheDb.StringGetAsync(cacheKey);
+        RedisValue cachedCertificate = RedisValue.Null;
+        bool redisReadFailed = false;
+        try
+        {
+            cachedCertificate = await cacheDb.StringGetAsync(cacheKey).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsRedisFailure(ex))
+        {
+            redisReadFailed = true;
+            LogRedisCacheFailure(ex, "read", tenantId);
+        }
+
         var validationParams = tenants.GetTenantTokenValidationParameter(tenantId);
 
         if (cachedCertificate.HasValue)
             return CreateCertificate(((byte[])cachedCertificate)!, validationParams?.PublicCertificatePassword);
+
+        // Checked on a failed read and on a plain miss: a miss can follow an earlier failed write,
+        // for example while Redis accepts reads but rejects writes.
+        if (fallbackCache.TryGet(cacheKey, out var fallbackCertificate))
+            return CreateCertificate(fallbackCertificate, validationParams?.PublicCertificatePassword);
 
         if (validationParams == null || string.IsNullOrWhiteSpace(validationParams.PublicCertificatePath))
         {
@@ -1019,7 +1050,17 @@ public static class JwtBearerAuthenticationExtension
             return null;
         }
 
-        var certificateData = await LoadCertificateDataAsync(validationParams.PublicCertificatePath, httpClientFactory);
+        var fallbackLifetime = GetFallbackCacheLifetime(validationParams, fallbackCache.UtcNow);
+
+        // After a failed read, concurrent requests for the tenant share one download, and the result
+        // goes to memory only: a write would most likely fail as well and cost a second Redis timeout.
+        var certificateData = redisReadFailed
+            ? await fallbackCache.LoadOnceAsync(
+                cacheKey,
+                () => LoadCertificateDataAsync(validationParams.PublicCertificatePath, httpClientFactory),
+                fallbackLifetime).ConfigureAwait(false)
+            : await LoadCertificateDataAsync(validationParams.PublicCertificatePath, httpClientFactory).ConfigureAwait(false);
+
         if (certificateData == null)
         {
             Log.Warning(
@@ -1028,8 +1069,132 @@ public static class JwtBearerAuthenticationExtension
             return null;
         }
 
-        await CacheCertificateAsync(cacheDb, cacheKey, certificateData, validationParams);
+        if (!redisReadFailed)
+        {
+            try
+            {
+                await CacheCertificateAsync(cacheDb, cacheKey, certificateData, validationParams).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsRedisFailure(ex))
+            {
+                LogRedisCacheFailure(ex, "write", tenantId);
+                if (fallbackLifetime is { } lifetime)
+                    fallbackCache.Set(cacheKey, certificateData, lifetime);
+            }
+        }
+
         return CreateCertificate(certificateData, validationParams.PublicCertificatePassword);
+    }
+
+    // Only Redis faults count as a cache failure: RedisException (connection and server errors) and
+    // RedisTimeoutException, which derives from TimeoutException. Anything else, including
+    // RedisCommandException (a client-side misuse), propagates as before.
+    private static bool IsRedisFailure(Exception ex) => ex is RedisException or RedisTimeoutException;
+
+    // The exception carries the endpoint, command and key, never the certificate or its password.
+    private static void LogRedisCacheFailure(Exception ex, string operation, string tenantId)
+    {
+        Log.Warning(
+            ex,
+            "[Cert] Redis {Operation} of the certificate cache failed for tenant {TenantId}; treating it as a cache miss.",
+            operation,
+            tenantId);
+    }
+
+    /// <summary>
+    /// The fallback cache's lifetime for a certificate, under the same rule as the Redis entry: null when
+    /// Redis would not cache it, otherwise <see cref="CertificateFallbackCache.MaxLifetime"/>. The Redis
+    /// lifetime is then at least one day, so the cap also keeps the entry within the remaining validity.
+    /// </summary>
+    private static TimeSpan? GetFallbackCacheLifetime(JwtTokenParameters? validationParams, DateTime utcNow)
+        => GetRedisCacheLifetime(validationParams, utcNow) is null ? null : CertificateFallbackCache.MaxLifetime;
+
+    // Whole days of validity left, less a one-day margin; null when the certificate must not be cached.
+    private static TimeSpan? GetRedisCacheLifetime(JwtTokenParameters? validationParams, DateTime utcNow)
+    {
+        if (validationParams == null || validationParams.CertificateValidForNumberOfDays <= 0)
+            return null;
+
+        int daysRemaining = validationParams.CertificateValidForNumberOfDays -
+                            (utcNow - validationParams.IssueDate).Days - 1;
+
+        return daysRemaining > 0 ? TimeSpan.FromDays(daysRemaining) : null;
+    }
+
+    /// <summary>
+    /// Per-process store of tenant public-certificate bytes, used only when Redis fails, keyed like the
+    /// Redis entry. It also lets concurrent requests for one tenant share a single download.
+    /// </summary>
+    internal sealed class CertificateFallbackCache
+    {
+        internal static readonly TimeSpan MaxLifetime = TimeSpan.FromMinutes(5);
+
+        internal static CertificateFallbackCache Shared { get; } = new(TimeProvider.System);
+
+        private readonly ConcurrentDictionary<string, (byte[] Data, DateTimeOffset ExpiresAt)> _entries = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, Lazy<Task<byte[]?>>> _inFlight = new(StringComparer.Ordinal);
+        private readonly TimeProvider _timeProvider;
+
+        internal CertificateFallbackCache(TimeProvider timeProvider)
+        {
+            _timeProvider = timeProvider;
+        }
+
+        internal DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
+
+        internal bool TryGet(string key, out byte[] data)
+        {
+            if (_entries.TryGetValue(key, out var entry))
+            {
+                if (entry.ExpiresAt > _timeProvider.GetUtcNow())
+                {
+                    data = entry.Data;
+                    return true;
+                }
+
+                // Removes only this expired entry, not one a concurrent request has just stored.
+                _entries.TryRemove(new KeyValuePair<string, (byte[], DateTimeOffset)>(key, entry));
+            }
+
+            data = [];
+            return false;
+        }
+
+        internal void Set(string key, byte[] data, TimeSpan lifetime)
+        {
+            _entries[key] = (data, _timeProvider.GetUtcNow().Add(lifetime));
+        }
+
+        /// <summary>
+        /// Runs <paramref name="load"/> once for all concurrent callers of the same key and returns its
+        /// result to each of them; a failed load (null) fails them all. A loaded certificate is stored
+        /// for <paramref name="lifetime"/>, or not at all when it is null.
+        /// </summary>
+        internal async Task<byte[]?> LoadOnceAsync(string key, Func<Task<byte[]?>> load, TimeSpan? lifetime)
+        {
+            var flight = _inFlight.GetOrAdd(key, _ => new Lazy<Task<byte[]?>>(() => LoadAndStoreAsync(key, load, lifetime)));
+            try
+            {
+                return await flight.Value.ConfigureAwait(false);
+            }
+            finally
+            {
+                _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<byte[]?>>>(key, flight));
+            }
+        }
+
+        private async Task<byte[]?> LoadAndStoreAsync(string key, Func<Task<byte[]?>> load, TimeSpan? lifetime)
+        {
+            // A caller that missed memory just before an earlier load finished must not download again.
+            if (TryGet(key, out var stored))
+                return stored;
+
+            var data = await load().ConfigureAwait(false);
+            if (data != null && lifetime is { } entryLifetime)
+                Set(key, data, entryLifetime);
+
+            return data;
+        }
     }
 
     private static async Task<byte[]?> LoadCertificateDataAsync(string path, IHttpClientFactory httpClientFactory)
@@ -1061,14 +1226,8 @@ public static class JwtBearerAuthenticationExtension
 
     private static async Task CacheCertificateAsync(IDatabase cacheDb, string cacheKey, byte[] certificateData, JwtTokenParameters validationParams)
     {
-        if (validationParams?.IssueDate == null || validationParams.CertificateValidForNumberOfDays <= 0)
-            return;
-
-        int daysRemaining = validationParams.CertificateValidForNumberOfDays -
-                            (DateTime.UtcNow - validationParams.IssueDate).Days - 1;
-
-        if (daysRemaining > 0)
-            await cacheDb.StringSetAsync(cacheKey, certificateData, TimeSpan.FromDays(daysRemaining));
+        if (GetRedisCacheLifetime(validationParams, DateTime.UtcNow) is { } lifetime)
+            await cacheDb.StringSetAsync(cacheKey, certificateData, lifetime).ConfigureAwait(false);
     }
 
     private static X509Certificate2 CreateCertificate(byte[] data, string? password)
