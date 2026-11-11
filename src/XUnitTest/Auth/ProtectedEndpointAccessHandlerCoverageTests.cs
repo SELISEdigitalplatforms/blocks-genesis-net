@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Moq;
@@ -149,7 +150,7 @@ public class ProtectedEndpointAccessHandlerCoverageTests : IDisposable
     private static (Type Type, object Handler) CreateHandler(IDbContextProvider dbContextProvider)
     {
         var type = Type.GetType(HandlerTypeName)!;
-        var handler = Activator.CreateInstance(type, dbContextProvider)!;
+        var handler = Activator.CreateInstance(type, dbContextProvider, NullLogger<ProtectedEndpointAccessHandler>.Instance)!;
         return (type, handler);
     }
 
