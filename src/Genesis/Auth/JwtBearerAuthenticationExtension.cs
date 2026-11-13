@@ -12,6 +12,7 @@ using StackExchange.Redis;
 using Serilog;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -166,6 +167,15 @@ public static class JwtBearerAuthenticationExtension
                 return;
             }
 
+            // Access taken away, an organization disabled or the session moved to another organization
+            // after this token was minted: the client refreshes and gets what the user holds now.
+            if (await IsAccessStaleAsync(context.HttpContext, claimsIdentity).ConfigureAwait(true))
+            {
+                SecurityLog("access_changed", "Access token refused: the user's access changed after it was issued.");
+                context.Fail("access_changed");
+                return;
+            }
+
             HandleTokenIssuer(
                 claimsIdentity,
                 context.Request.GetDisplayUrl(),
@@ -194,6 +204,34 @@ public static class JwtBearerAuthenticationExtension
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             SecurityLog("session_revocation_check_failed", "Revoked-session lookup failed; token accepted.", ex, isWarning: true);
+            return false;
+        }
+    }
+
+    // Fails open for the same reason as the revoked-session check: the refresh still re-reads the
+    // user's membership, so a cache outage only delays a change until the access token expires.
+    private static async Task<bool> IsAccessStaleAsync(HttpContext httpContext, ClaimsIdentity identity)
+    {
+        if (!long.TryParse(identity.FindFirst(BlocksContext.ISSUED_AT_TIME_CLAIM)?.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var issuedAt))
+        {
+            return false;
+        }
+
+        var subject = new AccessStampSubject(
+            identity.FindFirst(BlocksContext.TENANT_ID_CLAIM)?.Value,
+            identity.FindFirst(BlocksContext.USER_ID_CLAIM)?.Value,
+            identity.FindFirst(BlocksContext.ORGANIZATION_ID_CLAIM)?.Value,
+            identity.FindFirst(BlocksContext.SESSION_ID_CLAIM)?.Value,
+            issuedAt);
+
+        try
+        {
+            var cache = httpContext.RequestServices?.GetService<ICacheClient>();
+            return cache != null && await AccessStamps.IsStaleAsync(cache, subject).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SecurityLog("access_stamp_check_failed", "Access-stamp lookup failed; token accepted.", ex, isWarning: true);
             return false;
         }
     }
