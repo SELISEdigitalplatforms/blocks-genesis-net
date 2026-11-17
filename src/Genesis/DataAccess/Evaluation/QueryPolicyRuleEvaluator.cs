@@ -71,15 +71,67 @@ public static class QueryPolicyRuleEvaluator
     /// </summary>
     public static bool EvaluateSingleRuleForRow(AccessPrincipal principal, PolicyRule rule, IDictionary<string, object> rowData)
     {
-        var leftValue = ResolveRuleOperandValue(principal, rule.LeftSource, rule.LeftOperand, rule.StaticValue, rowData);
         var rightOperands = rule.RightOperands.Count > 0 ? rule.RightOperands : [rule.RightOperand];
-        var results = rightOperands.Select(operand => DataAccessPolicyHelper.EvaluateCondition(
-            leftValue,
-            rule.Operator,
-            ResolveRuleOperandValue(principal, rule.RightSource, operand, rule.StaticValue, rowData)));
+        var results = rightOperands.Select(operand => EvaluateOperandPairForRow(principal, rule, operand, rowData));
         return rule.Operator is PolicyOperator.NOT_IN or PolicyOperator.NOT_CONTAIN
             ? results.All(result => result)
             : results.Any(result => result);
+    }
+
+    /// <summary>
+    /// Evaluates the rule's left operand against one right operand. When exactly one side is a schema field whose
+    /// path runs through a list (<c>Signatories.UserId</c> where <c>Signatories</c> is a list of objects), the
+    /// comparison is made against every item, with the meaning the read filter gives it in MongoDB: see
+    /// <see cref="EvaluateAcrossItems"/>. Otherwise the two resolved values are compared once.
+    /// </summary>
+    private static bool EvaluateOperandPairForRow(AccessPrincipal principal, PolicyRule rule, string rightOperand, IDictionary<string, object> rowData)
+    {
+        var leftIsField = rule.LeftSource == ConditionSource.SCHEMA_FIELD;
+        var rightIsField = rule.RightSource == ConditionSource.SCHEMA_FIELD;
+
+        // Is null / Is not null test the left operand only, so a list on the right changes nothing. A field compared
+        // with a field is a $expr in the filter, which compares whole values; it keeps the single comparison.
+        var unaryOperator = rule.Operator is PolicyOperator.IS_NULL or PolicyOperator.IS_NOT_NULL;
+        if (leftIsField != rightIsField && !(unaryOperator && rightIsField))
+        {
+            var fieldPath = leftIsField ? rule.LeftOperand : rightOperand;
+            if (TryGetValuesThroughLists(rowData, fieldPath, out var items))
+            {
+                var other = leftIsField
+                    ? ResolveRuleOperandValue(principal, rule.RightSource, rightOperand, rule.StaticValue, rowData)
+                    : ResolveRuleOperandValue(principal, rule.LeftSource, rule.LeftOperand, rule.StaticValue, rowData);
+                return EvaluateAcrossItems(rule.Operator, items, (item, op) => leftIsField
+                    ? DataAccessPolicyHelper.EvaluateCondition(item, op, other)
+                    : DataAccessPolicyHelper.EvaluateCondition(other, op, item));
+            }
+        }
+
+        return DataAccessPolicyHelper.EvaluateCondition(
+            ResolveRuleOperandValue(principal, rule.LeftSource, rule.LeftOperand, rule.StaticValue, rowData),
+            rule.Operator,
+            ResolveRuleOperandValue(principal, rule.RightSource, rightOperand, rule.StaticValue, rowData));
+    }
+
+    /// <summary>
+    /// A comparison against a path that runs through a list, as MongoDB answers the filter built from the same rule
+    /// (and as <see cref="BsonFilterMatcher"/> does): a positive comparison holds when it holds for any item; Not
+    /// equal, Not in and Not contain (<c>$ne</c>, <c>$nin</c>, <c>$not</c>) hold when the positive comparison holds
+    /// for no item; Is null holds when an item has no value there, and Is not null when every item has one.
+    /// </summary>
+    private static bool EvaluateAcrossItems(PolicyOperator op, List<object?> items, Func<object?, PolicyOperator, bool> holds)
+    {
+        bool AnyHolds(PolicyOperator positive) => items.Any(item => holds(item, positive));
+        bool AnyIsNull() => items.Count == 0 || AnyHolds(PolicyOperator.IS_NULL);
+
+        return op switch
+        {
+            PolicyOperator.IS_NULL => AnyIsNull(),
+            PolicyOperator.IS_NOT_NULL => !AnyIsNull(),
+            PolicyOperator.NOT_EQUAL => !AnyHolds(PolicyOperator.EQUAL),
+            PolicyOperator.NOT_IN => !AnyHolds(PolicyOperator.IN),
+            PolicyOperator.NOT_CONTAIN => !AnyHolds(PolicyOperator.CONTAIN),
+            _ => AnyHolds(op)
+        };
     }
 
     /// <summary>
@@ -156,5 +208,83 @@ public static class QueryPolicyRuleEvaluator
         if (value.IsBsonDocument)
             return GetNestedValueFromBson(value.AsBsonDocument, path[(dotIndex + 1)..]);
         return null;
+    }
+
+    // Each arm is cast to object: BsonValue converts implicitly from string, int, bool and the rest, so without the
+    // casts the switch would be typed BsonValue and hand back a BsonString again.
+    private static object? FromBson(BsonValue value) => value.BsonType switch
+    {
+        BsonType.Null => null,
+        BsonType.String => (object)value.AsString,
+        BsonType.Int32 => (object)value.AsInt32,
+        BsonType.Int64 => (object)value.AsInt64,
+        BsonType.Double => (object)value.AsDouble,
+        BsonType.Boolean => (object)value.AsBoolean,
+        BsonType.DateTime => (object)value.ToUniversalTime(),
+        _ => (object)value
+    };
+
+    /// <summary>
+    /// The values at a dotted path when the path runs through a list, read the way MongoDB reads a path in a filter:
+    /// a list of objects is entered item by item (<c>Signatories.UserId</c> gives each signatory's UserId), a number
+    /// segment also picks that item (<c>Signatories.0.UserId</c>), and an item that has no value there gives null.
+    /// Returns false, with no values, when the path does not run through a list; such a path keeps its single value
+    /// from <see cref="GetNestedValueByPath"/>. A list at the end of the path is a value, not a list to enter.
+    /// </summary>
+    public static bool TryGetValuesThroughLists(IDictionary<string, object> rowData, string fieldPath, out List<object?> values)
+    {
+        values = [];
+        if (string.IsNullOrEmpty(fieldPath) || !fieldPath.Contains('.'))
+            return false;
+
+        var throughList = false;
+        CollectValues(rowData, fieldPath.Split('.'), 0, inList: false, values, ref throughList);
+        if (!throughList)
+            values.Clear();
+        return throughList;
+    }
+
+    private static void CollectValues(object? current, string[] segments, int index, bool inList, List<object?> output, ref bool throughList)
+    {
+        if (index == segments.Length)
+        {
+            output.Add(current is BsonValue bson ? FromBson(bson) : current);
+            return;
+        }
+
+        var segment = segments[index];
+        switch (current)
+        {
+            case null:
+            case BsonNull:
+                if (inList) output.Add(null);
+                return;
+            case IDictionary<string, object> map:
+                if (map.TryGetValue(segment, out var next))
+                    CollectValues(next, segments, index + 1, inList, output, ref throughList);
+                else if (inList)
+                    output.Add(null);
+                return;
+            case BsonDocument document:
+                if (document.TryGetValue(segment, out var nextBson))
+                    CollectValues(nextBson, segments, index + 1, inList, output, ref throughList);
+                else if (inList)
+                    output.Add(null);
+                return;
+            case string:
+                return;
+            case System.Collections.IEnumerable list:
+                throughList = true;
+                var items = list.Cast<object?>().ToList();
+                if (int.TryParse(segment, out var position))
+                {
+                    if (position >= 0 && position < items.Count)
+                        CollectValues(items[position], segments, index + 1, inList: true, output, ref throughList);
+                    return;
+                }
+                foreach (var item in items.Where(item => item is IDictionary<string, object> or BsonDocument))
+                    CollectValues(item, segments, index, inList: true, output, ref throughList);
+                return;
+        }
     }
 }
