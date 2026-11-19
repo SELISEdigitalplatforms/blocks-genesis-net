@@ -51,7 +51,12 @@ public static class ApplicationConfigurations
         return _blocksSecret;
     }
 
-    public static VaultType ResolveVaultType(VaultType defaultVaultType = VaultType.Azure)
+    private static int _vaultTypeLogged;
+
+    // BLOCKS_VAULT_TYPE wins when it is set to a valid value. Otherwise the vault is Azure only when a Key Vault URL
+    // is configured, and the on-premises vault when it is not (I02-WP1). A caller that passes defaultVaultType keeps
+    // that choice for the unset and invalid cases.
+    public static VaultType ResolveVaultType(VaultType? defaultVaultType = null)
     {
         LoadDotEnvFile();
 
@@ -59,10 +64,23 @@ public static class ApplicationConfigurations
         if (!string.IsNullOrWhiteSpace(configuredVaultType) &&
             Enum.TryParse<VaultType>(configuredVaultType, true, out var parsedVaultType))
         {
+            LogVaultTypeOnce(parsedVaultType, "BLOCKS_VAULT_TYPE");
             return parsedVaultType;
         }
 
-        return defaultVaultType;
+        var keyVaultUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
+        var fallback = defaultVaultType ??
+            (string.IsNullOrWhiteSpace(keyVaultUrl) ? VaultType.OnPrem : VaultType.Azure);
+        LogVaultTypeOnce(fallback, defaultVaultType.HasValue ? "caller default" : "no valid BLOCKS_VAULT_TYPE");
+        return fallback;
+    }
+
+    private static void LogVaultTypeOnce(VaultType vaultType, string reason)
+    {
+        if (System.Threading.Interlocked.Exchange(ref _vaultTypeLogged, 1) == 0)
+        {
+            Log.Information("Vault type is {VaultType} (from {Reason})", vaultType, reason);
+        }
     }
 
     public static void ConfigureKestrel(WebApplicationBuilder builder)
