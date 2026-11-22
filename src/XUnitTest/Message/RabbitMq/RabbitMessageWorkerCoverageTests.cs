@@ -594,11 +594,22 @@ public class RabbitMessageWorkerCoverageTests
         var rabbitService = new Mock<IRabbitMqService>();
         var channel = new Mock<IChannel>();
         channel.SetupGet(x => x.IsOpen).Returns(true);
+        string? chosenTag = null;
+        var tagKnownBeforeConsume = false;
+        RabbitMessageWorker? workerRef = null;
         channel
             .Setup(x => x.BasicConsumeAsync(
                 "q_a", It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<IDictionary<string, object?>>(), It.IsAny<IAsyncBasicConsumer>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("tag_for_q_a");
+            .Callback((string _, bool _, string tag, bool _, bool _, IDictionary<string, object?> _, IAsyncBasicConsumer _, CancellationToken _) =>
+            {
+                chosenTag = tag;
+                // A delivery may be dispatched as soon as consume starts: the map must already know the tag.
+                var map = (System.Collections.Concurrent.ConcurrentDictionary<string, string>)typeof(RabbitMessageWorker)
+                    .GetField("_queueByConsumerTag", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(workerRef)!;
+                tagKnownBeforeConsume = map.TryGetValue(tag, out var q) && q == "q_a";
+            })
+            .ReturnsAsync((string _, bool _, string tag, bool _, bool _, IDictionary<string, object?> _, IAsyncBasicConsumer _, CancellationToken _) => tag);
 
         var configuration = new MessageConfiguration
         {
@@ -608,12 +619,16 @@ public class RabbitMessageWorkerCoverageTests
             }
         };
         var worker = CreateWorker(new Mock<ILogger<RabbitMessageWorker>>().Object, rabbitService.Object, CreateConsumerWithProbe(), configuration);
+        workerRef = worker;
         SetPrivateChannel(worker, channel.Object);
 
         await InvokePrivateAsync(worker, "StartConsumingAsync", [new AsyncEventingBasicConsumer(channel.Object)]);
 
+        Assert.True(tagKnownBeforeConsume);
+        Assert.NotNull(chosenTag);
+
         var ea = CreateEventArgs(string.Empty, CreateEnvelope("via-exchange"), deliveryTag: 201);
-        SetMember(ea, "ConsumerTag", "tag_for_q_a");
+        SetMember(ea, "ConsumerTag", chosenTag!);
 
         await InvokePrivateAsync(worker, "HandleMessageAsync", [new object(), ea]);
 

@@ -275,11 +275,19 @@ public sealed class RabbitMessageWorker : BackgroundService
         {
             if (subscription.IsDeclareOnly) continue;
 
-            var consumerTag = await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
-            if (!string.IsNullOrEmpty(consumerTag))
-            {
-                _queueByConsumerTag[consumerTag] = subscription.QueueName;
-            }
+            // Choose the tag client-side and register it first: deliveries can be dispatched
+            // before BasicConsumeAsync returns, and must already resolve to their queue.
+            var consumerTag = $"{subscription.QueueName}.{Guid.NewGuid():N}";
+            _queueByConsumerTag[consumerTag] = subscription.QueueName;
+
+            await _channel!.BasicConsumeAsync(
+                subscription.QueueName,
+                autoAck: false,
+                consumerTag: consumerTag,
+                noLocal: false,
+                exclusive: false,
+                arguments: null,
+                consumer);
             _logger.LogInformation("Started consuming queue: {QueueName}, Parallel: {Parallel}, MaxConcurrency: {MaxConcurrency}",
             subscription.QueueName,
             subscription.ParallelProcessing,
