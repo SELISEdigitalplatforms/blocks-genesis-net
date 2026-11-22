@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- I04-WP6: tests that run Genesis against real MongoDB, Redis and RabbitMQ in throwaway containers
+       (Testcontainers). A separate project, so the unit run (XUnitTest) stays fast and needs no Docker. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Testcontainers 4.17.0, MIT (licenseExpression in the nuspec), released 2026-11-16. -->
+    <PackageReference Include="Testcontainers.MongoDb" Version="4.17.0" />
+    <PackageReference Include="Testcontainers.Redis" Version="4.17.0" />
+    <PackageReference Include="Testcontainers.RabbitMq" Version="4.17.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Genesis\Blocks.Genesis.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

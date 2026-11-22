@@ -1,0 +1,3 @@
+type: added
+breaking: false
+summary: A new IntegrationTest project runs Genesis ConfigureServices against real MongoDB, Redis and RabbitMQ in throwaway containers (Testcontainers); one test, tagged KnownRed, fails today because startup does not wait for RabbitMQ; no runtime change.
