@@ -285,6 +285,7 @@ With Azure Key Vault the same names are used without the `BlocksSecret__` prefix
 | `UserRateLimitPerSecond` | none | Per-subject rate limit for this service; overrides the vault value (default `100`) |
 | `HTTP1_PORT` | `5000` | Kestrel HTTP/1.1 listener (REST) |
 | `HTTP2_PORT` | `5001` | Kestrel HTTP/2 listener (gRPC) |
+| `Startup__DependencyWaitSeconds` | `120` | How long start-up waits for RabbitMQ or Azure Service Bus before giving up: connect attempts are retried with exponential backoff (1 s growing to 30 s, one log line per attempt). `0` means one attempt, no waiting |
 | `ServiceBusConnectionString` | none | When set, logs and traces are forwarded to the LMT pipeline over the message bus instead of being written directly to MongoDB |
 | `MaxRetries` | `3` | LMT send retry attempts (also settable as `Lmt:MaxRetries` in `appsettings.json`) |
 | `MaxFailedBatches` | `100` | LMT failed-batch queue size (also settable as `Lmt:MaxFailedBatches`) |

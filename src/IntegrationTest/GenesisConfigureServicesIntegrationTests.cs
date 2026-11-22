@@ -52,13 +52,11 @@ public sealed class GenesisConfigureServicesIntegrationTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Acceptance test for I01-WP1 (startup should wait for RabbitMQ instead of failing once). RabbitMQ comes up
-    /// 10 seconds after the host starts configuring. Today ConfigureRabbitMq connects once and rethrows
-    /// (ConfigureRabbitMq.cs, the CreateConnectionAsync call and the catch), so this FAILS with a connect
-    /// failure. Not skipped: it is excluded from the L1 gate with Category=KnownRed until I01-WP1 lands.
+    /// Acceptance test for I01-WP1: startup waits for RabbitMQ instead of failing once. RabbitMQ comes up
+    /// 10 seconds after the host starts configuring; ConfigureRabbitMq retries with backoff
+    /// (Startup__DependencyWaitSeconds, default 120 s) until the broker answers.
     /// </summary>
     [Fact]
-    [Trait("Category", "KnownRed")]
     public async Task ConfigureServices_Succeeds_WhenRabbitMqStarts10SecondsAfterTheHost()
     {
         var hostName = Environment.GetEnvironmentVariable("TESTCONTAINERS_HOST_OVERRIDE") is { Length: > 0 } h ? h : "localhost";
@@ -66,7 +64,9 @@ public sealed class GenesisConfigureServicesIntegrationTests : IAsyncLifetime
         await using var rabbit = new RabbitMqBuilder("rabbitmq:3-management")
             .WithPortBinding(hostPort, 5672)
             .Build();
-        var connection = $"amqp://guest:guest@{hostName}:{hostPort}";
+        // The builder's default login is rabbitmq/rabbitmq (the first version of this test used guest/guest and the
+        // broker refused it once it was up, which the retry log now shows).
+        var connection = $"amqp://rabbitmq:rabbitmq@{hostName}:{hostPort}";
 
         // The host starts configuring now, with RabbitMQ not there yet.
         var host = Task.Run(() => ConfigureGenesis(connection));
@@ -74,7 +74,7 @@ public sealed class GenesisConfigureServicesIntegrationTests : IAsyncLifetime
         await Task.Delay(TimeSpan.FromSeconds(10));
         await rabbit.StartAsync();
 
-        // A host that waits for its dependencies finishes once RabbitMQ is up. Awaiting rethrows today's failure.
+        // A host that waits for its dependencies finishes once RabbitMQ is up.
         var services = await host.WaitAsync(TimeSpan.FromSeconds(90));
         Assert.Contains(services, d => d.ServiceType == typeof(IRabbitMqService));
     }

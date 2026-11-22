@@ -23,26 +23,47 @@ public sealed class RabbitMqService : IRabbitMqService, IDisposable, IAsyncDispo
         _config = config;
     }
 
+    /// <summary>Total start-up wait for this service; null reads Startup__DependencyWaitSeconds (default 120). Tests set it.</summary>
+    internal TimeSpan? DependencyWait { get; set; }
+
+    /// <summary>
+    /// Connects and opens the channel, retrying while the broker is not reachable (exponential backoff, 1 s to 30 s,
+    /// within the Startup__DependencyWaitSeconds budget). Returns only when the channel is open; when the budget is
+    /// used up, or the connection string is invalid, the failure is thrown, so the channel is never used uninitialised.
+    /// </summary>
     public async Task CreateConnectionAsync()
     {
         try
         {
-            var factory = new ConnectionFactory
+            await StartupRetry.ExecuteAsync("RabbitMQ", async cancellationToken =>
             {
-                Uri = new Uri(_config.Connection!),
-                VirtualHost = "/",
-                ContinuationTimeout = TimeSpan.FromSeconds(62),
-                AutomaticRecoveryEnabled = true
-            };
+                var factory = new ConnectionFactory
+                {
+                    Uri = new Uri(_config.Connection!),
+                    VirtualHost = "/",
+                    ContinuationTimeout = TimeSpan.FromSeconds(62),
+                    AutomaticRecoveryEnabled = true
+                };
 
-            _connection = await factory.CreateConnectionAsync();
-            _channel = await _connection.CreateChannelAsync();
+                var connection = await factory.CreateConnectionAsync(cancellationToken);
+                try
+                {
+                    _channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
+                    _connection = connection;
+                }
+                catch
+                {
+                    await connection.DisposeAsync();
+                    throw;
+                }
+            }, _logger, ConfigureRabbitMq.IsTransient, DependencyWait);
 
             _logger.LogInformation("Successfully established RabbitMQ connection and channel.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An error occurred while creating the RabbitMQ connection.");
+            throw;
         }
     }
 

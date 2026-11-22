@@ -1,0 +1,3 @@
+type: fixed
+breaking: false
+summary: Service start-up now waits for RabbitMQ and Azure Service Bus instead of failing on the first refused connection. ConfigureRabbitMq, ConfigureAzureServiceBus and RabbitMqService.CreateConnectionAsync retry with exponential backoff (1 s growing to 30 s, a log line per attempt) for the Startup__DependencyWaitSeconds budget (default 120 s; 0 means one attempt). RabbitMqService.CreateConnectionAsync now throws when the broker stays unreachable or the connection string is invalid, where it used to log the error and return with no channel.

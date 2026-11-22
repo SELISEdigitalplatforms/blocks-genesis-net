@@ -1,3 +1,6 @@
+using System.Net.Sockets;
+using Azure;
+using Azure.Messaging.ServiceBus;
 using Azure.Messaging.ServiceBus.Administration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -24,9 +27,14 @@ public static class ConfigureAzureServiceBus
             _messageConfiguration = messageConfiguration;
             _logger = logger ?? _logger;
 
-            var queueCreationTask = CreateQueuesAsync();
-            var topicCreationTask = CreateTopicAsync();
-            await Task.WhenAll(queueCreationTask, topicCreationTask).ConfigureAwait(false);
+            // Service Bus may be unreachable while the host starts: provision under a bounded retry
+            // (Startup__DependencyWaitSeconds). Every step checks for existence first, so repeating it is safe.
+            await StartupRetry.ExecuteAsync("Azure Service Bus", async _ =>
+            {
+                var queueCreationTask = CreateQueuesAsync();
+                var topicCreationTask = CreateTopicAsync();
+                await Task.WhenAll(queueCreationTask, topicCreationTask).ConfigureAwait(false);
+            }, StartupRetry.LoggerOrDefault(logger), IsTransient).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -34,6 +42,16 @@ public static class ConfigureAzureServiceBus
             throw;
         }
     }
+
+    /// <summary>Network trouble and Azure's transient errors are worth waiting out; bad credentials and bad requests are not.</summary>
+    internal static bool IsTransient(Exception exception) => exception switch
+    {
+        ServiceBusException serviceBus => serviceBus.IsTransient,
+        RequestFailedException failed => failed.Status is 0 or 408 or 429 or >= 500,
+        HttpRequestException or SocketException or IOException or TimeoutException => true,
+        AggregateException aggregate => aggregate.InnerExceptions.All(IsTransient),
+        _ => false
+    };
 
     [Obsolete("Use ConfigureQueueAndTopicAsync instead.")]
     public static Task ConfigerQueueAndTopicAsync(MessageConfiguration messageConfiguration)
