@@ -466,6 +466,18 @@ public class AzureMessageWorkerCoverageTests
         Assert.Empty(result);
     }
 
+    [Fact]
+    public void Topic_delivery_reports_the_topic_name()
+    {
+        Assert.Equal("topic_x", AzureMessageWorker.GetEntityName("topic_x/Subscriptions/topic_x_sub_svc"));
+    }
+
+    [Fact]
+    public void Queue_delivery_reports_the_queue_name()
+    {
+        Assert.Equal("queue_y", AzureMessageWorker.GetEntityName("queue_y"));
+    }
+
     private static MessageConfiguration EmptyConfiguration()
     {
         return new MessageConfiguration

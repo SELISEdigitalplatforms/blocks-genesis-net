@@ -148,6 +148,16 @@ public sealed class AzureMessageWorker : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Topic processors report <c>topic/Subscriptions/name</c>; the entity is the part before the first slash.
+    /// </summary>
+    internal static string? GetEntityName(string? entityPath)
+    {
+        if (entityPath == null) return null;
+        var slash = entityPath.IndexOf('/');
+        return slash < 0 ? entityPath : entityPath[..slash];
+    }
+
     private async Task MessageHandler(ProcessMessageEventArgs args)
     {
         // Extract trace context from the message
@@ -224,7 +234,7 @@ public sealed class AzureMessageWorker : BackgroundService
                 AzureMessageWorkerLog.MessageProcessingStarted(_logger, messageId, DateTimeOffset.Now);
 
                 var message = JsonSerializer.Deserialize<Message>(body);
-                await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty).ConfigureAwait(false);
+                await _consumer.ProcessMessageAsync(message?.Type ?? string.Empty, message?.Body ?? string.Empty, GetEntityName(args.EntityPath)).ConfigureAwait(false);
 
                 processingStopwatch.Stop();
                 AzureMessageWorkerLog.MessageProcessingCompleted(_logger, messageId, processingStopwatch.ElapsedMilliseconds);
