@@ -16,10 +16,19 @@ public class Consumer
         _routingTable = routingTable;
     }
 
-    public async Task ProcessMessageAsync(string messageType, string messageBody)
+    public Task ProcessMessageAsync(string messageType, string messageBody)
+        => ProcessMessageAsync(messageType, messageBody, null);
+
+    /// <summary>
+    /// Processes a message and exposes the queue it was consumed from as <see cref="MessageContext.Queue"/>
+    /// to the consumer for the duration of the call.
+    /// </summary>
+    public async Task ProcessMessageAsync(string messageType, string messageBody, string? queueName)
     {
         try
         {
+            MessageContext.SetQueue(queueName);
+
             // Get the type from the routing table
             if (!_routingTable.Routes.TryGetValue(messageType, out var routingInfo))
             {
@@ -50,6 +59,10 @@ public class Consumer
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing message");
+        }
+        finally
+        {
+            MessageContext.SetQueue(null);
         }
     }
 }
