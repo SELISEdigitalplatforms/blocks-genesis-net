@@ -374,7 +374,7 @@ public class DelegationMessageFlowTests : IDisposable
         var eventArgs = CreateDeliverArgs(queueName, body, grantId);
 
         var handler = typeof(RabbitMessageWorker).GetMethod("ProcessMessageInternalAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        await (Task)handler.Invoke(worker, [eventArgs])!;
+        await (Task)handler.Invoke(worker, [eventArgs, queueName])!;
 
         return channel;
     }
