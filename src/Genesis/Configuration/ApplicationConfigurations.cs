@@ -195,6 +195,12 @@ public static class ApplicationConfigurations
                 tags: ["ready"])
             .AddRedis(_blocksSecret.CacheConnectionString, name: "redis", tags: ["ready"]);
 
+        // I01-WP2: the RabbitMQ connection is part of readiness only where RabbitMQ is configured.
+        if (messageConfiguration.RabbitMqConfiguration != null)
+        {
+            services.AddHealthChecks().AddCheck<RabbitMqReadinessCheck>("rabbitmq", tags: ["ready"]);
+        }
+
         if (_blocksSwaggerOptions != null)
         {
             services.AddBlocksSwagger(_blocksSwaggerOptions);
