@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
@@ -14,6 +16,9 @@ public class GlobalExceptionHandlerMiddleware
 
     public const string EmptyJsonBodyString = "Empty";
     public const string JsonContentType = "application/json";
+
+    // How many InnerException links IsCancelledMongoConnection follows (the outer exception is not counted).
+    private const int MaxCancellationCauseDepth = 5;
 
     public GlobalExceptionHandlerMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlerMiddleware> logger)
     {
@@ -44,7 +49,9 @@ public class GlobalExceptionHandlerMiddleware
         // dropped connection) is the client leaving, not a server fault. A BadHttpRequestException
         // (Kestrel's included) is also an IOException but keeps the status MapException gave it.
         // The abort is checked here rather than in MapException because only the context knows it.
-        if (requestAborted && exception is IOException and not BadHttpRequestException)
+        // A Mongo connection error on an abandoned request is the same client leaving, seen through
+        // the driver when the call carried no cancellation token (blocks-genesis-net#205).
+        if (requestAborted && ((exception is IOException and not BadHttpRequestException) || IsCancelledMongoConnection(exception)))
         {
             (statusCode, title, errors) = (StatusCodes.Status499ClientClosedRequest, "Request Cancelled", null);
         }
@@ -129,13 +136,43 @@ public class GlobalExceptionHandlerMiddleware
 
     /// <summary>
     /// A request that was cancelled, abandoned or malformed by the client: logged at Information
-    /// and never reported to Rollbar. Only <see cref="OperationCanceledException"/> and stream
-    /// errors already mapped to a client status qualify; an <see cref="IOException"/> that is still
-    /// a 500 is a server fault.
+    /// and never reported to Rollbar. Only <see cref="OperationCanceledException"/>, and stream or
+    /// Mongo connection errors already mapped to a client status, qualify; an <see cref="IOException"/>
+    /// or <see cref="MongoConnectionException"/> that is still a 500 is a server fault.
     /// </summary>
     private static bool IsClientOutcome(Exception exception, int statusCode) =>
         exception is OperationCanceledException ||
-        (exception is IOException && statusCode < StatusCodes.Status500InternalServerError);
+        ((exception is IOException or MongoConnectionException) && statusCode < StatusCodes.Status500InternalServerError);
+
+    /// <summary>
+    /// A <see cref="MongoConnectionException"/> (or subtype) caused by the connection being cancelled:
+    /// an <see cref="IOException"/>, <see cref="SocketException"/> or <see cref="OperationCanceledException"/>
+    /// within the first <see cref="MaxCancellationCauseDepth"/> <see cref="Exception.InnerException"/> links.
+    /// Only the caller decides that the request was aborted; on a live request the same exception is a
+    /// real outage and stays a reported 500. The walk is bounded and stops on a repeated exception, so a
+    /// cyclic chain cannot hang it; <see cref="AggregateException.InnerExceptions"/> are not fanned out.
+    /// </summary>
+    private static bool IsCancelledMongoConnection(Exception exception)
+    {
+        if (exception is not MongoConnectionException)
+        {
+            return false;
+        }
+
+        var visited = new HashSet<Exception>(ReferenceEqualityComparer.Instance) { exception };
+        var cause = exception.InnerException;
+        for (var depth = 1; depth <= MaxCancellationCauseDepth && cause != null && visited.Add(cause); depth++)
+        {
+            if (cause is IOException or SocketException or OperationCanceledException)
+            {
+                return true;
+            }
+
+            cause = cause.InnerException;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// The JSON body length for the log line. Returns 0 when the body is not JSON or not seekable,

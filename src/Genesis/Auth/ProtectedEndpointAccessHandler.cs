@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Security.Claims;
@@ -10,10 +11,19 @@ namespace Blocks.Genesis;
 internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEndpointAccessRequirement>
 {
     private readonly IDbContextProvider _dbContextProvider;
+    private readonly ILogger<ProtectedEndpointAccessHandler> _logger;
 
-    public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider)
+    public ProtectedEndpointAccessHandler(IDbContextProvider dbContextProvider, ILogger<ProtectedEndpointAccessHandler> logger)
     {
         _dbContextProvider = dbContextProvider;
+        _logger = logger;
+    }
+
+    private enum QuotaOutcome
+    {
+        WithinQuota,
+        Exceeded,
+        TenantDatabaseMissing
     }
 
     protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ProtectedEndpointAccessRequirement requirement)
@@ -36,7 +46,23 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
         }
 
         var tenantId = BlocksContext.GetContext()?.TenantId;
-        if (!(await IsWithinQuotaAsync(resourceName, tenantId)) && httpContext != null)
+        var quota = await CheckQuotaAsync(resourceName, tenantId).ConfigureAwait(false);
+
+        // Fail closed: a tenant without database routing never reaches the access check,
+        // with or without an HttpContext to write the response to.
+        if (quota == QuotaOutcome.TenantDatabaseMissing)
+        {
+            if (httpContext != null)
+            {
+                httpContext.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await httpContext.Response.WriteAsJsonAsync(new BaseResponse { IsSuccess = false, Errors = new Dictionary<string, string> { { "tenant_database_unavailable", "Tenant database is not available." } } }).ConfigureAwait(false);
+            }
+
+            context.Fail(new AuthorizationFailureReason(this, "TENANT_DATABASE_MISSING"));
+            return;
+        }
+
+        if (quota == QuotaOutcome.Exceeded && httpContext != null)
         {
             httpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             await httpContext.Response.WriteAsJsonAsync(new BaseResponse { IsSuccess = false, Errors = new Dictionary<string, string> { { "exceed_limit", "Request limit exceeded." } } });
@@ -52,15 +78,30 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
     }
 
     /// <summary>
-    /// Check rate limit quota for the resource
+    /// Check rate limit quota for the resource. A tenant whose database routing is missing
+    /// yields <see cref="QuotaOutcome.TenantDatabaseMissing"/> instead of an exception.
     /// </summary>
-    private async Task<bool> IsWithinQuotaAsync(string resourceName,
-                                                 string? tenantId)
+    private async Task<QuotaOutcome> CheckQuotaAsync(string resourceName,
+                                                     string? tenantId)
     {
         if (string.IsNullOrEmpty(tenantId))
-            return true; // Skip quota check if no tenant context
+            return QuotaOutcome.WithinQuota; // Skip quota check if no tenant context
 
-        var database = _dbContextProvider.GetDatabase(tenantId);
+        // Only the provider's "database information is missing" signature is caught. Any other
+        // failure (an unusable connection string, Mongo being down) still surfaces as before.
+        IMongoDatabase database;
+        try
+        {
+            database = _dbContextProvider.GetDatabase(tenantId);
+        }
+        catch (InvalidOperationException ex) when (ex.InnerException is KeyNotFoundException)
+        {
+            // The exception is not logged: the tenant id and resource identify the case, and
+            // keeping exception text out means a future message can never leak connection details.
+            ProtectedEndpointAccessLog.TenantDatabaseMissing(_logger, tenantId, resourceName); // NOSONAR S6667 — tenant and resource only, by design
+            return QuotaOutcome.TenantDatabaseMissing;
+        }
+
         var resourceLimitCollection = database.GetCollection<BsonDocument>("ResourceLimits");
 
         var filter = Builders<BsonDocument>.Filter.Eq("Resource", resourceName);
@@ -68,10 +109,10 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
 
         if (resourceLimit is not null && (resourceLimit["Limit"].ToInt64() - resourceLimit["Usage"].ToInt64()) <= 0)
         {
-            return false;
+            return QuotaOutcome.Exceeded;
         }
 
-        return true;
+        return QuotaOutcome.WithinQuota;
     }
 
     private static HttpContext? GetHttpContext(object? resource)
@@ -160,4 +201,10 @@ internal class ProtectedEndpointAccessHandler : AuthorizationHandler<ProtectedEn
     }
 
 
+}
+
+internal static partial class ProtectedEndpointAccessLog
+{
+    [LoggerMessage(EventId = 8101, Level = LogLevel.Warning, Message = "Tenant {TenantId} has no database routing; access to protected resource {Resource} was denied (TENANT_DATABASE_MISSING).")]
+    public static partial void TenantDatabaseMissing(ILogger logger, string tenantId, string resource);
 }

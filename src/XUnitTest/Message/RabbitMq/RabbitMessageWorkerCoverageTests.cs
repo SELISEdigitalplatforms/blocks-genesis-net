@@ -375,7 +375,7 @@ public class RabbitMessageWorkerCoverageTests
 
         var ea = CreateEventArgs("orders.queue", "not-json", deliveryTag: 181);
 
-        await InvokePrivateAsync(worker, "DispatchAndAckAsync", [Encoding.UTF8.GetBytes("not-json"), null, ea, null]);
+        await InvokePrivateAsync(worker, "DispatchAndAckAsync", [Encoding.UTF8.GetBytes("not-json"), null, ea, null, "orders.queue"]);
 
         channel.Verify(x => x.BasicAckAsync(181, false, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -586,6 +586,57 @@ public class RabbitMessageWorkerCoverageTests
             It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task Delivery_reports_the_consumed_queue_not_the_routing_key()
+    {
+        CoverageConsumerProbe.Reset();
+
+        var rabbitService = new Mock<IRabbitMqService>();
+        var channel = new Mock<IChannel>();
+        channel.SetupGet(x => x.IsOpen).Returns(true);
+        string? chosenTag = null;
+        var tagKnownBeforeConsume = false;
+        RabbitMessageWorker? workerRef = null;
+        channel
+            .Setup(x => x.BasicConsumeAsync(
+                "q_a", It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<IDictionary<string, object?>>(), It.IsAny<IAsyncBasicConsumer>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, bool _, string tag, bool _, bool _, IDictionary<string, object?> _, IAsyncBasicConsumer _, CancellationToken _) =>
+            {
+                chosenTag = tag;
+                // A delivery may be dispatched as soon as consume starts: the map must already know the tag.
+                var map = (System.Collections.Concurrent.ConcurrentDictionary<string, string>)typeof(RabbitMessageWorker)
+                    .GetField("_queueByConsumerTag", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(workerRef)!;
+                tagKnownBeforeConsume = map.TryGetValue(tag, out var q) && q == "q_a";
+            })
+            .ReturnsAsync((string _, bool _, string tag, bool _, bool _, IDictionary<string, object?> _, IAsyncBasicConsumer _, CancellationToken _) => tag);
+
+        var configuration = new MessageConfiguration
+        {
+            RabbitMqConfiguration = new RabbitMqConfiguration
+            {
+                ConsumerSubscriptions = [ConsumerSubscription.BindToQueueViaExchange("q_a", "ex_a")]
+            }
+        };
+        var worker = CreateWorker(new Mock<ILogger<RabbitMessageWorker>>().Object, rabbitService.Object, CreateConsumerWithProbe(), configuration);
+        workerRef = worker;
+        SetPrivateChannel(worker, channel.Object);
+
+        await InvokePrivateAsync(worker, "StartConsumingAsync", [new AsyncEventingBasicConsumer(channel.Object)]);
+
+        Assert.True(tagKnownBeforeConsume);
+        Assert.NotNull(chosenTag);
+
+        var ea = CreateEventArgs(string.Empty, CreateEnvelope("via-exchange"), deliveryTag: 201);
+        SetMember(ea, "ConsumerTag", chosenTag!);
+
+        await InvokePrivateAsync(worker, "HandleMessageAsync", [new object(), ea]);
+
+        Assert.Equal("via-exchange", CoverageConsumerProbe.LastValue);
+        Assert.Equal("q_a", CoverageConsumerProbe.LastQueue);
+        channel.Verify(x => x.BasicAckAsync(201, false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static void SetupLoggerThrowFor(Mock<ILogger<RabbitMessageWorker>> logger, string messageFragment)
     {
         logger
@@ -776,12 +827,18 @@ public class RabbitMessageWorkerCoverageTests
     private sealed class CoverageConsumerProbe : IConsumer<CoveragePayload>
     {
         public static string? LastValue { get; private set; }
+        public static string? LastQueue { get; private set; }
 
-        public static void Reset() => LastValue = null;
+        public static void Reset()
+        {
+            LastValue = null;
+            LastQueue = null;
+        }
 
         public Task Consume(CoveragePayload context)
         {
             LastValue = context.Value;
+            LastQueue = MessageContext.Queue;
             return Task.CompletedTask;
         }
     }

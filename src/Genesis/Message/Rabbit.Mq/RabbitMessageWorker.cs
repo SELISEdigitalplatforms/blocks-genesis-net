@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -18,6 +19,8 @@ public sealed class RabbitMessageWorker : BackgroundService
     private readonly ActivitySource _activitySource;
     private readonly IDelegationGrantStore _delegationGrantStore;
     private readonly IDelegatedTokenProvider _delegatedTokenProvider;
+
+    private readonly ConcurrentDictionary<string, string> _queueByConsumerTag = new();
 
     private IChannel? _channel;
 
@@ -66,20 +69,22 @@ public sealed class RabbitMessageWorker : BackgroundService
 
     private async Task HandleMessageAsync(object sender, BasicDeliverEventArgs ea)
     {
+        // The routing key is the exchange routing key (empty for fanout), not the queue consumed from.
+        var queueName = ResolveQueueName(ea);
         var subscription = _messageConfiguration.RabbitMqConfiguration!.ConsumerSubscriptions
-            .FirstOrDefault(s => s.QueueName == ea.RoutingKey);
+            .FirstOrDefault(s => s.QueueName == queueName);
 
         try
         {
             if (subscription?.ParallelProcessing ?? false)
             {
-                _ = ProcessMessageInternalAsync(ea)
+                _ = ProcessMessageInternalAsync(ea, queueName)
                     .ContinueWith(t => HandleParallelFaultAsync(t, ea), TaskScheduler.Default)
                     .Unwrap();
             }
             else
             {
-                await ProcessMessageInternalAsync(ea);
+                await ProcessMessageInternalAsync(ea, queueName);
             }
         }
         catch (Exception ex)
@@ -89,7 +94,7 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
     }
 
-    private async Task ProcessMessageInternalAsync(BasicDeliverEventArgs ea)
+    private async Task ProcessMessageInternalAsync(BasicDeliverEventArgs ea, string queueName)
     {
         try
         {
@@ -114,7 +119,7 @@ public sealed class RabbitMessageWorker : BackgroundService
             var body = ea.Body.ToArray();
             _logger.LogInformation("Received message for queue {Queue}", ea.RoutingKey);
 
-            await DispatchAndAckAsync(body, activity, ea, delegationGrant);
+            await DispatchAndAckAsync(body, activity, ea, delegationGrant, queueName);
         }
         catch (Exception ex)
         {
@@ -128,6 +133,11 @@ public sealed class RabbitMessageWorker : BackgroundService
             DelegatedTokenContext.Clear();
         }
     }
+
+    private string ResolveQueueName(BasicDeliverEventArgs ea)
+        => ea.ConsumerTag is { Length: > 0 } tag && _queueByConsumerTag.TryGetValue(tag, out var queueName)
+            ? queueName
+            : ea.RoutingKey;
 
     private async Task SafeNackAsync(BasicDeliverEventArgs ea, string failureLogMessage)
     {
@@ -206,7 +216,7 @@ public sealed class RabbitMessageWorker : BackgroundService
         }
     }
 
-    private async Task DispatchAndAckAsync(byte[] body, Activity? activity, BasicDeliverEventArgs ea, string? delegationGrant)
+    private async Task DispatchAndAckAsync(byte[] body, Activity? activity, BasicDeliverEventArgs ea, string? delegationGrant, string queueName)
     {
         var processedSuccessfully = false;
         try
@@ -215,7 +225,7 @@ public sealed class RabbitMessageWorker : BackgroundService
 
             if (message != null)
             {
-                await _consumer.ProcessMessageAsync(message.Type, message.Body);
+                await _consumer.ProcessMessageAsync(message.Type, message.Body, queueName);
                 activity?.SetTag("response", "Successfully Completed");
                 activity?.SetStatus(ActivityStatusCode.Ok, "Message processed successfully");
                 _logger.LogInformation("Message processed successfully.");
@@ -265,7 +275,19 @@ public sealed class RabbitMessageWorker : BackgroundService
         {
             if (subscription.IsDeclareOnly) continue;
 
-            await _channel!.BasicConsumeAsync(subscription.QueueName, autoAck: false, consumer);
+            // Choose the tag client-side and register it first: deliveries can be dispatched
+            // before BasicConsumeAsync returns, and must already resolve to their queue.
+            var consumerTag = $"{subscription.QueueName}.{Guid.NewGuid():N}";
+            _queueByConsumerTag[consumerTag] = subscription.QueueName;
+
+            await _channel!.BasicConsumeAsync(
+                subscription.QueueName,
+                autoAck: false,
+                consumerTag: consumerTag,
+                noLocal: false,
+                exclusive: false,
+                arguments: null,
+                consumer);
             _logger.LogInformation("Started consuming queue: {QueueName}, Parallel: {Parallel}, MaxConcurrency: {MaxConcurrency}",
             subscription.QueueName,
             subscription.ParallelProcessing,
