@@ -1,4 +1,4 @@
-using Blocks.Genesis.Health;
+﻿using Blocks.Genesis.Health;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
@@ -46,6 +46,7 @@ public static class ApplicationConfigurations
             .Enrich.WithEnvironmentName()
             .WriteTo.Console()
             .WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret)
+            .WriteToOtlpWhenConfigured(_serviceName)
             .CreateLogger();
 
         return _blocksSecret;

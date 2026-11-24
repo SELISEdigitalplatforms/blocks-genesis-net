@@ -1,0 +1,3 @@
+type: added
+breaking: false
+summary: "Logs are exported over OTLP (Serilog.Sinks.OpenTelemetry) when OTEL_EXPORTER_OTLP_ENDPOINT is set, with the trace id, span id and TenantId on every record."
