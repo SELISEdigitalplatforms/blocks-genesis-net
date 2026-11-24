@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using OpenTelemetry;
@@ -244,6 +244,55 @@ public class MongoDBTraceExporterScaffoldTests
         }
         finally
         {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", previous);
+        }
+    }
+
+    [Fact]
+    public async Task Dispose_WhileFlushesRun_1000Times_NeverThrowsUnhandled()
+    {
+        var unhandled = new ConcurrentQueue<Exception>();
+        void OnUnobserved(object? s, UnobservedTaskExceptionEventArgs e) => unhandled.Enqueue(e.Exception);
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        var previous = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+        try
+        {
+            Environment.SetEnvironmentVariable("ServiceBusConnectionString", null);
+            var secret = new Mock<IBlocksSecret>();
+            secret.SetupGet(s => s.TraceConnectionString).Returns(string.Empty);
+            using var source = new ActivitySource("dispose-stress");
+            using var listener = new ActivityListener
+            {
+                ShouldListenTo = _ => true,
+                Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData
+            };
+            ActivitySource.AddActivityListener(listener);
+
+            for (var i = 0; i < 1000; i++)
+            {
+                var exporter = new MongoDBTraceExporter("svc-dispose-stress", 1, secret.Object);
+                var writers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+                {
+                    for (var n = 0; n < 5; n++)
+                    {
+                        using var activity = source.StartActivity("op");
+                        if (activity != null) exporter.OnEnd(activity);
+                    }
+                })).ToArray();
+
+                exporter.Dispose();
+                exporter.Dispose();
+                await Task.WhenAll(writers);
+            }
+
+            await Task.Delay(100);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            Assert.Empty(unhandled);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobserved;
             Environment.SetEnvironmentVariable("ServiceBusConnectionString", previous);
         }
     }

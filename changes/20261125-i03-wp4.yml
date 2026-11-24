@@ -1,0 +1,3 @@
+type: fixed
+breaking: false
+summary: "MongoDBTraceExporter and LmtServiceBusSender no longer throw ObjectDisposedException on a thread-pool thread when disposed while a flush or retry is running: the disposed flag is set first, the timer is disposed with a wait, and in-flight work is awaited before the semaphore is disposed."
