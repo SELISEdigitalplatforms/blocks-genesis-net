@@ -152,17 +152,24 @@ public static class ApplicationConfigurations
         services.AddOpenTelemetry()
             .WithTracing(tracingBuilder =>
             {
+                tracingBuilder.AddSource(_serviceName, HttpService.ProtocolActivitySourceName);
+                // The standard OTEL_TRACES_SAMPLER variable wins when it is set.
+                if (OtlpExport.UseDefaultSampler())
+                {
+                    tracingBuilder.SetSampler(new AlwaysOnSampler());
+                }
+
                 tracingBuilder
-                    .AddSource(_serviceName, HttpService.ProtocolActivitySourceName)
-                    .SetSampler(new AlwaysOnSampler())
                     .AddAspNetCoreInstrumentation()
-                    .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
+                    .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret))
+                    .AddOtlpExporterWhenConfigured();
             })
             .WithMetrics(metricsBuilder =>
             {
                 metricsBuilder
                     .AddAspNetCoreInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    .AddOtlpExporterWhenConfigured();
             });
 
         services.AddSingleton<IHttpService, HttpService>();
