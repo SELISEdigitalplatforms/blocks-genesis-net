@@ -19,7 +19,17 @@ public static class AccessLookupPlanner
     public static bool UsesLookups(SchemaDefinitionExtended schema)
     {
         ArgumentNullException.ThrowIfNull(schema);
-        return ReferenceEquals(UsesCache.GetValue(schema, s => s.Policies.Any(p => p.RuleGroup is not null && Walk(p.RuleGroup).Any()) ? True : False), True);
+        return ReferenceEquals(UsesCache.GetValue(schema, static s => HasLookups(s) ? True : False), True);
+    }
+
+    /// <summary>
+    /// <see cref="UsesLookups"/> without the cache: for schema instances built per request (DataAccessResolver loads
+    /// one per call), which must not leave a cache entry behind. Long-lived schemas use <see cref="UsesLookups"/>.
+    /// </summary>
+    public static bool HasLookups(SchemaDefinitionExtended schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        return schema.Policies.Any(p => p.RuleGroup is not null && Walk(p.RuleGroup).Any());
     }
 
     /// <summary>The lookup rules of the policies whose operation is in <paramref name="operations"/> or ALL, in document order.</summary>

@@ -340,7 +340,8 @@ public sealed class DataAccessResolver : IDataAccessResolver
             ?? throw new KeyNotFoundException($"Schema '{schemaName}' was not found for tenant '{principal.TenantId}'.");
         // Role-bound permissions and access attributes come from the database, only when a policy reads them.
         principal = await _enricher.EnrichAsync(principal, schema.Policies, cancellationToken).ConfigureAwait(false);
-        if (AccessLookupPlanner.UsesLookups(schema))
+        // The schema was loaded for this request: walk it without caching (UsesLookups caches per instance).
+        if (AccessLookupPlanner.HasLookups(schema))
             schema = await ResolveLookupsAsync(schema, principal, lookupOperations, cancellationToken).ConfigureAwait(false);
         return new SchemaAccessRequest(principal, schema, operation);
     }
@@ -434,43 +435,45 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// </summary>
     private sealed class SchemaNamedFailures(IDataAccessPolicyResolutionService inner) : IDataAccessPolicyResolutionService
     {
+        // Static lambdas with their arguments passed as state: no closure is allocated per call.
         public PolicyEvaluationResult Check(SchemaAccessRequest request) =>
-            Named(request, () => inner.Check(request));
+            Named(request, (inner, request), static s => s.inner.Check(s.request));
 
         public BsonDocument BuildReadFilter(SchemaAccessRequest request, BsonDocument userFilter, PolicyEvaluationResult rls) =>
-            Named(request, () => inner.BuildReadFilter(request, userFilter, rls));
+            Named(request, (inner, request, userFilter, rls), static s => s.inner.BuildReadFilter(s.request, s.userFilter, s.rls));
 
         public BsonDocument ApplyMutationFilter(SchemaAccessRequest request, BsonDocument baseFilter, PolicyEvaluationResult rls) =>
-            Named(request, () => inner.ApplyMutationFilter(request, baseFilter, rls));
+            Named(request, (inner, request, baseFilter, rls), static s => s.inner.ApplyMutationFilter(s.request, s.baseFilter, s.rls));
 
         public ReadProjection BuildReadProjection(SchemaAccessRequest request, BsonDocument requestedProjection) =>
-            Named(request, () => inner.BuildReadProjection(request, requestedProjection));
+            Named(request, (inner, request, requestedProjection), static s => s.inner.BuildReadProjection(s.request, s.requestedProjection));
 
         public ReadProjection BuildReadProjection(SchemaAccessRequest request, IReadOnlyList<string>? requestedFields) =>
-            Named(request, () => inner.BuildReadProjection(request, requestedFields));
+            Named(request, (inner, request, requestedFields), static s => s.inner.BuildReadProjection(s.request, s.requestedFields));
 
         public Dictionary<string, object> MaskRow(SchemaAccessRequest request, Dictionary<string, object> row, ReadProjection projection) =>
-            Named(request, () => inner.MaskRow(request, row, projection));
+            Named(request, (inner, request, row, projection), static s => s.inner.MaskRow(s.request, s.row, s.projection));
 
         public InputRestriction RestrictInput(SchemaAccessRequest request, IDictionary<string, object?> input) =>
-            Named(request, () => inner.RestrictInput(request, input));
+            Named(request, (inner, request, input), static s => s.inner.RestrictInput(s.request, s.input));
 
         public PolicyEvaluationResult CheckRow(SchemaAccessRequest request, PolicyEvaluationResult rls, BsonDocument row) =>
-            Named(request, () => inner.CheckRow(request, rls, row));
+            Named(request, (inner, request, rls, row), static s => s.inner.CheckRow(s.request, s.rls, s.row));
 
         public PolicyEvaluationResult CheckInput(SchemaAccessRequest request, IEnumerable<string> paths, BsonDocument? dataRow) =>
-            Named(request, () => inner.CheckInput(request, paths, dataRow));
+            Named(request, (inner, request, paths, dataRow), static s => s.inner.CheckInput(s.request, s.paths, s.dataRow));
 
         public IReadOnlyCollection<PolicyOperation> ListAllowed(AccessPrincipal principal, SchemaDefinitionExtended schema) =>
-            Named(schema?.SchemaName, () => inner.ListAllowed(principal, schema!));
+            Named(schema?.SchemaName, (inner, principal, schema), static s => s.inner.ListAllowed(s.principal, s.schema!));
 
-        private static T Named<T>(SchemaAccessRequest request, Func<T> evaluate) => Named(request?.Schema?.SchemaName, evaluate);
+        private static T Named<TState, T>(SchemaAccessRequest request, TState state, Func<TState, T> evaluate) =>
+            Named(request?.Schema?.SchemaName, state, evaluate);
 
-        private static T Named<T>(string? schemaName, Func<T> evaluate)
+        private static T Named<TState, T>(string? schemaName, TState state, Func<TState, T> evaluate)
         {
             try
             {
-                return evaluate();
+                return evaluate(state);
             }
             catch (AccessCheckFailedException ex) when (string.IsNullOrWhiteSpace(ex.SchemaName) && !string.IsNullOrWhiteSpace(schemaName))
             {

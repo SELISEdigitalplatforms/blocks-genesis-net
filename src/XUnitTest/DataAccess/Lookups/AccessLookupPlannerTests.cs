@@ -1,3 +1,4 @@
+using Blocks.Genesis.DataAccess.Evaluation;
 #pragma warning disable CA1707, CA2007
 using Blocks.Genesis.DataAccess.Lookups;
 using Blocks.Genesis.Entities.Data;
@@ -62,5 +63,29 @@ public sealed class AccessLookupPlannerTests
         Assert.Equal(new[] { write, all }, forWrite);
 
         Assert.Equal(new[] { all }, AccessLookupPlanner.RulesFor(schema, [PolicyOperation.DELETE]));
+    }
+    private static bool Cached(SchemaDefinitionExtended schema)
+    {
+        var table = (System.Runtime.CompilerServices.ConditionalWeakTable<SchemaDefinitionExtended, object>)typeof(AccessLookupPlanner)
+            .GetField("UsesCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+        return table.TryGetValue(schema, out _);
+    }
+
+    [Fact]
+    public void HasLookups_SameAnswerAsUsesLookups_WithoutCaching()
+    {
+        var inner = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, Lookup(PolicyOperator.NOT_EXISTS_IN));
+        var withLookup = DataAccessTestSupport.Schema(policies: [PolicyOf(PolicyOperation.READ, new PolicyRuleGroup { NestedGroups = [inner] })]);
+        var without = DataAccessTestSupport.Schema(policies:
+            [PolicyOf(PolicyOperation.READ, DataAccessTestSupport.Group(PolicyLogicalOperator.AND, new PolicyRule { LeftOperand = "A", StaticValue = "x" }))]);
+
+        Assert.True(AccessLookupPlanner.HasLookups(withLookup));
+        Assert.False(AccessLookupPlanner.HasLookups(without));
+        // Per-request schema instances leave no cache entry behind.
+        Assert.False(Cached(withLookup));
+        Assert.False(Cached(without));
+
+        Assert.True(AccessLookupPlanner.UsesLookups(withLookup));
+        Assert.True(Cached(withLookup));
     }
 }
