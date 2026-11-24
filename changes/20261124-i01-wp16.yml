@@ -1,0 +1,3 @@
+type: fixed
+breaking: false
+summary: "The RabbitMQ readiness check no longer reports not-ready for a service that has not opened its channel yet (one that publishes lazily); it probes the broker with a TCP connection instead."
