@@ -930,6 +930,10 @@ public static class DataAccessPolicyHelper
     /// field with a static value or an Auth value; <c>ItemId</c> is read as the stored <c>_id</c> at every level. When
     /// an Auth value the condition needs is null, the first such name is reported in
     /// <see cref="Lookups.AccessLookupFilter.MissingAuthName"/> and no condition comparing to null is emitted.
+    /// Static values keep the policy meaning of operators (numbers, dates and booleans typed as text match typed
+    /// fields; In / Contains work on list fields); no target field types are needed.
+    /// When <c>MissingAuthName</c> is set, callers must treat the lookup as "never matches": a missing-Auth branch is
+    /// dropped from OR groups, so <c>Match</c> alone is wider than intended.
     /// </summary>
     public static Lookups.AccessLookupFilter BuildAccessLookupFilter(PolicyRuleGroup? filter, AccessPrincipal principal)
     {
@@ -997,7 +1001,21 @@ public static class DataAccessPolicyHelper
             }
         }
 
-        return BuildConditionFilter(principal, field, rule.Operator, value);
+        // The same paths as an access policy's field-vs-value rule, so operators keep their policy meaning.
+        if (rule.RightSource == ConditionSource.STATIC_VALUE &&
+            rule.Operator is PolicyOperator.IN or PolicyOperator.NOT_IN &&
+            StaticList(rule) is { } list)
+        {
+            return new BsonDocument(field, new BsonDocument(
+                rule.Operator == PolicyOperator.IN ? "$in" : "$nin", WithTypedAlternatives(list)));
+        }
+
+        if (ConvertToStringArray(value) is { } values && IsCollectionOperator(rule.Operator))
+            return BuildArrayComparisonFilter(FieldArrayExpression(field), new BsonArray(values), rule.Operator);
+
+        return rule.RightSource == ConditionSource.STATIC_VALUE
+            ? BuildStaticConditionFilter(principal, field, rule.Operator, value)
+            : BuildConditionFilter(principal, field, rule.Operator, value);
     }
 
     private static readonly Regex IsoDatePattern = new(@"^\d{4}-\d{2}-\d{2}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));

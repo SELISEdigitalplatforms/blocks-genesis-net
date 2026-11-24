@@ -17,6 +17,48 @@ public sealed class AccessLookupFilterTests
     private static PolicyRule WhereStatic(string field, object? value, PolicyOperator op = PolicyOperator.EQUAL) =>
         DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, field, op, ConditionSource.STATIC_VALUE, staticValue: value);
 
+    private static bool ContainsNull(BsonValue value) => value switch
+    {
+        BsonNull => true,
+        BsonDocument d => d.Values.Any(ContainsNull),
+        BsonArray a => a.Any(ContainsNull),
+        _ => false,
+    };
+
+    private static bool Matches(BsonDocument filter, BsonDocument row) =>
+        MatcherFor(filter, row);
+
+    private static bool MatcherFor(BsonDocument filter, BsonDocument row) =>
+        Blocks.Genesis.DataAccess.Evaluation.BsonFilterMatcher.Matches(row, filter);
+
+    [Fact]
+    public void Build_NumericStatic_MatchesStoredInt()
+    {
+        var group = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, WhereStatic("Age", "150", PolicyOperator.GREATER_THAN));
+        var match = DataAccessPolicyHelper.BuildAccessLookupFilter(group, Principal("u1")).Match;
+        Assert.True(Matches(match, new BsonDocument("Age", 200)));
+        Assert.False(Matches(match, new BsonDocument("Age", 100)));
+    }
+
+    [Fact]
+    public void Build_BoolStatic_MatchesStoredBool()
+    {
+        var group = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, WhereStatic("Active", "true"));
+        var match = DataAccessPolicyHelper.BuildAccessLookupFilter(group, Principal("u1")).Match;
+        Assert.True(Matches(match, new BsonDocument("Active", true)));
+        Assert.False(Matches(match, new BsonDocument("Active", false)));
+    }
+
+    [Fact]
+    public void Build_ContainsOnArrayField_UsesCollectionPath()
+    {
+        var group = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, WhereStatic("Tags", "red,blue", PolicyOperator.CONTAIN));
+        var match = DataAccessPolicyHelper.BuildAccessLookupFilter(group, Principal("u1")).Match;
+        Assert.True(match.Contains("$expr"));
+        Assert.True(Matches(match, new BsonDocument("Tags", new BsonArray { "red", "blue", "green" })));
+        Assert.False(Matches(match, new BsonDocument("Tags", new BsonArray { "red", "green" })));
+    }
+
     [Fact]
     public void Build_EmployeeCase()
     {
@@ -56,8 +98,8 @@ public sealed class AccessLookupFilterTests
         var result = DataAccessPolicyHelper.BuildAccessLookupFilter(group, AccessPrincipal.Anonymous);
 
         Assert.Equal("UserId", result.MissingAuthName);
-        Assert.DoesNotContain(result.Match.ToJson(), "null");
-        Assert.DoesNotContain(result.Match.Values, v => v.IsBsonNull);
+        Assert.False(ContainsNull(result.Match));
+        Assert.Empty(result.Match);
     }
 
     [Fact]
