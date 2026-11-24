@@ -17,6 +17,18 @@ internal static class OtlpExport
     internal const string LogsEndpointVariable = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT";
     internal const string ProtocolVariable = "OTEL_EXPORTER_OTLP_PROTOCOL";
 
+    internal const string MongoExportVariable = "Lmt__MongoExport";
+
+    /// <summary>
+    /// The MongoDB trace processor and log sink are on unless Lmt__MongoExport is "false" (I03-WP3). When off, the OS console's
+    /// log and trace screens are empty.
+    /// </summary>
+    internal static bool MongoExportEnabled(string? value = null)
+    {
+        value ??= Environment.GetEnvironmentVariable(MongoExportVariable);
+        return !string.Equals(value?.Trim(), "false", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static bool IsEnabled() => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(EndpointVariable));
 
     internal static bool UseDefaultSampler() => string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(SamplerVariable));

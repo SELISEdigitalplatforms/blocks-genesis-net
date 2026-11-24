@@ -39,6 +39,15 @@ public class OtlpExportTests
     public void UseDefaultSampler_OnlyWhenSamplerVariableUnset(string? value, bool expected)
         => WithEnv(OtlpExport.SamplerVariable, value, () => Assert.Equal(expected, OtlpExport.UseDefaultSampler()));
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    [InlineData("FALSE", false)]
+    public void MongoExport_OnUnlessSetToFalse(string? value, bool expected)
+        => WithEnv(OtlpExport.MongoExportVariable, value, () => Assert.Equal(expected, OtlpExport.MongoExportEnabled()));
+
     [Fact]
     public void TracesAndMetrics_RegisterNoExporter_WhenEndpointUnset()
         => WithEnv(OtlpExport.EndpointVariable, null, () =>

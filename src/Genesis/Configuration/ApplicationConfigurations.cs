@@ -40,12 +40,17 @@ public static class ApplicationConfigurations
             LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, serviceName);
         }
 
-        Log.Logger = new LoggerConfiguration()
+        var logConfiguration = new LoggerConfiguration()
             .Enrich.FromLogContext()
             .Enrich.With<TraceContextEnricher>()
             .Enrich.WithEnvironmentName()
-            .WriteTo.Console()
-            .WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret)
+            .WriteTo.Console();
+        if (OtlpExport.MongoExportEnabled())
+        {
+            logConfiguration = logConfiguration.WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret);
+        }
+
+        Log.Logger = logConfiguration
             .WriteToOtlpWhenConfigured(_serviceName)
             .CreateLogger();
 
@@ -160,10 +165,13 @@ public static class ApplicationConfigurations
                     tracingBuilder.SetSampler(new AlwaysOnSampler());
                 }
 
-                tracingBuilder
-                    .AddAspNetCoreInstrumentation()
-                    .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret))
-                    .AddOtlpExporterWhenConfigured();
+                tracingBuilder.AddAspNetCoreInstrumentation();
+                if (OtlpExport.MongoExportEnabled())
+                {
+                    tracingBuilder.AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
+                }
+
+                tracingBuilder.AddOtlpExporterWhenConfigured();
             })
             .WithMetrics(metricsBuilder =>
             {

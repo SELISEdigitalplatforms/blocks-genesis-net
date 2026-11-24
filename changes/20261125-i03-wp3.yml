@@ -1,0 +1,3 @@
+type: added
+breaking: false
+summary: "Lmt__MongoExport (default true): when false, the MongoDB trace processor and log sink are skipped. The OS console log and trace screens are then empty; use OTLP export instead."
