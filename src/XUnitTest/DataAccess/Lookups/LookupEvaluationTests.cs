@@ -298,6 +298,78 @@ public sealed class LookupEvaluationTests
     }
 
     [Fact]
+    public void Filter_ItemId_IsStoredId()
+    {
+        var exists = PolicyOf(Lookup(PolicyOperator.EXISTS_IN, LookupResolution.Of(["a"]), "ItemId")).EvaluatePolicy(Principal);
+        Assert.Equal(new BsonDocument("_id", new BsonDocument("$in", new BsonArray { "a" })), exists.DataFilter);
+
+        var notExists = PolicyOf(Lookup(PolicyOperator.NOT_EXISTS_IN, LookupResolution.Of(["a"]), "ItemId")).EvaluatePolicy(Principal);
+        Assert.Equal(new BsonDocument("_id", new BsonDocument("$nin", new BsonArray { "a" })), notExists.DataFilter);
+    }
+
+    private static readonly BsonDocument[] StoredRows =
+    [
+        new() { { "_id", "a" }, { "Name", "A" } },
+        new() { { "_id", "b" }, { "Name", "B" } },
+        new() { { "_id", "c" }, { "Name", "C" } },
+    ];
+
+    [Fact]
+    public void ItemId_NotExistsIn_DoesNotMatchEveryRow()
+    {
+        var policy = PolicyOf(Lookup(PolicyOperator.NOT_EXISTS_IN, LookupResolution.Of(["a", "c"]), "ItemId"));
+        var filter = policy.EvaluatePolicy(Principal).DataFilter;
+
+        // The stored document has _id only; the filter must not be on a missing ItemId field ($nin would then match all).
+        Assert.False(filter.Contains("ItemId"));
+        Assert.Equal(new[] { "b" }, StoredRows.Where(r => BsonFilterMatcher.Matches(r, filter)).Select(r => r["_id"].AsString));
+        Assert.Equal(new[] { "b" }, StoredRows.Where(r => QueryPolicyRuleEvaluator.RowSatisfiesPolicy(Principal, policy, r.ToDictionary()))
+            .Select(r => r["_id"].AsString));
+    }
+
+    [Fact]
+    public void ItemId_ExistsIn_MatchesOnlyListedIds()
+    {
+        var policy = PolicyOf(Lookup(PolicyOperator.EXISTS_IN, LookupResolution.Of(["a", "c", "zz"]), "ItemId"));
+        var filter = policy.EvaluatePolicy(Principal).DataFilter;
+
+        Assert.Equal(new[] { "a", "c" }, StoredRows.Where(r => BsonFilterMatcher.Matches(r, filter)).Select(r => r["_id"].AsString));
+        Assert.Equal(new[] { "a", "c" }, StoredRows.Where(r => QueryPolicyRuleEvaluator.RowSatisfiesPolicy(Principal, policy, r.ToDictionary()))
+            .Select(r => r["_id"].AsString));
+    }
+
+    [Fact]
+    public void ItemId_InMemory_FallsBackToItemIdKey_PrefersStoredId()
+    {
+        var exists = Lookup(PolicyOperator.EXISTS_IN, LookupResolution.Of(["a"]), "ItemId");
+        var notExists = Lookup(PolicyOperator.NOT_EXISTS_IN, LookupResolution.Of(["a"]), "ItemId");
+
+        var itemIdOnly = new Dictionary<string, object> { ["ItemId"] = "a" };
+        Assert.True(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, exists, itemIdOnly));
+        Assert.False(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, notExists, itemIdOnly));
+
+        var both = new Dictionary<string, object> { ["_id"] = "b", ["ItemId"] = "a" };
+        Assert.False(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, exists, both));
+
+        var neither = new Dictionary<string, object> { ["Name"] = "x" };
+        Assert.False(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, exists, neither));
+        Assert.True(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, notExists, neither));
+    }
+
+    [Fact]
+    public void Exception_UnknownSchema_MessageHasNoSchema()
+    {
+        const string expected = "Access couldn't be checked. Ask the project's admin to review its access rules.";
+        Assert.Equal(expected, new AccessCheckFailedException(string.Empty, "r").Message);
+        Assert.Equal(expected, new AccessCheckFailedException(null!, "r").Message);
+
+        var thrown = Assert.Throws<AccessCheckFailedException>(() =>
+            PolicyOf(Lookup(PolicyOperator.EXISTS_IN, resolution: null)).EvaluatePolicy(Principal));
+        Assert.Equal(expected, thrown.Message);
+        Assert.Equal(string.Empty, thrown.SchemaName);
+    }
+
+    [Fact]
     public void Exception_MessageNamesSchemaOnly()
     {
         var ex = new AccessCheckFailedException("Employee", "EXISTS_IN on DepartmentId reached evaluation unresolved");

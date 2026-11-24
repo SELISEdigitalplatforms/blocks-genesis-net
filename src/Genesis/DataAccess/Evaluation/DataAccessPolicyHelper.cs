@@ -278,7 +278,7 @@ public static class DataAccessPolicyHelper
                 return new PolicyEvaluationResult
                 {
                     IsAccessGranted = true,
-                    DataFilter = new BsonDocument(rule.LeftOperand, new BsonDocument(
+                    DataFilter = new BsonDocument(LookupFieldName(rule.LeftOperand), new BsonDocument(
                         rule.Operator == PolicyOperator.IN ? "$in" : "$nin", WithTypedAlternatives(list))),
                     RequiresDataFilter = true
                 };
@@ -376,7 +376,7 @@ public static class DataAccessPolicyHelper
 
     /// <summary>
     /// A resolved Must exist in / Must not exist in rule. <see cref="LookupOutcome.Values"/> filters the record field
-    /// with <c>$in</c> / <c>$nin</c> on the looked-up values with their stored types. <see cref="LookupOutcome.Never"/>
+    /// (<c>ItemId</c> as the stored <c>_id</c>) with <c>$in</c> / <c>$nin</c> on the looked-up values with their stored types. <see cref="LookupOutcome.Never"/>
     /// and <see cref="LookupOutcome.Always"/> are the rule's fixed answer (whatever the operator) and evaluate like an
     /// Auth-only condition that is false / true: no row filter, so no constant <c>$expr</c> reaches MongoDB and
     /// AND / OR combine it as they combine any Auth-only condition. Unresolved: <see cref="AccessCheckFailedException"/>.
@@ -391,13 +391,20 @@ public static class DataAccessPolicyHelper
             LookupOutcome.Values => new PolicyEvaluationResult
             {
                 IsAccessGranted = true,
-                DataFilter = new BsonDocument(rule.LeftOperand, new BsonDocument(
+                DataFilter = new BsonDocument(LookupFieldName(rule.LeftOperand), new BsonDocument(
                     rule.Operator == PolicyOperator.EXISTS_IN ? "$in" : "$nin", new BsonArray(resolution.Values))),
                 RequiresDataFilter = true
             },
             _ => throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule has an unknown lookup outcome {resolution.Outcome}.")
         };
     }
+
+    /// <summary>
+    /// The stored name of a lookup rule's record field: <c>ItemId</c> is stored as <c>_id</c>. Only the lookup branch
+    /// maps it; the other branches keep their field names.
+    /// </summary>
+    private static string LookupFieldName(string leftOperand) =>
+        leftOperand == nameof(GraphQlBaseEntity.ItemId) ? PolicyConstants.DbEntityIdFieldName : leftOperand;
 
     /// <summary>
     /// The rule's resolution; throws <see cref="AccessCheckFailedException"/> (empty schema name) when the lookup was

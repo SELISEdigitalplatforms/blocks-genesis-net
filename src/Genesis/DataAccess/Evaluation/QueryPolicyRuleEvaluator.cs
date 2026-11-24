@@ -85,7 +85,8 @@ public static class QueryPolicyRuleEvaluator
 
     /// <summary>
     /// A resolved Must exist in / Must not exist in rule against a row, with the answer MongoDB gives the filter
-    /// <c>{field: {$in | $nin: values}}</c> built from it. The field is read as the other rules read it (dotted paths,
+    /// <c>{field: {$in | $nin: values}}</c> built from it (<c>ItemId</c> read as <c>_id</c>, see
+    /// <see cref="LookupFieldPath"/>). The field is read as the other rules read it (dotted paths,
     /// through lists of objects); a list value is matched item by item. A value is in the set when its
     /// <see cref="WriteRules.ReferenceKey"/> is in <see cref="LookupResolution.Keys"/>: numbers by value across numeric
     /// types, text by exact case, text never equal to a number. A null or missing value is not in the set.
@@ -107,12 +108,27 @@ public static class QueryPolicyRuleEvaluator
                 throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule has an unknown lookup outcome {resolution.Outcome}.");
         }
 
-        var values = TryGetValuesThroughLists(rowData, rule.LeftOperand, out var items)
+        var path = LookupFieldPath(rule.LeftOperand, rowData);
+        var values = TryGetValuesThroughLists(rowData, path, out var items)
             ? items
-            : [GetNestedValueByPath(rowData, rule.LeftOperand)];
+            : [GetNestedValueByPath(rowData, path)];
         var found = values.SelectMany(LookupCandidates)
             .Any(value => resolution.Keys.Contains(WriteRules.ReferenceKey(BsonValue.Create(value))));
         return rule.Operator == PolicyOperator.EXISTS_IN ? found : !found;
+    }
+
+    /// <summary>
+    /// Where a lookup rule's record field is in the row. <c>ItemId</c> is the stored <c>_id</c> (the DB filter uses
+    /// <c>_id</c>, and rows reach the evaluator as stored documents); only a row with no <c>_id</c> but an
+    /// <c>ItemId</c> is read at <c>ItemId</c>.
+    /// </summary>
+    private static string LookupFieldPath(string leftOperand, IDictionary<string, object> rowData)
+    {
+        if (leftOperand != nameof(GraphQlBaseEntity.ItemId))
+            return leftOperand;
+        return rowData.ContainsKey(PolicyConstants.DbEntityIdFieldName) || !rowData.ContainsKey(leftOperand)
+            ? PolicyConstants.DbEntityIdFieldName
+            : leftOperand;
     }
 
     /// <summary>

@@ -6,7 +6,8 @@ namespace Blocks.Genesis;
 /// An access rule could not be checked, so the request is refused instead of guessing: an EXISTS_IN / NOT_EXISTS_IN
 /// rule reached evaluation without its lookup resolved, or a rule has an operator the evaluators don't know.
 /// <para>
-/// <see cref="Exception.Message"/> is caller-facing and names the schema only, never a field or a rule set.
+/// <see cref="Exception.Message"/> is caller-facing and names the schema only, never a field or a rule set
+/// ("Access couldn't be checked. ..." when the schema name is empty).
 /// <see cref="Reason"/> is for logs only.
 /// </para>
 /// <para>
@@ -24,8 +25,10 @@ public sealed class AccessCheckFailedException(string schemaName, string reason,
     /// <summary>Why the check failed, for logs. Never shown to the caller.</summary>
     public string Reason { get; } = reason ?? string.Empty;
 
-    private static string BuildMessage(string? schemaName) => string.Format(
-        CultureInfo.InvariantCulture,
-        "Access to {0} couldn't be checked. Ask the project's admin to review its access rules.",
-        schemaName ?? string.Empty);
+    private static string BuildMessage(string? schemaName) => string.IsNullOrWhiteSpace(schemaName)
+        ? "Access couldn't be checked. Ask the project's admin to review its access rules."
+        : string.Format(
+            CultureInfo.InvariantCulture,
+            "Access to {0} couldn't be checked. Ask the project's admin to review its access rules.",
+            schemaName);
 }
