@@ -18,6 +18,8 @@ namespace Blocks.Genesis.DataAccess.Lookups;
 /// <item>Fails closed per rule: a missing Auth value, an invalid target or more than <see cref="MaxValues"/> values
 /// make the rule never match (both operators), logged. An empty answer makes EXISTS_IN never and NOT_EXISTS_IN always
 /// match.</item>
+/// <item>Lookup rules in deny policies are never resolved or queried: "never matches" would lift the deny. They stay
+/// unresolved, so evaluation refuses the request (fails closed).</item>
 /// </list>
 /// </summary>
 public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<AccessLookupResolver> logger)
@@ -49,7 +51,9 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
 
         if (!AccessLookupPlanner.UsesLookups(schema))
             return schema;
-        var rules = AccessLookupPlanner.RulesFor(schema, operations);
+        // Deny policies are never resolved: a rule that never matches would lift the deny. Left unresolved, they
+        // reach the evaluation backstop, which refuses the request.
+        var rules = AccessLookupPlanner.RulesFor(schema.WithPolicies(schema.Policies.Where(p => p.IsAllowPolicy).ToList()), operations);
         if (rules.Count == 0)
             return schema;
 
@@ -65,7 +69,7 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         var policies = new List<DataAccessPolicy>(schema.Policies.Count);
         foreach (var policy in schema.Policies)
         {
-            var group = policy.RuleGroup is null ? null : CopyIfResolved(policy.RuleGroup, resolutions, groupCopies);
+            var group = policy.IsAllowPolicy && policy.RuleGroup is not null ? CopyIfResolved(policy.RuleGroup, resolutions, groupCopies) : null;
             policies.Add(group is null ? policy : policy.WithRuleGroup(group));
         }
         return schema.WithPolicies(policies);
@@ -80,7 +84,7 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         CancellationToken cancellationToken)
     {
         var reference = rule.Reference;
-        var target = reference is null ? null : targets.Find(reference);
+        var target = reference is null ? null : targets.Find(schema, rule);
         if (target is null || target.InvalidReason is not null)
         {
             _logger.LogWarning(TargetMissing,
@@ -116,12 +120,14 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         var key = (target.CollectionName, target.DbFieldName, target.IsSystemEntity, match.ToJson());
         if (!answers.TryGetValue(key, out var values))
         {
-            var found = await _runner.RunAsync(new AccessLookupQuery(target.CollectionName, target.DbFieldName, target.IsSystemEntity, match, QueryLimit), cancellationToken).ConfigureAwait(false);
+            var found = await _runner.RunAsync(new AccessLookupQuery(target.CollectionName, target.DbFieldName, target.IsSystemEntity, match, QueryLimit), cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Access lookup runner returned no result.");
             if (found.Count > MaxValues)
             {
+                // The query stops at QueryLimit, so the real count is only known to be above MaxValues.
                 _logger.LogWarning(TooLarge,
-                    "Access lookup on {Schema} gives no access: target {Target}.{Field} matched {MatchCount} values, more than {MaxValues}",
-                    schema.SchemaName, target.SchemaName, target.FieldName, found.Count, MaxValues);
+                    "Access lookup on {Schema} gives no access: target {Target}.{Field} matched more than {MaxValues} values",
+                    schema.SchemaName, target.SchemaName, target.FieldName, MaxValues);
                 values = null;
             }
             else

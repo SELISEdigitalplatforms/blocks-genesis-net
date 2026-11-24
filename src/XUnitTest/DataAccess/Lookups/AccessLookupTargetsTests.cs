@@ -10,7 +10,7 @@ public sealed class AccessLookupTargetsTests
     private static AccessLookupTarget? TargetOf(PolicyRule rule, params Blocks.Genesis.DataAccess.Evaluation.SchemaDefinitionExtended[] candidates)
     {
         var employee = Employee(Rls(PolicyOperation.READ, rule));
-        return AccessLookupTargets.Build(employee, candidates).Find(rule.Reference!);
+        return AccessLookupTargets.Build(employee, candidates).Find(employee, rule);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public sealed class AccessLookupTargetsTests
         var employee = Employee(Rls(PolicyOperation.READ, rule));
 
         // The policy schema is a candidate even when the caller doesn't pass it.
-        var target = AccessLookupTargets.Build(employee, []).Find(rule.Reference!);
+        var target = AccessLookupTargets.Build(employee, []).Find(employee, rule);
 
         Assert.NotNull(target);
         Assert.Null(target.InvalidReason);
@@ -50,6 +50,9 @@ public sealed class AccessLookupTargetsTests
         Assert.NotNull(TargetOf(Lookup("Missing", "Department", "ItemId"), department)!.InvalidReason);               // left field gone
         Assert.NotNull(TargetOf(Lookup("DepartmentId", "Department", "ItemId", where: WhereAuth("Members", "UserId")), department)!.InvalidReason); // WHERE field renamed
         Assert.NotNull(TargetOf(Lookup("DepartmentId", "Department", "ItemId", where: Lookup("Name", "Department", "Name")), department)!.InvalidReason); // lookup inside WHERE
+        var unknownOperator = WhereStatic("Name", "HR");
+        unknownOperator.Operator = (PolicyOperator)99;
+        Assert.NotNull(TargetOf(Lookup("DepartmentId", "Department", "ItemId", where: unknownOperator), department)!.InvalidReason); // operator outside the 15
 
         var deleted = Department();
         deleted.IsDeleted = true;
@@ -95,14 +98,14 @@ public sealed class AccessLookupTargetsTests
         var user = User(Rls(PolicyOperation.READ, toTenant), Rls(PolicyOperation.READ, toRole));
         var targets = AccessLookupTargets.Build(user, [Employee(), SystemSchema("Role", "Name")]);
 
-        Assert.NotNull(targets.Find(toTenant.Reference!)!.InvalidReason);
-        Assert.Null(targets.Find(toRole.Reference!)!.InvalidReason);
+        Assert.NotNull(targets.Find(user, toTenant)!.InvalidReason);
+        Assert.Null(targets.Find(user, toRole)!.InvalidReason);
 
         // A tenant schema sharing a system entity's name is never the target of a system-schema policy.
         var tenantRole = Department();
         tenantRole.SchemaName = "Role";
         var onlyTenantRole = AccessLookupTargets.Build(user, [tenantRole]);
-        Assert.NotNull(onlyTenantRole.Find(toRole.Reference!)!.InvalidReason);
+        Assert.NotNull(onlyTenantRole.Find(user, toRole)!.InvalidReason);
     }
 
     [Fact]
@@ -111,30 +114,57 @@ public sealed class AccessLookupTargetsTests
         var employee = Employee(Rls(PolicyOperation.READ, MyDepartment()), Rls(PolicyOperation.READ, Lookup("DepartmentId", "Division", "ItemId")));
         var targets = AccessLookupTargets.Build(employee, []);
         var copy = RoundTrip(employee);
-        var original = targets.Find(employee.Policies[0].RuleGroup.Rules[0].Reference!);
+        PolicyRule RuleOf(Blocks.Genesis.DataAccess.Evaluation.SchemaDefinitionExtended s, int i) => s.Policies[i].RuleGroup.Rules[0];
+        var original = targets.Find(employee, RuleOf(employee, 0));
 
-        Assert.NotSame(employee.Policies[0].RuleGroup.Rules[0].Reference, copy.Policies[0].RuleGroup.Rules[0].Reference);
+        Assert.NotSame(RuleOf(employee, 0).Reference, RuleOf(copy, 0).Reference);
         Assert.NotNull(original);
-        Assert.Equal(original, targets.Find(copy.Policies[0].RuleGroup.Rules[0].Reference!));
-        Assert.Equal(targets.Find(employee.Policies[1].RuleGroup.Rules[0].Reference!), targets.Find(copy.Policies[1].RuleGroup.Rules[0].Reference!));
-        Assert.NotNull(targets.Find(copy.Policies[1].RuleGroup.Rules[0].Reference!)!.InvalidReason);
+        Assert.Null(original.InvalidReason);
+        Assert.Equal(original, targets.Find(copy, RuleOf(copy, 0)));
+        Assert.Equal(targets.Find(employee, RuleOf(employee, 1)), targets.Find(copy, RuleOf(copy, 1)));
+        Assert.NotNull(targets.Find(copy, RuleOf(copy, 1))!.InvalidReason);
 
-        // An equal-valued reference built separately matches too; a different filter, field or schema doesn't.
-        Assert.Equal(original, targets.Find(MyDepartment().Reference!));
-        Assert.Null(targets.Find(Lookup("DepartmentId", "Employee", "DepartmentId", where: WhereAuth("Name", "UserId")).Reference!));
-        Assert.Null(targets.Find(Lookup("DepartmentId", "Employee", "Name", where: WhereAuth("UserId", "UserId")).Reference!));
-        Assert.Null(targets.Find(Lookup("DepartmentId", "Department", "DepartmentId", where: WhereAuth("UserId", "UserId")).Reference!));
+        // An equal rule built separately matches too; a different filter, field, schema or left operand doesn't.
+        Assert.Equal(original, targets.Find(employee, MyDepartment()));
+        Assert.Null(targets.Find(employee, Lookup("DepartmentId", "Employee", "DepartmentId", where: WhereAuth("Name", "UserId"))));
+        Assert.Null(targets.Find(employee, Lookup("DepartmentId", "Employee", "Name", where: WhereAuth("UserId", "UserId"))));
+        Assert.Null(targets.Find(employee, Lookup("DepartmentId", "Department", "DepartmentId", where: WhereAuth("UserId", "UserId"))));
+        Assert.Null(targets.Find(employee, Lookup("Name", "Employee", "DepartmentId", where: WhereAuth("UserId", "UserId"))));
     }
 
     [Fact]
-    public void Targets_EqualReferences_DifferentLeftFields_InvalidWins()
+    public void Targets_SameReference_DifferentlyTypedLeftFields_IndependentAnswers()
     {
-        // Same reference value; Age (Int) can't be compared with DepartmentId (text), so neither rule is answered.
-        var employee = Employee(Rls(PolicyOperation.READ, MyDepartment()),
-            Rls(PolicyOperation.READ, Lookup("Age", "Employee", "DepartmentId", where: WhereAuth("UserId", "UserId"))));
+        // Same reference; DepartmentId (text) fits the text target, Age (Int) doesn't.
+        var text = MyDepartment();
+        var number = Lookup("Age", "Employee", "DepartmentId", where: WhereAuth("UserId", "UserId"));
+        var employee = Employee(Rls(PolicyOperation.READ, text), Rls(PolicyOperation.READ, number));
 
         var targets = AccessLookupTargets.Build(employee, []);
 
-        Assert.NotNull(targets.Find(MyDepartment().Reference!)!.InvalidReason);
+        Assert.Null(targets.Find(employee, text)!.InvalidReason);
+        Assert.NotNull(targets.Find(employee, number)!.InvalidReason);
+    }
+
+    [Fact]
+    public void Targets_LeftFieldRetypedInCopy_DoesNotReuseTarget()
+    {
+        var rule = MyDepartment();
+        var employee = Employee(Rls(PolicyOperation.READ, rule));
+        var targets = AccessLookupTargets.Build(employee, []);
+        Assert.Null(targets.Find(employee, rule)!.InvalidReason);
+
+        // A copy whose DepartmentId is now a number (or a list) doesn't find the target checked for text.
+        var retyped = RoundTrip(employee);
+        retyped.Fields = retyped.Fields.Select(f => f.Name == "DepartmentId" ? DataAccessTestSupport.Field("DepartmentId", "Int") : f).ToList();
+        Assert.Null(targets.Find(retyped, retyped.Policies[0].RuleGroup.Rules[0]));
+
+        var listed = RoundTrip(employee);
+        listed.Fields = listed.Fields.Select(f => f.Name == "DepartmentId" ? DataAccessTestSupport.Field("DepartmentId", isArray: true) : f).ToList();
+        Assert.Null(targets.Find(listed, listed.Policies[0].RuleGroup.Rules[0]));
+
+        var removed = RoundTrip(employee);
+        removed.Fields = removed.Fields.Where(f => f.Name != "DepartmentId").ToList();
+        Assert.Null(targets.Find(removed, removed.Policies[0].RuleGroup.Rules[0]));
     }
 }

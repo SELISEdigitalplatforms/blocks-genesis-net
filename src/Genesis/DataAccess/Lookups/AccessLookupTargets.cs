@@ -14,29 +14,43 @@ public sealed record AccessLookupTarget(string SchemaName, string FieldName, str
 
 /// <summary>
 /// The targets of one schema's lookup rules, checked once when the schema is assembled against the definitions of
-/// the schemas they name (<see cref="TargetSchemaNames"/>). Keyed by the reference's value (target schema, target
-/// field, filter as JSON), so a copy of the schema (a snapshot, an entity view, a BSON round trip) finds the same
-/// targets. When rules with equal references get different answers (their left fields differ in type), the invalid
-/// answer is kept for all of them: never wider.
+/// the schemas they name (<see cref="TargetSchemaNames"/>). Keyed by value: the rule's left side (source, operand and
+/// the left field's type in the policy schema) and its reference (target schema, target field, filter as JSON). A
+/// copy of the schema (a snapshot, an entity view, a BSON round trip) finds the same targets; a rule whose left field
+/// changed type since the targets were built finds none, so it never matches.
 /// </summary>
 public sealed class AccessLookupTargets
 {
-    private readonly Dictionary<(string Schema, string Field, string Filter), AccessLookupTarget> _targets;
+    private readonly Dictionary<TargetKey, AccessLookupTarget> _targets;
 
-    private AccessLookupTargets(Dictionary<(string, string, string), AccessLookupTarget> targets) => _targets = targets;
+    private AccessLookupTargets(Dictionary<TargetKey, AccessLookupTarget> targets) => _targets = targets;
+
+    /// <summary>The value a lookup rule is matched by.</summary>
+    private readonly record struct TargetKey(ConditionSource LeftSource, string LeftOperand, string LeftType, string SchemaName, string FieldName, string Filter);
 
     /// <summary>
-    /// The target of <paramref name="reference"/> (matched by value), or null when no lookup rule of the schema these
-    /// targets were built from has an equal reference.
+    /// The target of <paramref name="rule"/>, a lookup rule of <paramref name="policySchema"/> (matched by value, the
+    /// left field's type read from <paramref name="policySchema"/>), or null when no equal rule was checked.
     /// </summary>
-    public AccessLookupTarget? Find(PolicyReference reference) =>
-        reference is not null && _targets.TryGetValue(KeyOf(reference), out var target) ? target : null;
+    public AccessLookupTarget? Find(SchemaDefinitionExtended policySchema, PolicyRule rule) =>
+        policySchema is not null && rule?.Reference is not null && _targets.TryGetValue(KeyOf(policySchema, rule), out var target) ? target : null;
 
-    /// <summary>The value a reference is matched by: trimmed schema name, trimmed field name (ItemId when blank), filter as JSON.</summary>
-    private static (string, string, string) KeyOf(PolicyReference reference) =>
-        (reference.SchemaName?.Trim() ?? string.Empty,
-         string.IsNullOrWhiteSpace(reference.FieldName) ? ReferenceTargets.DefaultTargetField : reference.FieldName.Trim(),
-         reference.Filter is null ? string.Empty : reference.Filter.ToJson());
+    /// <summary>
+    /// Left source, left operand, the left field's type ("" when the field is missing, "[]" appended for a list),
+    /// trimmed target schema name, trimmed target field name (ItemId when blank), filter as JSON.
+    /// </summary>
+    private static TargetKey KeyOf(SchemaDefinitionExtended policySchema, PolicyRule rule)
+    {
+        var reference = rule.Reference!;
+        var left = SourceField(policySchema, rule.LeftOperand);
+        return new TargetKey(
+            rule.LeftSource,
+            rule.LeftOperand ?? string.Empty,
+            left is null ? string.Empty : left.Type + (left.IsArray ? "[]" : string.Empty),
+            reference.SchemaName?.Trim() ?? string.Empty,
+            string.IsNullOrWhiteSpace(reference.FieldName) ? ReferenceTargets.DefaultTargetField : reference.FieldName.Trim(),
+            reference.Filter is null ? string.Empty : reference.Filter.ToJson());
+    }
 
     /// <summary>The schema names the lookup rules of <paramref name="policySchema"/>'s policies point at, distinct, in order.</summary>
     public static IReadOnlyCollection<string> TargetSchemaNames(SchemaDefinitionExtended policySchema)
@@ -59,14 +73,14 @@ public sealed class AccessLookupTargets
         ArgumentNullException.ThrowIfNull(policySchema);
         ArgumentNullException.ThrowIfNull(candidates);
 
-        var targets = new Dictionary<(string, string, string), AccessLookupTarget>();
+        var targets = new Dictionary<TargetKey, AccessLookupTarget>();
         foreach (var rule in LookupRules(policySchema))
         {
             if (rule.Reference is null)
                 continue;
             var target = Check(policySchema, candidates, rule);
-            var key = KeyOf(rule.Reference);
-            // Equal references under rules that get different answers: the invalid one wins.
+            var key = KeyOf(policySchema, rule);
+            // Equal keys always get the same answer; should they not, the invalid one wins.
             if (!targets.TryGetValue(key, out var known) || known.InvalidReason is null)
                 targets[key] = target;
         }
@@ -203,6 +217,8 @@ public sealed class AccessLookupTargets
         {
             if (condition.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
                 return "has a filter that looks into another schema";
+            if (condition.Operator is < PolicyOperator.EQUAL or > PolicyOperator.REGEX)
+                return "has a filter with an unknown operator";
             if (condition.LeftSource != ConditionSource.SCHEMA_FIELD || condition.RightSource is not (ConditionSource.STATIC_VALUE or ConditionSource.AUTH))
                 return "has a filter that doesn't compare a property with a fixed value or a current-user value";
             if (condition.LeftOperand != ReferenceTargets.DefaultTargetField && !ReferenceTargets.HasProperty(target.Fields, condition.LeftOperand))
