@@ -76,6 +76,18 @@ public class DataAccessPolicy : GraphQlBaseEntity
             IsAllowPolicy = IsAllowPolicy,
         };
     }
+
+    /// <summary>
+    /// A shallow copy of this policy (every property, ids included) with <paramref name="ruleGroup"/> as its rule
+    /// group. Used for per-request copies whose lookup rules are resolved; this instance is left unchanged.
+    /// </summary>
+    public DataAccessPolicy WithRuleGroup(PolicyRuleGroup ruleGroup)
+    {
+        ArgumentNullException.ThrowIfNull(ruleGroup);
+        var copy = (DataAccessPolicy)MemberwiseClone();
+        copy.RuleGroup = ruleGroup;
+        return copy;
+    }
 }
 
 /// <summary>
@@ -177,6 +189,15 @@ public class PolicyRule
     [BsonIgnore]
     [JsonIgnore]
     public LookupResolution? Resolution { get; set; }
+
+    /// <summary>A shallow copy of this rule with <paramref name="resolution"/> filled in; this instance is left unchanged.</summary>
+    public PolicyRule WithResolution(LookupResolution resolution)
+    {
+        ArgumentNullException.ThrowIfNull(resolution);
+        var copy = (PolicyRule)MemberwiseClone();
+        copy.Resolution = resolution;
+        return copy;
+    }
 
     /// <summary>
     /// Converts JsonElement to proper .NET types for MongoDB serialization.
