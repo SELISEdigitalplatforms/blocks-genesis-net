@@ -278,7 +278,7 @@ public static class DataAccessPolicyHelper
                 return new PolicyEvaluationResult
                 {
                     IsAccessGranted = true,
-                    DataFilter = new BsonDocument(LookupFieldName(rule.LeftOperand), new BsonDocument(
+                    DataFilter = new BsonDocument(rule.LeftOperand, new BsonDocument(
                         rule.Operator == PolicyOperator.IN ? "$in" : "$nin", WithTypedAlternatives(list))),
                     RequiresDataFilter = true
                 };

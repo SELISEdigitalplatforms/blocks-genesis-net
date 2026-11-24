@@ -398,6 +398,11 @@ public sealed record LookupResolution(LookupOutcome Outcome, BsonArray Values, I
 
     public static LookupResolution Always { get; } = new(LookupOutcome.Always, [], new HashSet<string>());
 
+    /// <summary>
+    /// Compare against <paramref name="values"/>: the DB filter uses them as stored, the in-memory check their
+    /// <see cref="Blocks.Genesis.DataAccess.Lookups.LookupKeys"/> (values without a key, such as null, are never matched).
+    /// </summary>
     public static LookupResolution Of(IReadOnlyList<BsonValue> values) =>
-        new(LookupOutcome.Values, new BsonArray(values), values.Select(WriteRules.ReferenceKey).ToHashSet());
+        new(LookupOutcome.Values, new BsonArray(values),
+            values.Select(Blocks.Genesis.DataAccess.Lookups.LookupKeys.Of).OfType<string>().ToHashSet(StringComparer.Ordinal));
 }

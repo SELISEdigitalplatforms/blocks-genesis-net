@@ -1,5 +1,5 @@
 using Blocks.Genesis.DataAccess;
-using Blocks.Genesis.DataAccess.Rules;
+using Blocks.Genesis.DataAccess.Lookups;
 using Blocks.Genesis.Entities.Data;
 using MongoDB.Bson;
 
@@ -88,8 +88,9 @@ public static class QueryPolicyRuleEvaluator
     /// <c>{field: {$in | $nin: values}}</c> built from it (<c>ItemId</c> read as <c>_id</c>, see
     /// <see cref="LookupFieldPath"/>). The field is read as the other rules read it (dotted paths,
     /// through lists of objects); a list value is matched item by item. A value is in the set when its
-    /// <see cref="WriteRules.ReferenceKey"/> is in <see cref="LookupResolution.Keys"/>: numbers by value across numeric
-    /// types, text by exact case, text never equal to a number. A null or missing value is not in the set.
+    /// <see cref="LookupKeys"/> key is in <see cref="LookupResolution.Keys"/>, which is exactly when MongoDB finds the
+    /// two equal: numbers by exact value across numeric types, text by exact case, no type equal to another (text
+    /// never equals a number, a bool or an id). A null or missing value, and a nested list or object, is not in the set.
     /// <see cref="LookupOutcome.Never"/> is false and <see cref="LookupOutcome.Always"/> true, whatever the operator.
     /// Unresolved: <see cref="AccessCheckFailedException"/>.
     /// </summary>
@@ -113,7 +114,8 @@ public static class QueryPolicyRuleEvaluator
             ? items
             : [GetNestedValueByPath(rowData, path)];
         var found = values.SelectMany(LookupCandidates)
-            .Any(value => resolution.Keys.Contains(WriteRules.ReferenceKey(BsonValue.Create(value))));
+            .Select(LookupKeyOf)
+            .Any(key => key is not null && resolution.Keys.Contains(key));
         return rule.Operator == PolicyOperator.EXISTS_IN ? found : !found;
     }
 
@@ -132,35 +134,44 @@ public static class QueryPolicyRuleEvaluator
     }
 
     /// <summary>
-    /// The values one field value offers to <c>$in</c> / <c>$nin</c>: itself, or each item of a list (text is a value,
-    /// not a list). Null gives nothing, and so does an object: looked-up values are single values, which an object
-    /// never equals in MongoDB.
+    /// The values one field value offers to <c>$in</c> / <c>$nin</c>: itself, or each item of a list (text and binary
+    /// are values, not lists). Items that are themselves lists or objects are offered too and get no key, so they never
+    /// match: <c>$in</c> doesn't look inside a nested list.
     /// </summary>
-    private static IEnumerable<object> LookupCandidates(object? value)
+    private static IEnumerable<object?> LookupCandidates(object? value)
     {
         switch (value)
         {
-            case null:
-            case BsonNull:
-            case BsonDocument:
-            case IDictionary<string, object>:
+            case BsonArray array:
+                foreach (var item in array)
+                    yield return item;
                 yield break;
-            case string:
-            case BsonValue and not BsonArray:
+            case string or byte[] or BsonValue or IDictionary<string, object>:
                 yield return value;
                 yield break;
             case System.Collections.IEnumerable list:
                 foreach (var item in list)
-                {
-                    if (item is not (null or BsonNull or BsonDocument or IDictionary<string, object>))
-                        yield return item;
-                }
+                    yield return item;
                 yield break;
             default:
                 yield return value;
                 yield break;
         }
     }
+
+    /// <summary>
+    /// The <see cref="LookupKeys"/> key of a row value, which arrives as a BsonValue or as the .NET value of a stored
+    /// document (<c>ToDictionary</c>). Null, lists and objects have no key. A Guid is the standard UUID binary.
+    /// </summary>
+    private static string? LookupKeyOf(object? value) => value switch
+    {
+        null => null,
+        BsonValue bson => LookupKeys.Of(bson),
+        Guid guid => LookupKeys.Of(new BsonBinaryData(guid, GuidRepresentation.Standard)),
+        string or byte[] => LookupKeys.Of(BsonValue.Create(value)),
+        IDictionary<string, object> or System.Collections.IEnumerable => null,
+        _ => LookupKeys.Of(BsonValue.Create(value))
+    };
 
     /// <summary>
     /// Evaluates the rule's left operand against one right operand. When exactly one side is a schema field whose

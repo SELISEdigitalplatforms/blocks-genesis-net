@@ -2,6 +2,7 @@
 using Blocks.Genesis;
 using Blocks.Genesis.DataAccess;
 using Blocks.Genesis.DataAccess.Evaluation;
+using Blocks.Genesis.DataAccess.Lookups;
 using Blocks.Genesis.Entities.Data;
 using MongoDB.Bson;
 
@@ -199,6 +200,28 @@ public sealed class LookupEvaluationTests
         { "{ DepartmentId: [ { Id: 'a' }, 'b' ] }", "DepartmentId", "['b']", "EXISTS_IN", true },
         { "{ DepartmentId: { Id: 'a' } }", "DepartmentId", "['a']", "EXISTS_IN", false },
         { "{ DepartmentId: { Id: 'a' } }", "DepartmentId", "['a']", "NOT_EXISTS_IN", true },
+        // exact typed equality (LookupKeys): numbers across types, nothing equal across other types
+        { "{ DepartmentId: NumberDecimal('5') }", "DepartmentId", "[5]", "EXISTS_IN", true },
+        { "{ DepartmentId: 5 }", "DepartmentId", "[NumberDecimal('5.00')]", "EXISTS_IN", true },
+        { "{ DepartmentId: 5 }", "DepartmentId", "[NumberDecimal('5.00')]", "NOT_EXISTS_IN", false },
+        { "{ DepartmentId: 0.5 }", "DepartmentId", "[NumberDecimal('0.5')]", "EXISTS_IN", true },
+        { "{ DepartmentId: NumberLong('9007199254740992') }", "DepartmentId", "[9007199254740992.0]", "EXISTS_IN", true },
+        { "{ DepartmentId: true }", "DepartmentId", "['true']", "EXISTS_IN", false },
+        { "{ DepartmentId: true }", "DepartmentId", "['true']", "NOT_EXISTS_IN", true },
+        { "{ DepartmentId: true }", "DepartmentId", "[true]", "EXISTS_IN", true },
+        { "{ DepartmentId: ObjectId('64b7f0c2a1b2c3d4e5f60718') }", "DepartmentId", "['64b7f0c2a1b2c3d4e5f60718']", "EXISTS_IN", false },
+        { "{ DepartmentId: ObjectId('64b7f0c2a1b2c3d4e5f60718') }", "DepartmentId", "['64b7f0c2a1b2c3d4e5f60718']", "NOT_EXISTS_IN", true },
+        { "{ DepartmentId: '64b7f0c2a1b2c3d4e5f60718' }", "DepartmentId", "[ObjectId('64b7f0c2a1b2c3d4e5f60718')]", "EXISTS_IN", false },
+        { "{ DepartmentId: ISODate('2024-05-01T10:00:00Z') }", "DepartmentId", "[ISODate('2024-05-01T10:00:00Z')]", "EXISTS_IN", true },
+        { "{ DepartmentId: ISODate('2024-05-01T10:00:00Z') }", "DepartmentId", "['2024-05-01T10:00:00Z']", "EXISTS_IN", false },
+        { "{ DepartmentId: UUID('2f1c7c4e-8b8a-4f43-9d7e-0c6a3b1e5d20') }", "DepartmentId", "[UUID('2f1c7c4e-8b8a-4f43-9d7e-0c6a3b1e5d20')]", "EXISTS_IN", true },
+        { "{ DepartmentId: UUID('2f1c7c4e-8b8a-4f43-9d7e-0c6a3b1e5d20') }", "DepartmentId", "['2f1c7c4e-8b8a-4f43-9d7e-0c6a3b1e5d20']", "EXISTS_IN", false },
+        // a list item that is itself a list never matches
+        { "{ DepartmentId: [ ['a'], 'b' ] }", "DepartmentId", "['a']", "EXISTS_IN", false },
+        { "{ DepartmentId: [ ['a'], 'b' ] }", "DepartmentId", "['a']", "NOT_EXISTS_IN", true },
+        { "{ DepartmentId: [ ['a'], 'b' ] }", "DepartmentId", "['b']", "EXISTS_IN", true },
+        { "{ Members: [ { Tags: [ ['a'] ] } ] }", "Members.Tags", "['a']", "EXISTS_IN", false },
+        { "{ Members: [ { Tags: [ ['a'] ] } ] }", "Members.Tags", "['a']", "NOT_EXISTS_IN", true },
         // empty resolved set
         { "{ DepartmentId: 'a' }", "DepartmentId", "[]", "EXISTS_IN", false },
         { "{ DepartmentId: 'a' }", "DepartmentId", "[]", "NOT_EXISTS_IN", true },
@@ -367,6 +390,134 @@ public sealed class LookupEvaluationTests
             PolicyOf(Lookup(PolicyOperator.EXISTS_IN, resolution: null)).EvaluatePolicy(Principal));
         Assert.Equal(expected, thrown.Message);
         Assert.Equal(string.Empty, thrown.SchemaName);
+    }
+
+    [Fact]
+    public void ExistingInRule_OnItemId_KeepsItsFieldName()
+    {
+        // Only the lookup branch maps ItemId to _id; an existing In rule keeps the ItemId key, inside a group too.
+        var inRule = DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "ItemId", PolicyOperator.IN, staticValue: "a,b");
+        var result = PolicyOf(PolicyLogicalOperator.AND, inRule, FieldEquals("Status", "Open")).EvaluatePolicy(Principal);
+
+        var parts = result.DataFilter["$and"].AsBsonArray;
+        var inPart = parts[0].AsBsonDocument;
+        Assert.True(inPart.Contains("ItemId"));
+        Assert.False(inPart.Contains("_id"));
+        Assert.Equal("$in", inPart["ItemId"].AsBsonDocument.GetElement(0).Name);
+    }
+
+    [Fact]
+    public void LookupRule_WithAuthLeftSide_Throws_AccessCheckFailed()
+    {
+        var rule = Lookup(PolicyOperator.EXISTS_IN, LookupResolution.Of(["user-1"]));
+        rule.LeftSource = ConditionSource.AUTH;
+        rule.LeftOperand = "UserId";
+
+        var db = Assert.Throws<AccessCheckFailedException>(() => PolicyOf(rule).EvaluatePolicy(Principal));
+        var memory = Assert.Throws<AccessCheckFailedException>(() =>
+            QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, rule, new Dictionary<string, object> { ["UserId"] = "user-1" }));
+        Assert.Contains("record field", db.Reason, StringComparison.Ordinal);
+        Assert.Contains("record field", memory.Reason, StringComparison.Ordinal);
+    }
+
+    private static void AssertSameKey(BsonValue left, BsonValue right)
+    {
+        Assert.NotNull(LookupKeys.Of(left));
+        Assert.Equal(LookupKeys.Of(left), LookupKeys.Of(right));
+    }
+
+    private static void AssertDifferentKey(BsonValue left, BsonValue right)
+    {
+        Assert.NotNull(LookupKeys.Of(left));
+        Assert.NotNull(LookupKeys.Of(right));
+        Assert.NotEqual(LookupKeys.Of(left), LookupKeys.Of(right));
+    }
+
+    [Fact]
+    public void LookupKeys_Numbers_ExactValueAcrossTypes()
+    {
+        const long twoTo53 = 9007199254740992L;
+        AssertSameKey(5, new BsonInt64(5));
+        AssertSameKey(5, new BsonDouble(5.0));
+        AssertSameKey(5, new BsonDecimal128(5m));
+        AssertSameKey(5, new BsonDecimal128(Decimal128.Parse("5.000")));
+        AssertSameKey(1500, new BsonDecimal128(Decimal128.Parse("1.5E+3")));
+        AssertSameKey(new BsonDouble(0.5), new BsonDecimal128(Decimal128.Parse("0.5")));
+        AssertSameKey(new BsonDouble(-0.0), 0);
+        AssertSameKey(new BsonDouble(-2.25), new BsonDecimal128(Decimal128.Parse("-2.250")));
+        AssertSameKey(new BsonInt64(twoTo53), new BsonDouble(twoTo53));
+        AssertSameKey(new BsonDouble(double.NaN), new BsonDecimal128(Decimal128.QNaN));
+
+        AssertDifferentKey(new BsonInt64(twoTo53 + 1), new BsonInt64(twoTo53));
+        AssertDifferentKey(new BsonInt64(twoTo53 + 1), new BsonDouble(twoTo53));
+        AssertDifferentKey(new BsonInt64(long.MaxValue), new BsonInt64(long.MaxValue - 1));
+        AssertDifferentKey(new BsonDouble(0.1), new BsonDecimal128(Decimal128.Parse("0.1"))); // 0.1 isn't exact in binary
+        AssertDifferentKey(5, 6);
+        AssertDifferentKey(new BsonDouble(1e-300), new BsonDouble(2e-300));
+        AssertSameKey(new BsonDouble(1e-300), new BsonDouble(1e-300));
+        AssertSameKey(new BsonDouble(1e300), new BsonDouble(1e300));
+        AssertDifferentKey(new BsonDouble(1e300), new BsonDecimal128(Decimal128.Parse("1E+300")));
+    }
+
+    [Fact]
+    public void LookupKeys_OtherTypes_NeverEqualText()
+    {
+        var id = ObjectId.Parse("64b7f0c2a1b2c3d4e5f60718");
+        var guid = Guid.Parse("2f1c7c4e-8b8a-4f43-9d7e-0c6a3b1e5d20");
+        var date = new DateTime(2024, 5, 1, 10, 0, 0, DateTimeKind.Utc);
+
+        AssertDifferentKey(true, "true");
+        AssertDifferentKey(false, "false");
+        AssertDifferentKey(true, 1);
+        AssertDifferentKey(id, id.ToString());
+        AssertDifferentKey(new BsonDateTime(date), date.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+        AssertDifferentKey(new BsonBinaryData(guid, GuidRepresentation.Standard), guid.ToString());
+        AssertDifferentKey("5", 5);
+        AssertDifferentKey("x", "X");
+
+        AssertSameKey(true, true);
+        AssertSameKey(id, ObjectId.Parse(id.ToString()));
+        AssertSameKey(new BsonDateTime(date), new BsonDateTime(date));
+        AssertSameKey(new BsonBinaryData(guid, GuidRepresentation.Standard), new BsonBinaryData(guid, GuidRepresentation.Standard));
+        AssertSameKey("x", "x");
+    }
+
+    [Fact]
+    public void LookupKeys_NullListsAndObjects_HaveNoKey()
+    {
+        Assert.Null(LookupKeys.Of(null));
+        Assert.Null(LookupKeys.Of(BsonNull.Value));
+        Assert.Null(LookupKeys.Of(new BsonArray { "a" }));
+        Assert.Null(LookupKeys.Of(new BsonDocument("a", 1)));
+
+        var resolution = LookupResolution.Of([BsonNull.Value, "a"]);
+        Assert.Equal(new[] { "s:a" }, resolution.Keys);
+    }
+
+    [Fact]
+    public void Memory_Int64Above2To53_DoesNotCollide()
+    {
+        // Mongo compares Int64 exactly. (BsonFilterMatcher compares numbers through double, so this row is pinned
+        // in memory only.)
+        const long twoTo53 = 9007199254740992L;
+        var exists = Lookup(PolicyOperator.EXISTS_IN, LookupResolution.Of([new BsonInt64(twoTo53)]));
+        var notExists = Lookup(PolicyOperator.NOT_EXISTS_IN, LookupResolution.Of([new BsonInt64(twoTo53)]));
+        var row = new BsonDocument("DepartmentId", new BsonInt64(twoTo53 + 1)).ToDictionary();
+
+        Assert.False(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, exists, row));
+        Assert.True(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, notExists, row));
+
+        var same = new BsonDocument("DepartmentId", new BsonInt64(twoTo53)).ToDictionary();
+        Assert.True(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, exists, same));
+    }
+
+    [Fact]
+    public void Memory_DoubleVsInexactDecimal_NotEqual()
+    {
+        // Mongo: 0.1 (double) != NumberDecimal("0.1"). Pinned in memory only (BsonFilterMatcher rounds through decimal).
+        var rule = Lookup(PolicyOperator.EXISTS_IN, LookupResolution.Of([new BsonDecimal128(Decimal128.Parse("0.1"))]));
+        var row = new BsonDocument("DepartmentId", 0.1).ToDictionary();
+        Assert.False(QueryPolicyRuleEvaluator.EvaluateSingleRuleForRow(Principal, rule, row));
     }
 
     [Fact]
