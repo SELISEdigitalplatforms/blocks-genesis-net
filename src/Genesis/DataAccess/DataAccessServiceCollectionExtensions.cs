@@ -1,6 +1,9 @@
 using Blocks.Genesis.DataAccess.Evaluation;
+using Blocks.Genesis.DataAccess.Lookups;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Blocks.Genesis.DataAccess;
 
@@ -38,6 +41,10 @@ public static class DataAccessServiceCollectionExtensions
     /// reads <see cref="BlocksContext"/> and never treats the caller as the root tenant, so no request bypasses
     /// the policies unless the host says so with its own accessor.
     /// </para>
+    /// <para>
+    /// Cross-schema rules (EXISTS_IN / NOT_EXISTS_IN) are looked up by <see cref="DbContextAccessLookupRunner"/>, in the
+    /// caller's database, through <see cref="AccessLookupResolver"/>.
+    /// </para>
     /// </summary>
     public static IServiceCollection AddBlocksDataAccess(this IServiceCollection services, Action<DataAccessOptions>? configure = null)
     {
@@ -46,6 +53,10 @@ public static class DataAccessServiceCollectionExtensions
         services.AddSingleton(options);
         services.AddSingleton<IAccessPolicySource, SchemaPolicySource>();
         services.AddSingleton<IDataAccessPolicyResolutionService, DataAccessPolicyResolutionService>();
+        services.AddSingleton<IAccessLookupRunner, DbContextAccessLookupRunner>();
+        services.AddSingleton(sp => new AccessLookupResolver(
+            sp.GetRequiredService<IAccessLookupRunner>(),
+            sp.GetService<ILogger<AccessLookupResolver>>() ?? NullLogger<AccessLookupResolver>.Instance));
         services.AddSingleton<IDataAccessResolver, DataAccessResolver>();
         services.TryAddSingleton<IAccessPrincipalEnricher, AccessPrincipalEnricher>();
         services.TryAddSingleton<IAccessPrincipalAccessor, BlocksContextAccessPrincipalAccessor>();
