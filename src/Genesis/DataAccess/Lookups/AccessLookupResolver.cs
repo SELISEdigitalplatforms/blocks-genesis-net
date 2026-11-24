@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Blocks.Genesis.DataAccess.Evaluation;
 using Blocks.Genesis.Entities.Data;
 using Microsoft.Extensions.Logging;
@@ -34,6 +35,13 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
     private static readonly EventId TargetMissing = new(7102, "AccessLookupTargetMissing");
     private static readonly EventId TooLarge = new(7103, "AccessLookupTooLarge");
 
+    /// <summary>The most distinct target problems remembered; past it every one is logged again (never fewer logs).</summary>
+    private const int MaxTargetMissingRemembered = 10_000;
+
+    // AccessLookupTargetMissing is a configuration problem that repeats on every request: logged once per
+    // (schema, target, reason) for the life of this resolver (a singleton, so once per process).
+    private readonly ConcurrentDictionary<(string?, string?, string?, string), byte> _targetMissingLogged = new();
+
     private readonly IAccessLookupRunner _runner = runner ?? throw new ArgumentNullException(nameof(runner));
     private readonly ILogger<AccessLookupResolver> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -49,7 +57,9 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(targets);
 
-        if (!AccessLookupPlanner.UsesLookups(schema))
+        // Callers check first (the gateway with the cached UsesLookups on its long-lived schemas, DataAccessResolver
+        // with HasLookups on its per-request ones); this walk caches nothing, so no per-request entry is left behind.
+        if (!AccessLookupPlanner.HasLookups(schema))
             return schema;
         // Deny policies are never resolved: a rule that never matches would lift the deny. Left unresolved, they
         // reach the evaluation backstop, which refuses the request.
@@ -87,10 +97,12 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         var target = reference is null ? null : targets.Find(schema, rule);
         if (target is null || target.InvalidReason is not null)
         {
-            _logger.LogWarning(TargetMissing,
-                "Access lookup on {Schema} gives no access: target {Target}.{Field} {Reason}",
-                schema.SchemaName, target?.SchemaName ?? reference?.SchemaName, target?.FieldName ?? reference?.FieldName,
-                target?.InvalidReason ?? "was not checked for this schema");
+            var (targetName, fieldName) = (target?.SchemaName ?? reference?.SchemaName, target?.FieldName ?? reference?.FieldName);
+            var reason = target?.InvalidReason ?? "was not checked for this schema";
+            if (FirstTargetMissing(schema.SchemaName, targetName, fieldName, reason))
+                _logger.LogWarning(TargetMissing,
+                    "Access lookup on {Schema} gives no access: target {Target}.{Field} {Reason}",
+                    schema.SchemaName, targetName, fieldName, reason);
             return LookupResolution.Never;
         }
 
@@ -101,9 +113,10 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(TargetMissing,
-                "Access lookup on {Schema} gives no access: target {Target}.{Field} has a filter that can't be run ({Reason})",
-                schema.SchemaName, target.SchemaName, target.FieldName, ex.Message);
+            if (FirstTargetMissing(schema.SchemaName, target.SchemaName, target.FieldName, ex.Message))
+                _logger.LogWarning(TargetMissing,
+                    "Access lookup on {Schema} gives no access: target {Target}.{Field} has a filter that can't be run ({Reason})",
+                    schema.SchemaName, target.SchemaName, target.FieldName, ex.Message);
             return LookupResolution.Never;
         }
 
@@ -143,6 +156,15 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         if (values.Count == 0)
             return rule.Operator == PolicyOperator.NOT_EXISTS_IN ? LookupResolution.Always : LookupResolution.Never;
         return LookupResolution.Of(values);
+    }
+
+    /// <summary>True the first time a (schema, target, reason) is seen, and always once the memory is full.</summary>
+    private bool FirstTargetMissing(string? schemaName, string? targetName, string? fieldName, string reason)
+    {
+        var key = (schemaName, targetName, fieldName, reason);
+        if (_targetMissingLogged.ContainsKey(key))
+            return false;
+        return _targetMissingLogged.Count >= MaxTargetMissingRemembered || _targetMissingLogged.TryAdd(key, 0);
     }
 
     /// <summary>The WHERE filter, the field present, and the row not deleted.</summary>

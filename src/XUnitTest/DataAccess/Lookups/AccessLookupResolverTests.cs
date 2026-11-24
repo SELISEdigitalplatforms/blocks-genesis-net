@@ -163,6 +163,31 @@ public sealed class AccessLookupResolverTests
     }
 
     [Fact]
+    public async Task Resolve_TargetMissing_LoggedOncePerSchemaTargetAndReason()
+    {
+        var (resolver, _, log) = Setup(new RecordingRunner("X"));
+        var division = Employee(Rls(PolicyOperation.READ, Lookup("DepartmentId", "Division", "ItemId")));
+
+        for (var i = 0; i < 3; i++)
+            Assert.Same(LookupResolution.Never, FirstRule(await Resolve(resolver, division)).Resolution);
+        Assert.Single(log.Named("AccessLookupTargetMissing"));
+
+        // Another target, or another schema, is logged on its own; the rule still never matches.
+        var region = Employee(Rls(PolicyOperation.READ, Lookup("DepartmentId", "Region", "ItemId")));
+        Assert.Same(LookupResolution.Never, FirstRule(await Resolve(resolver, region)).Resolution);
+        Assert.Same(LookupResolution.Never, FirstRule(await Resolve(resolver, region)).Resolution);
+        var user = User(Rls(PolicyOperation.READ, Lookup("ItemId", "Division", "ItemId")));
+        Assert.Same(LookupResolution.Never, FirstRule(await Resolve(resolver, user)).Resolution);
+        Assert.Equal(3, log.Named("AccessLookupTargetMissing").Count);
+
+        // Other events are unchanged: a missing Auth value is logged on every request.
+        var anonymous = AccessPrincipal.Anonymous;
+        await Resolve(resolver, Employee(Rls(PolicyOperation.READ, MyDepartment())), anonymous, candidates: Employee());
+        await Resolve(resolver, Employee(Rls(PolicyOperation.READ, MyDepartment())), anonymous, candidates: Employee());
+        Assert.Equal(2, log.Named("AccessLookupAuthMissing").Count);
+    }
+
+    [Fact]
     public async Task Resolve_BsonRoundTrippedCopy_UsesTargetsBuiltFromOriginal()
     {
         var (resolver, runner, log) = Setup(new RecordingRunner("X"));
