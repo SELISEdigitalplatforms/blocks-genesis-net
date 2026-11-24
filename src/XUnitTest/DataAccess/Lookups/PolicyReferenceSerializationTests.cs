@@ -1,3 +1,4 @@
+using Blocks.Genesis.DataAccess.Lookups;
 #pragma warning disable CA1707, CA2007
 using System.Text.Json;
 using Blocks.Genesis.Entities.Data;
