@@ -324,4 +324,52 @@ public class ValidationRuleCheckTests
     {
         Assert.Empty(Check(Relative(ValidationType.Equal, "{{Now}}", version: 0), "Age"));
     }
+    // F2: only the 15 operators Equal..Regex are read in a condition or a filter. Must (not) exist in, or any other
+    // value, would make every write to the schema fail (and break older readers), so it is refused at every depth.
+    public static TheoryData<PolicyOperator> NonLegacyOperators() => new()
+    {
+        PolicyOperator.EXISTS_IN, PolicyOperator.NOT_EXISTS_IN, (PolicyOperator)99, (PolicyOperator)(-1),
+    };
+
+    [Theory]
+    [MemberData(nameof(NonLegacyOperators))]
+    public void Condition_WithAnOperatorOutsideEqualToRegex_IsRefused_InWhenFilterAndNested(PolicyOperator op)
+    {
+        Assert.Equal("This condition uses an operator that isn't available here.", ValidationRuleCheck.OperatorNotAvailable);
+
+        var when = When(Fixed("Country", op, "DE"));
+        var filter = Filtered(ValidationType.Reference, Fixed("Name", op, "x"));
+        var nested = new ValidationRule
+        {
+            Type = ValidationType.NotEmpty,
+            When = new PolicyRuleGroup
+            {
+                Rules = [Fixed("Country", PolicyOperator.EQUAL, "DE")],
+                NestedGroups = [new() { NestedGroups = [new() { Rules = [Fixed("Age", op, "1")] }] }],
+            },
+        };
+        foreach (var rule in new[] { when, filter, nested })
+        {
+            Assert.Contains(ValidationRuleCheck.OperatorNotAvailable, Check(rule));
+            Assert.Contains(ValidationRuleCheck.OperatorNotAvailable, Check(rule, system: true));
+            Assert.Equal([ValidationRuleCheck.OperatorNotAvailable], ValidationRuleCheck.Operators(rule));
+        }
+    }
+
+    [Fact]
+    public void Operators_EveryLegacyOperator_AndNoCondition_GiveNoMessage()
+    {
+        var legacy = Enum.GetValues<PolicyOperator>().Where(o => o is >= PolicyOperator.EQUAL and <= PolicyOperator.REGEX).ToList();
+        Assert.Equal(15, legacy.Count);
+        var rule = new ValidationRule
+        {
+            Type = ValidationType.Reference,
+            When = new PolicyRuleGroup { Rules = [.. legacy.Select(o => Fixed("Name", o, "a"))], NestedGroups = [new() { Rules = [.. legacy.Select(o => Fixed("Age", o, "1"))] }] },
+            TargetFilter = new PolicyRuleGroup { Rules = [.. legacy.Select(o => Fixed("Name", o, "a"))] },
+        };
+        Assert.Empty(ValidationRuleCheck.Operators(rule));
+        Assert.Empty(ValidationRuleCheck.Operators(new ValidationRule { Type = ValidationType.NotEmpty }));
+        Assert.Empty(ValidationRuleCheck.Operators(new ValidationRule { Type = ValidationType.NotEmpty, When = new PolicyRuleGroup { Rules = null!, NestedGroups = null! } }));
+        Assert.DoesNotContain(ValidationRuleCheck.OperatorNotAvailable, Check(rule));
+    }
 }
