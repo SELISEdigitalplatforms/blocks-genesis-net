@@ -1,4 +1,5 @@
 using Blocks.Genesis.DataAccess;
+using Blocks.Genesis.DataAccess.Rules;
 using Blocks.Genesis.Entities.Data;
 using MongoDB.Bson;
 
@@ -71,11 +72,78 @@ public static class QueryPolicyRuleEvaluator
     /// </summary>
     public static bool EvaluateSingleRuleForRow(AccessPrincipal principal, PolicyRule rule, IDictionary<string, object> rowData)
     {
+        // Must exist in / Must not exist in: first, ahead of all value handling.
+        if (DataAccessPolicyHelper.IsLookupOperator(rule.Operator))
+            return EvaluateLookupRuleForRow(rule, rowData);
+
         var rightOperands = rule.RightOperands.Count > 0 ? rule.RightOperands : [rule.RightOperand];
         var results = rightOperands.Select(operand => EvaluateOperandPairForRow(principal, rule, operand, rowData));
         return rule.Operator is PolicyOperator.NOT_IN or PolicyOperator.NOT_CONTAIN
             ? results.All(result => result)
             : results.Any(result => result);
+    }
+
+    /// <summary>
+    /// A resolved Must exist in / Must not exist in rule against a row, with the answer MongoDB gives the filter
+    /// <c>{field: {$in | $nin: values}}</c> built from it. The field is read as the other rules read it (dotted paths,
+    /// through lists of objects); a list value is matched item by item. A value is in the set when its
+    /// <see cref="WriteRules.ReferenceKey"/> is in <see cref="LookupResolution.Keys"/>: numbers by value across numeric
+    /// types, text by exact case, text never equal to a number. A null or missing value is not in the set.
+    /// <see cref="LookupOutcome.Never"/> is false and <see cref="LookupOutcome.Always"/> true, whatever the operator.
+    /// Unresolved: <see cref="AccessCheckFailedException"/>.
+    /// </summary>
+    private static bool EvaluateLookupRuleForRow(PolicyRule rule, IDictionary<string, object> rowData)
+    {
+        var resolution = DataAccessPolicyHelper.RequireResolution(rule);
+        switch (resolution.Outcome)
+        {
+            case LookupOutcome.Never:
+                return false;
+            case LookupOutcome.Always:
+                return true;
+            case LookupOutcome.Values:
+                break;
+            default:
+                throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule has an unknown lookup outcome {resolution.Outcome}.");
+        }
+
+        var values = TryGetValuesThroughLists(rowData, rule.LeftOperand, out var items)
+            ? items
+            : [GetNestedValueByPath(rowData, rule.LeftOperand)];
+        var found = values.SelectMany(LookupCandidates)
+            .Any(value => resolution.Keys.Contains(WriteRules.ReferenceKey(BsonValue.Create(value))));
+        return rule.Operator == PolicyOperator.EXISTS_IN ? found : !found;
+    }
+
+    /// <summary>
+    /// The values one field value offers to <c>$in</c> / <c>$nin</c>: itself, or each item of a list (text is a value,
+    /// not a list). Null gives nothing, and so does an object: looked-up values are single values, which an object
+    /// never equals in MongoDB.
+    /// </summary>
+    private static IEnumerable<object> LookupCandidates(object? value)
+    {
+        switch (value)
+        {
+            case null:
+            case BsonNull:
+            case BsonDocument:
+            case IDictionary<string, object>:
+                yield break;
+            case string:
+            case BsonValue and not BsonArray:
+                yield return value;
+                yield break;
+            case System.Collections.IEnumerable list:
+                foreach (var item in list)
+                {
+                    if (item is not (null or BsonNull or BsonDocument or IDictionary<string, object>))
+                        yield return item;
+                }
+                yield break;
+            default:
+                yield return value;
+                yield break;
+        }
     }
 
     /// <summary>

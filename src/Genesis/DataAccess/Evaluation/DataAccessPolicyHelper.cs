@@ -221,6 +221,11 @@ public static class DataAccessPolicyHelper
     /// </summary>
     private static PolicyEvaluationResult EvaluateRule(AccessPrincipal principal, PolicyRule rule)
     {
+        // Must exist in / Must not exist in: first, ahead of all value handling (no comma splitting, no typed
+        // alternatives); the looked-up values are compared as stored.
+        if (IsLookupOperator(rule.Operator))
+            return EvaluateLookupRule(rule);
+
         var leftIsToken = rule.LeftSource == ConditionSource.AUTH;
         var leftIsSchema = rule.LeftSource == ConditionSource.SCHEMA_FIELD;
         var rightIsSchema = rule.RightSource == ConditionSource.SCHEMA_FIELD;
@@ -364,6 +369,52 @@ public static class DataAccessPolicyHelper
 
         return new PolicyEvaluationResult { IsAccessGranted = true };
     }
+
+    /// <summary>True for <see cref="PolicyOperator.EXISTS_IN"/> and <see cref="PolicyOperator.NOT_EXISTS_IN"/>.</summary>
+    internal static bool IsLookupOperator(PolicyOperator op) =>
+        op is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN;
+
+    /// <summary>
+    /// A resolved Must exist in / Must not exist in rule. <see cref="LookupOutcome.Values"/> filters the record field
+    /// with <c>$in</c> / <c>$nin</c> on the looked-up values with their stored types. <see cref="LookupOutcome.Never"/>
+    /// and <see cref="LookupOutcome.Always"/> are the rule's fixed answer (whatever the operator) and evaluate like an
+    /// Auth-only condition that is false / true: no row filter, so no constant <c>$expr</c> reaches MongoDB and
+    /// AND / OR combine it as they combine any Auth-only condition. Unresolved: <see cref="AccessCheckFailedException"/>.
+    /// </summary>
+    private static PolicyEvaluationResult EvaluateLookupRule(PolicyRule rule)
+    {
+        var resolution = RequireResolution(rule);
+        return resolution.Outcome switch
+        {
+            LookupOutcome.Never => new PolicyEvaluationResult { IsAccessGranted = false, RequiresDataFilter = false },
+            LookupOutcome.Always => new PolicyEvaluationResult { IsAccessGranted = true, RequiresDataFilter = false },
+            LookupOutcome.Values => new PolicyEvaluationResult
+            {
+                IsAccessGranted = true,
+                DataFilter = new BsonDocument(rule.LeftOperand, new BsonDocument(
+                    rule.Operator == PolicyOperator.EXISTS_IN ? "$in" : "$nin", new BsonArray(resolution.Values))),
+                RequiresDataFilter = true
+            },
+            _ => throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule has an unknown lookup outcome {resolution.Outcome}.")
+        };
+    }
+
+    /// <summary>
+    /// The rule's resolution; throws <see cref="AccessCheckFailedException"/> (empty schema name) when the lookup was
+    /// never resolved, or the rule doesn't compare a record field. Shared with <see cref="QueryPolicyRuleEvaluator"/>.
+    /// </summary>
+    internal static LookupResolution RequireResolution(PolicyRule rule)
+    {
+        if (rule.LeftSource != ConditionSource.SCHEMA_FIELD || string.IsNullOrEmpty(rule.LeftOperand))
+            throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule must compare a record field.");
+        return rule.Resolution
+            ?? throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule on '{rule.LeftOperand}' reached evaluation unresolved.");
+    }
+
+    private static AccessCheckFailedException UnevaluableOperator(PolicyOperator op) =>
+        new(string.Empty, IsLookupOperator(op)
+            ? $"{op} can only be evaluated as a resolved policy rule."
+            : $"Unknown policy operator {(int)op}.");
 
     /// <summary>
     /// Combines multiple evaluation results based on logical operator.
@@ -634,6 +685,11 @@ public static class DataAccessPolicyHelper
     /// </summary>
     public static bool EvaluateCondition(object? leftValue, PolicyOperator op, object? rightValue)
     {
+        // Only the operators up to REGEX are answered here. Any other (Must (not) exist in, which needs its resolved
+        // lookup, or an unknown value) refuses instead of reading as false; checked first so no value shape skips it.
+        if (op is < PolicyOperator.EQUAL or > PolicyOperator.REGEX)
+            throw UnevaluableOperator(op);
+
         // Handle null cases
         if (op == PolicyOperator.IS_NULL)
             return leftValue is null || (leftValue is string s && string.IsNullOrEmpty(s));
@@ -681,7 +737,7 @@ public static class DataAccessPolicyHelper
             PolicyOperator.START_WITH => leftValue.ToString()?.StartsWith(rightValue.ToString() ?? "") ?? false,
             PolicyOperator.END_WITH => leftValue.ToString()?.EndsWith(rightValue.ToString() ?? "") ?? false,
             PolicyOperator.REGEX => Regex.IsMatch(leftValue.ToString() ?? "", rightValue.ToString() ?? "", RegexOptions.None, TimeSpan.FromSeconds(1)),
-            _ => false
+            _ => throw UnevaluableOperator(op)
         };
     }
 
@@ -921,7 +977,8 @@ public static class DataAccessPolicyHelper
             PolicyOperator.IS_NULL => new BsonDocument(fieldName, BsonNull.Value),
             PolicyOperator.IS_NOT_NULL => new BsonDocument(fieldName, new BsonDocument("$ne", BsonNull.Value)),
             PolicyOperator.REGEX => new BsonDocument(fieldName, new BsonDocument("$regex", value?.ToString() ?? "")),
-            _ => new BsonDocument()
+            // An empty filter would grant every row: refuse instead (unknown operator, or an unresolved lookup).
+            _ => throw UnevaluableOperator(op)
         };
     }
 
