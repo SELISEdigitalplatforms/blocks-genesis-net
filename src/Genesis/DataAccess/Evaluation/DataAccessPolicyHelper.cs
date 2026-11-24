@@ -925,6 +925,81 @@ public static class DataAccessPolicyHelper
         };
     }
 
+    /// <summary>
+    /// The Mongo match for a lookup's WHERE condition, for the caller's own Auth values. Conditions compare a target
+    /// field with a static value or an Auth value; <c>ItemId</c> is read as the stored <c>_id</c> at every level. When
+    /// an Auth value the condition needs is null, the first such name is reported in
+    /// <see cref="Lookups.AccessLookupFilter.MissingAuthName"/> and no condition comparing to null is emitted.
+    /// </summary>
+    public static Lookups.AccessLookupFilter BuildAccessLookupFilter(PolicyRuleGroup? filter, AccessPrincipal principal)
+    {
+        string? missing = null;
+        var match = filter is null ? new BsonDocument() : BuildLookupGroup(filter, principal, ref missing);
+        return new Lookups.AccessLookupFilter(match, missing);
+    }
+
+    private static BsonDocument BuildLookupGroup(PolicyRuleGroup group, AccessPrincipal principal, ref string? missing)
+    {
+        var parts = new List<BsonDocument>();
+        foreach (var rule in group.Rules)
+        {
+            var part = BuildLookupRule(rule, principal, ref missing);
+            if (part is not null)
+                parts.Add(part);
+        }
+        foreach (var nested in group.NestedGroups)
+        {
+            var part = BuildLookupGroup(nested, principal, ref missing);
+            if (part.ElementCount > 0)
+                parts.Add(part);
+        }
+
+        return parts.Count switch
+        {
+            0 => new BsonDocument(),
+            1 => parts[0],
+            _ => new BsonDocument(group.LogicalOperator == PolicyLogicalOperator.OR ? "$or" : "$and", new BsonArray(parts)),
+        };
+    }
+
+    private static BsonDocument? BuildLookupRule(PolicyRule rule, AccessPrincipal principal, ref string? missing)
+    {
+        if (rule.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
+            throw new InvalidOperationException("A lookup filter cannot contain Must exist in / Must not exist in.");
+        if (rule.LeftSource != ConditionSource.SCHEMA_FIELD || rule.RightSource is not (ConditionSource.STATIC_VALUE or ConditionSource.AUTH))
+            throw new InvalidOperationException("A lookup filter condition compares a target field with a static value or an Auth value.");
+
+        var field = rule.LeftOperand == nameof(GraphQlBaseEntity.ItemId) ? PolicyConstants.DbEntityIdFieldName : rule.LeftOperand;
+        if (rule.Operator is PolicyOperator.IS_NULL or PolicyOperator.IS_NOT_NULL)
+            return BuildConditionFilter(principal, field, rule.Operator, null);
+
+        object? value;
+        if (rule.RightSource == ConditionSource.AUTH)
+        {
+            value = GetTokenValue(principal, rule.RightOperand);
+            if (value is null)
+            {
+                missing ??= rule.RightOperand;
+                return null;
+            }
+        }
+        else
+        {
+            value = rule.StaticValue;
+            if (value is string text)
+            {
+                var lacking = AuthExpressionNames(text).FirstOrDefault(name => GetTokenValue(principal, name) is null);
+                if (lacking is not null)
+                {
+                    missing ??= lacking;
+                    return null;
+                }
+            }
+        }
+
+        return BuildConditionFilter(principal, field, rule.Operator, value);
+    }
+
     private static readonly Regex IsoDatePattern = new(@"^\d{4}-\d{2}-\d{2}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     /// <summary>
