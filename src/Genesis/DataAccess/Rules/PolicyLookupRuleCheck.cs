@@ -13,7 +13,7 @@ public static class PolicyLookupRuleCheck
 {
     public const string AllowOnlyMessage = "Exists in another schema is only available in rule sets that allow access.";
     public const string NotAvailableMessage = "Exists in another schema isn't available yet on this platform.";
-    public const string SystemOnlyMessage = "A rule on a system schema can only look into system schemas.";
+    public const string SystemOnlyMessage = AccessLookupTargets.SystemOnlyMessage;
     public const string NestedLookupMessage = "Exists in another schema can't be used inside a lookup's WHERE box.";
     public const string TooDeepMessage = "A lookup's WHERE box can be nested at most 3 levels deep.";
 

@@ -21,6 +21,9 @@ public sealed record AccessLookupTarget(string SchemaName, string FieldName, str
 /// </summary>
 public sealed class AccessLookupTargets
 {
+    /// <summary>The reason recorded when a policy on a system schema names a tenant schema.</summary>
+    public const string SystemOnlyMessage = "A rule on a system schema can only look into system schemas.";
+
     private readonly Dictionary<TargetKey, AccessLookupTarget> _targets;
 
     private AccessLookupTargets(Dictionary<TargetKey, AccessLookupTarget> targets) => _targets = targets;
@@ -116,7 +119,13 @@ public sealed class AccessLookupTargets
 
         var (target, problem) = FindTarget(policySchema, candidates, schemaName);
         if (target is null)
+        {
+            // A system schema's policy never sees tenant schemas; say why instead of "does not exist".
+            if (policySchema.IsSystemEntity && candidates.Any(s => s is not null && !s.IsSystemEntity && s.SchemaType == SchemaType.Entity && !s.IsDeleted
+                    && string.Equals(s.SchemaName, schemaName, StringComparison.OrdinalIgnoreCase)))
+                return Invalid(SystemOnlyMessage);
             return Invalid(problem!);
+        }
 
         if (policySchema.IsSystemEntity && !target.IsSystemEntity)
             return Invalid($"looks into tenant schema '{target.SchemaName}', but a policy on a system schema may only look into system schemas", target);

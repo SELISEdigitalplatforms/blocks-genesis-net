@@ -28,7 +28,7 @@ public sealed class PolicyLookupRuleCheckTests
     {
         var rule = MyDepartment();
         rule.Reference = null;
-        Assert.NotEmpty(PolicyLookupRuleCheck.Shape(Allow(rule)));
+        Assert.Equal(["The exists-in rule on 'DepartmentId' has no schema to look into."], PolicyLookupRuleCheck.Shape(Allow(rule)));
     }
 
     [Fact]
@@ -36,21 +36,23 @@ public sealed class PolicyLookupRuleCheckTests
     {
         var rule = DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "Name", PolicyOperator.EQUAL, staticValue: "a");
         rule.Reference = new PolicyReference { SchemaName = "Department" };
-        Assert.NotEmpty(PolicyLookupRuleCheck.Shape(Allow(rule)));
+        Assert.Equal(["A rule on 'Name' carries a lookup target, but only exists-in rules can."], PolicyLookupRuleCheck.Shape(Allow(rule)));
     }
 
     [Fact]
     public void Shape_WhereRightSideFromField_Refused()
     {
         var where = DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "UserId", PolicyOperator.EQUAL, ConditionSource.SCHEMA_FIELD, "Name");
-        Assert.NotEmpty(PolicyLookupRuleCheck.Shape(Allow(Lookup("DepartmentId", "Employee", "DepartmentId", PolicyOperator.EXISTS_IN, where))));
+        Assert.Equal(["The right side of a lookup's WHERE condition on 'UserId' must be a fixed value or a value of the current user."],
+            PolicyLookupRuleCheck.Shape(Allow(Lookup("DepartmentId", "Employee", "DepartmentId", PolicyOperator.EXISTS_IN, where))));
     }
 
     [Fact]
     public void Shape_WhereLeftSideNotSchemaField_Refused()
     {
         var where = DataAccessTestSupport.Rule(ConditionSource.AUTH, "userId", PolicyOperator.EQUAL, ConditionSource.STATIC_VALUE, staticValue: "x");
-        Assert.NotEmpty(PolicyLookupRuleCheck.Shape(Allow(Lookup("DepartmentId", "Employee", "DepartmentId", PolicyOperator.EXISTS_IN, where))));
+        Assert.Equal(["The left side of a lookup's WHERE condition on 'userId' must be a field of the schema looked into."],
+            PolicyLookupRuleCheck.Shape(Allow(Lookup("DepartmentId", "Employee", "DepartmentId", PolicyOperator.EXISTS_IN, where))));
     }
 
     [Theory]
@@ -143,7 +145,7 @@ public sealed class PolicyLookupRuleCheckTests
     {
         var user = User(Allow(Lookup("Email", "Department", "Name")));
         var targets = AccessLookupTargets.Build(user, [user, Department()]);
-        Assert.NotEmpty(PolicyLookupRuleCheck.Targets(user.Policies[0], user, targets));
+        Assert.Equal(["A rule on a system schema can only look into system schemas."], PolicyLookupRuleCheck.Targets(user.Policies[0], user, targets));
     }
 
     [Theory]
@@ -157,10 +159,6 @@ public sealed class PolicyLookupRuleCheckTests
         var result = PolicyLookupRuleCheck.Level(Allow(MyDepartment()), onSystem, level);
         Assert.Equal(refused ? "Exists in another schema isn't available yet on this platform." : null, result);
     }
-
-    [Fact]
-    public void Level_SystemSchemaRefusalMessageConstant() =>
-        Assert.Equal("A rule on a system schema can only look into system schemas.", PolicyLookupRuleCheck.SystemOnlyMessage);
 
     [Fact]
     public void Level_NoLookupRule_Null() =>
