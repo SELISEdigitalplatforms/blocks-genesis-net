@@ -136,4 +136,73 @@ public sealed class AccessLookupFilterTests
             DataAccessTestSupport.Rule(ConditionSource.AUTH, "UserId", PolicyOperator.EQUAL, ConditionSource.STATIC_VALUE, staticValue: "x"));
         Assert.Throws<InvalidOperationException>(() => DataAccessPolicyHelper.BuildAccessLookupFilter(group, Principal("u1")));
     }
+    // F1: a list field compared with the current user uses "includes" (EQUAL, element match) / "doesn't include"
+    // (NOT_EQUAL): exact membership, never a pattern of the caller's claim.
+    private static AccessPrincipal WithEmail(string email, params string[] roles) =>
+        new("u1", email, "t1", "o1", roles, [], true, false) { HasContext = true };
+
+    private static BsonDocument Emails(params string[] values) => new("Emails", new BsonArray(values));
+
+    [Fact]
+    public void Build_ListIncludesCurrentUser_ExactMemberOnly()
+    {
+        var group = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, WhereAuth("Emails", "Email"));
+        var result = DataAccessPolicyHelper.BuildAccessLookupFilter(group, WithEmail("bob@x.com"));
+
+        Assert.Null(result.MissingAuthName);
+        Assert.Equal(new BsonDocument("Emails", "bob@x.com"), result.Match);
+        Assert.True(Matches(result.Match, Emails("ann@x.com", "bob@x.com")));
+        Assert.False(Matches(result.Match, Emails("jimbob@x.com")));
+        Assert.False(Matches(result.Match, Emails("bob@x.com.evil")));
+        Assert.False(Matches(result.Match, Emails()));
+    }
+
+    [Fact]
+    public void Build_ListDoesNotIncludeCurrentUser_ExactMemberOnly()
+    {
+        var group = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, WhereAuth("Emails", "Email", PolicyOperator.NOT_EQUAL));
+        var match = DataAccessPolicyHelper.BuildAccessLookupFilter(group, WithEmail("bob@x.com")).Match;
+
+        Assert.Equal(BsonDocument.Parse("{ Emails: { $ne: 'bob@x.com' } }"), match);
+        Assert.True(Matches(match, Emails("jimbob@x.com")));
+        Assert.False(Matches(match, Emails("ann@x.com", "bob@x.com")));
+    }
+
+    [Theory]
+    [InlineData("a.b+c@x.com", "aXb+c@x.com")]
+    [InlineData("a.b+c@x.com", "a.bbc@x.com")]
+    [InlineData("(x)*@x.com", "@x.com")]
+    [InlineData("^.*$", "anything")]
+    public void Build_ListIncludes_ClaimWithRegexMetacharacters_IsLiteral(string claim, string other)
+    {
+        var group = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, WhereAuth("Emails", "Email"));
+        var match = DataAccessPolicyHelper.BuildAccessLookupFilter(group, WithEmail(claim)).Match;
+
+        Assert.DoesNotContain("$regex", match.ToJson());
+        Assert.True(Matches(match, Emails(claim)));
+        Assert.False(Matches(match, Emails(other)));
+    }
+
+    [Fact]
+    public void Build_ListAgainstListClaim_AnyOfMembership_SameAsPolicyPath()
+    {
+        var includes = WhereAuth("Roles", "Roles");
+        var excludes = WhereAuth("Roles", "Roles", PolicyOperator.NOT_EQUAL);
+        var caller = WithEmail("bob@x.com", "admin", "hr");
+
+        var inMatch = DataAccessPolicyHelper.BuildAccessLookupFilter(DataAccessTestSupport.Group(PolicyLogicalOperator.AND, includes), caller).Match;
+        var ninMatch = DataAccessPolicyHelper.BuildAccessLookupFilter(DataAccessTestSupport.Group(PolicyLogicalOperator.AND, excludes), caller).Match;
+
+        Assert.True(Matches(inMatch, new BsonDocument("Roles", new BsonArray { "hr", "user" })));
+        Assert.False(Matches(inMatch, new BsonDocument("Roles", new BsonArray { "user", "superadmin" })));
+        Assert.True(Matches(ninMatch, new BsonDocument("Roles", new BsonArray { "user", "superadmin" })));
+        Assert.False(Matches(ninMatch, new BsonDocument("Roles", new BsonArray { "user", "admin" })));
+
+        // The same filters an access policy builds for the same comparison.
+        static BsonDocument PolicyFilter(PolicyRule rule, AccessPrincipal principal) =>
+            new DataAccessPolicy { IsAllowPolicy = true, RuleGroup = DataAccessTestSupport.Group(PolicyLogicalOperator.AND, rule) }
+                .EvaluatePolicy(principal).DataFilter!;
+        Assert.Equal(PolicyFilter(includes, caller), inMatch);
+        Assert.Equal(PolicyFilter(excludes, caller), ninMatch);
+    }
 }

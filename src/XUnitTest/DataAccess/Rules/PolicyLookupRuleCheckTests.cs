@@ -191,4 +191,50 @@ public sealed class PolicyLookupRuleCheckTests
         Assert.Equal(12, PolicyLookupRuleCheck.AcceptedAuthNames.Count);
         Assert.Contains("UserId", PolicyLookupRuleCheck.AcceptedAuthNames);
     }
+    private static IReadOnlyList<string> ShapeOfWhere(PolicyRule where) =>
+        PolicyLookupRuleCheck.Shape(Allow(Lookup("DepartmentId", "Employee", "DepartmentId", PolicyOperator.EXISTS_IN, where)));
+
+    [Theory]
+    [InlineData(PolicyOperator.CONTAIN)]
+    [InlineData(PolicyOperator.NOT_CONTAIN)]
+    [InlineData(PolicyOperator.REGEX)]
+    public void Shape_WherePatternWithCurrentUser_Refused(PolicyOperator op)
+    {
+        var auth = DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "Emails", op, ConditionSource.AUTH, "Email");
+        Assert.Equal(["Use 'includes' to compare a list with the current user."], ShapeOfWhere(auth));
+
+        foreach (var text in new[] { "{{auth.Email}}", "{{token.UserId}}", "x{{auth.Email}}y" })
+        {
+            var template = DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "Emails", op, ConditionSource.STATIC_VALUE, staticValue: text);
+            Assert.Equal(["Use 'includes' to compare a list with the current user."], ShapeOfWhere(template));
+        }
+        Assert.Equal(PolicyLookupRuleCheck.IncludesMessage, "Use 'includes' to compare a list with the current user.");
+    }
+
+    [Theory]
+    [InlineData(PolicyOperator.CONTAIN)]
+    [InlineData(PolicyOperator.NOT_CONTAIN)]
+    [InlineData(PolicyOperator.REGEX)]
+    public void Shape_WherePatternWithFixedValue_Allowed(PolicyOperator op) =>
+        Assert.Empty(ShapeOfWhere(DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "Tags", op, ConditionSource.STATIC_VALUE, staticValue: "red")));
+
+    [Theory]
+    [InlineData(PolicyOperator.EQUAL)]
+    [InlineData(PolicyOperator.NOT_EQUAL)]
+    public void Shape_WhereIncludesCurrentUser_Allowed(PolicyOperator op) =>
+        Assert.Empty(ShapeOfWhere(DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "Emails", op, ConditionSource.AUTH, "Email")));
+
+    [Theory]
+    [InlineData("prefix {{auth.Nope}}")]
+    [InlineData("{{auth.UserId}}-{{token.Nope}}")]
+    [InlineData(" {{auth.Nope}} suffix")]
+    public void Shape_WhereStaticAuthTemplateAnywhere_UnknownNameRefused(string text)
+    {
+        var where = DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "UserId", PolicyOperator.EQUAL, ConditionSource.STATIC_VALUE, staticValue: text);
+        Assert.Equal(["'Nope' isn't a value of the current user a rule can use."], ShapeOfWhere(where));
+    }
+
+    [Fact]
+    public void Shape_WhereStaticAuthTemplateInsideText_KnownNameAllowed() =>
+        Assert.Empty(ShapeOfWhere(DataAccessTestSupport.Rule(ConditionSource.SCHEMA_FIELD, "Code", PolicyOperator.EQUAL, ConditionSource.STATIC_VALUE, staticValue: "dept-{{auth.UserId}}")));
 }

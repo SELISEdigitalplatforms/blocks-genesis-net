@@ -16,6 +16,7 @@ public static class PolicyLookupRuleCheck
     public const string SystemOnlyMessage = AccessLookupTargets.SystemOnlyMessage;
     public const string NestedLookupMessage = "Exists in another schema can't be used inside a lookup's WHERE box.";
     public const string TooDeepMessage = "A lookup's WHERE box can be nested at most 3 levels deep.";
+    public const string IncludesMessage = "Use 'includes' to compare a list with the current user.";
 
     private const int MaxWhereDepth = 3;
 
@@ -25,8 +26,6 @@ public static class PolicyLookupRuleCheck
         "userid", "id", "sub", "email", "tenantid", "tenant", "roles", "role",
         "permissions", "permission", "organizationid", "organization",
     };
-
-    private static readonly Regex AuthTemplate = new(@"^\s*\{\{\s*(?:auth|token)\.([^}\s]+)\s*\}\}\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
     private static bool IsLookup(PolicyRule rule) => rule.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN;
 
@@ -111,6 +110,9 @@ public static class PolicyLookupRuleCheck
             CheckWhere(nested, depth + 1, messages);
     }
 
+    private static bool IsPatternOperator(PolicyOperator op) =>
+        op is PolicyOperator.CONTAIN or PolicyOperator.NOT_CONTAIN or PolicyOperator.REGEX;
+
     private static void CheckWhereRight(PolicyRule condition, List<string> messages)
     {
         switch (condition.RightSource)
@@ -118,12 +120,18 @@ public static class PolicyLookupRuleCheck
             case ConditionSource.AUTH:
                 if (!AcceptedAuthNames.Contains((condition.RightOperand ?? string.Empty).Trim()))
                     messages.Add($"'{condition.RightOperand}' isn't a value of the current user a rule can use.");
+                // Contains / Regex read the caller's value as a pattern: "bob@x.com" would also match "jimbob@x.com".
+                if (IsPatternOperator(condition.Operator))
+                    messages.Add(IncludesMessage);
                 break;
             case ConditionSource.STATIC_VALUE:
-                if (condition.StaticValue is string text && AuthTemplate.Match(text) is { Success: true } match
-                    && !AcceptedAuthNames.Contains(match.Groups[1].Value))
-                    messages.Add($"'{match.Groups[1].Value}' isn't a value of the current user a rule can use.");
-                else if (condition.Operator is PolicyOperator.CONTAIN or PolicyOperator.NOT_CONTAIN or PolicyOperator.REGEX
+                // Every {{auth.X}} / {{token.X}} in the text, wherever it is, as the lookup filter reads it.
+                var authNames = condition.StaticValue is string text ? DataAccessPolicyHelper.AuthExpressionNames(text).ToList() : [];
+                foreach (var name in authNames.Where(name => !AcceptedAuthNames.Contains(name)))
+                    messages.Add($"'{name}' isn't a value of the current user a rule can use.");
+                if (authNames.Count > 0 && IsPatternOperator(condition.Operator))
+                    messages.Add(IncludesMessage);
+                else if (authNames.Count == 0 && IsPatternOperator(condition.Operator)
                          && condition.StaticValue is not null && !CompilesAsRegex(condition.StaticValue.ToString() ?? string.Empty))
                     messages.Add($"This pattern isn't valid: {condition.StaticValue}");
                 break;
