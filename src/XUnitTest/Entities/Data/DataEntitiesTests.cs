@@ -23,7 +23,7 @@ public class DataEntitiesTests
         // NotExistsIn, so the filled sample's Type is now "NotExistsIn"; ValidationRule gained When and TargetFilter, and
         // SchemaDefinition gained Description, all [BsonIgnoreIfNull]. Default and all-null bytes are unchanged, so stored
         // documents are too.
-["Blocks.Genesis.Entities.Data.DataAccessPolicy"] = "6D44828E6980CD11AAC4FDDE65BE1E81 6A695E651DB981256B0E177E35852C82 0E73D66ADCC5906B571E56644D99B420",
+["Blocks.Genesis.Entities.Data.DataAccessPolicy"] = "E0E1E3A13703E75A538341314CE368E8 6A695E651DB981256B0E177E35852C82 0E73D66ADCC5906B571E56644D99B420",
         ["Blocks.Genesis.Entities.Data.DataValidation"] = "A82990EC7A94E330E7B17E1220FEB8D2 DFB7A9CCDA9E6088D308428A545D1816 A794FC235E46D909A021A27310985753",
         ["Blocks.Genesis.Entities.Data.DirectoryOptions"] = "EE16F317F1AA907A659C7A547CA30606 6C6B04A509549608DF6ED1571C09AAE6 6C6B04A509549608DF6ED1571C09AAE6",
         // FieldDefaultValue and DefaultValueOffset are new in 4.3.3 (default values); FieldDefinition gained DefaultValue
@@ -42,8 +42,12 @@ public class DataEntitiesTests
         ["Blocks.Genesis.Entities.Data.ObjectAccessPolicy"] = "27A31ABE19C615927BF10B2C995CA69A B6C0FD683ABE5190BD10485C0B28B2C8 9AE0610395DD6110813A894BC0072F2E",
         ["Blocks.Genesis.Entities.Data.ObjectAuditLog"] = "28A979766BD116384A3BC4FFCFDA3CC3 B584BFF951B8CEC0AFE6278B2C042E2A 5167A16028F81046238EACCAA1C782D0",
         ["Blocks.Genesis.Entities.Data.ObjectItem"] = "E810A365C6161A445B86C434FDA3AFDC 97A368858EBF96B0571CC1B8AD99F856 0892EA6DE51D962A4BEFF42E27EC9C14",
-        ["Blocks.Genesis.Entities.Data.PolicyRule"] = "6B0EE4EF7241162B918FF4F045D87CFC FDC85D3C01476258C1106DE4E9EAFB31 A1AE50A2369F289804FAF5A98E56E2A8",
-        ["Blocks.Genesis.Entities.Data.PolicyRuleGroup"] = "F13DC2A1D448F355081810979573C62B 15ACC7716EBE5339F64AD28F47F94D71 9438B75CED527DDFE366FB3FD54EC61C",
+        // PolicyRule, PolicyRuleGroup, DataAccessPolicy and ValidationRule filled-sample hashes changed 2026-11-24 (owner decision: cross-schema access policies --
+        // PolicyRule gained Reference ([BsonIgnoreIfNull]), new PolicyReference; PolicyOperator gained EXISTS_IN and NOT_EXISTS_IN, and the filled sample uses an
+        // enum's last value). Documents without Reference are byte-identical; default and all-null bytes are unchanged.
+        ["Blocks.Genesis.Entities.Data.PolicyReference"] = "75B3F8E46B40E90D4EE249C22775315A EAE6C1AB31D9CE110EF8014FF8352C6A 10F9A9FE1978C970433BF2B8D6AD6B33",
+        ["Blocks.Genesis.Entities.Data.PolicyRule"] = "5D7C03E2ACED8EE2F1C4E9AF9D4D8600 FDC85D3C01476258C1106DE4E9EAFB31 A1AE50A2369F289804FAF5A98E56E2A8",
+        ["Blocks.Genesis.Entities.Data.PolicyRuleGroup"] = "92FD3EC86B9FA3A28AFABCE39850989D 15ACC7716EBE5339F64AD28F47F94D71 9438B75CED527DDFE366FB3FD54EC61C",
         ["Blocks.Genesis.Entities.Data.PublishedSchemaSnapshot"] = "CB68E7ECC1983D78954EEF9A61F71D78 CCBB37BB38EB1B4CDF6C437336353B17 FFD6962D73D8AB769EE7DF012A8B6CE5",
         ["Blocks.Genesis.Entities.Data.PublishedSchemaSnapshotChunk"] = "5013CA1B787E361029125D167BE79866 39A3224787AC4BD58BA6A7E839DB7D21 EABE05137E8B1FBA5F316AB437AAE9C4",
         ["Blocks.Genesis.Entities.Data.SchemaChangeLog"] = "B4CD3EF80B86CC3BE37E01962A04478B F850AB9CE17E6ACE013DBDADD023AF4D EDBC76BFFF2286CFFB7B1A856BF73627",
@@ -54,7 +58,7 @@ public class DataEntitiesTests
         ["Blocks.Genesis.Entities.Data.SchemaPublishState"] = "24BA88AD6FC4F4757C477DE7442063E1 E43A501BC314F74CA65A562EA88DB865 ACAE91E1BFF76FE025F95D75A46CBE23",
         ["Blocks.Genesis.Entities.Data.StorageConfiguration"] = "DE272370E1AD68DBEBD7B92A1E7624EC 9DAD29AED145D1822D2B307158CAB7BB 061A848E4BB93A76E8768449890E9AAF",
         ["Blocks.Genesis.Entities.Data.Structure"] = "A90CF6459B1FB73D7161B523EB08105F EDDD120AC2690E72E02133125F589458 1501A18A1B14C70A101426BDCF826ECC",
-        ["Blocks.Genesis.Entities.Data.ValidationRule"] = "5E4C7D7F5FD319C532C387451675E65A B0875FBB77CB7FFEFD00B2A6F9903403 B0875FBB77CB7FFEFD00B2A6F9903403",
+        ["Blocks.Genesis.Entities.Data.ValidationRule"] = "549E747FA20058FF24B488C8D3ADE304 B0875FBB77CB7FFEFD00B2A6F9903403 B0875FBB77CB7FFEFD00B2A6F9903403",
     };
 
     public static TheoryData<string> DocumentClasses() => EntityAssertions.DocumentClassesOf("Data");
