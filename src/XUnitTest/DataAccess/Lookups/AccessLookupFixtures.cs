@@ -80,6 +80,12 @@ internal static class AccessLookupFixtures
         return policy;
     }
 
+    /// <summary>A deep copy of the schema's policies through BSON, as a snapshot or another pod would read them.</summary>
+    public static SchemaDefinitionExtended RoundTrip(SchemaDefinitionExtended schema) =>
+        schema.WithPolicies(schema.Policies
+            .Select(p => MongoDB.Bson.Serialization.BsonSerializer.Deserialize<DataAccessPolicy>(p.ToBson()))
+            .ToList());
+
     public static DataAccessPolicy RoleRead(string role)
     {
         var policy = DataAccessTestSupport.RolePolicy(PolicyOperation.READ, role);

@@ -106,11 +106,35 @@ public sealed class AccessLookupTargetsTests
     }
 
     [Fact]
-    public void Targets_UnknownReferenceInstance_IsNull()
+    public void Targets_FindByValue_DeepCopyFindsSameTarget_OtherValuesDont()
     {
-        var employee = Employee(Rls(PolicyOperation.READ, MyDepartment()));
+        var employee = Employee(Rls(PolicyOperation.READ, MyDepartment()), Rls(PolicyOperation.READ, Lookup("DepartmentId", "Division", "ItemId")));
+        var targets = AccessLookupTargets.Build(employee, []);
+        var copy = RoundTrip(employee);
+        var original = targets.Find(employee.Policies[0].RuleGroup.Rules[0].Reference!);
+
+        Assert.NotSame(employee.Policies[0].RuleGroup.Rules[0].Reference, copy.Policies[0].RuleGroup.Rules[0].Reference);
+        Assert.NotNull(original);
+        Assert.Equal(original, targets.Find(copy.Policies[0].RuleGroup.Rules[0].Reference!));
+        Assert.Equal(targets.Find(employee.Policies[1].RuleGroup.Rules[0].Reference!), targets.Find(copy.Policies[1].RuleGroup.Rules[0].Reference!));
+        Assert.NotNull(targets.Find(copy.Policies[1].RuleGroup.Rules[0].Reference!)!.InvalidReason);
+
+        // An equal-valued reference built separately matches too; a different filter, field or schema doesn't.
+        Assert.Equal(original, targets.Find(MyDepartment().Reference!));
+        Assert.Null(targets.Find(Lookup("DepartmentId", "Employee", "DepartmentId", where: WhereAuth("Name", "UserId")).Reference!));
+        Assert.Null(targets.Find(Lookup("DepartmentId", "Employee", "Name", where: WhereAuth("UserId", "UserId")).Reference!));
+        Assert.Null(targets.Find(Lookup("DepartmentId", "Department", "DepartmentId", where: WhereAuth("UserId", "UserId")).Reference!));
+    }
+
+    [Fact]
+    public void Targets_EqualReferences_DifferentLeftFields_InvalidWins()
+    {
+        // Same reference value; Age (Int) can't be compared with DepartmentId (text), so neither rule is answered.
+        var employee = Employee(Rls(PolicyOperation.READ, MyDepartment()),
+            Rls(PolicyOperation.READ, Lookup("Age", "Employee", "DepartmentId", where: WhereAuth("UserId", "UserId"))));
+
         var targets = AccessLookupTargets.Build(employee, []);
 
-        Assert.Null(targets.Find(MyDepartment().Reference!));
+        Assert.NotNull(targets.Find(MyDepartment().Reference!)!.InvalidReason);
     }
 }

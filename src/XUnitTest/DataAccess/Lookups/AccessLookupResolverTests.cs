@@ -155,10 +155,29 @@ public sealed class AccessLookupResolverTests
         Assert.Equal(3, log.Named("AccessLookupTargetMissing").Count);
         Assert.Contains("Division", log.AllText(), StringComparison.Ordinal);
 
-        // Targets built from another instance of the policy: unknown references fail closed too.
+        // A reference the targets don't know (not among the schema's rules) fails closed too.
         var other = await resolver.ResolveAsync(Employee(Rls(PolicyOperation.READ, MyDepartment())), Caller, Read, AccessLookupTargets.Build(schema, []), CancellationToken.None);
         Assert.Same(LookupResolution.Never, FirstRule(other).Resolution);
         Assert.Empty(runner.Calls);
+    }
+
+    [Fact]
+    public async Task Resolve_BsonRoundTrippedCopy_UsesTargetsBuiltFromOriginal()
+    {
+        var (resolver, runner, log) = Setup(new RecordingRunner("X"));
+        var original = Employee(Rls(PolicyOperation.READ, MyDepartment()),
+            Rls(PolicyOperation.READ, Lookup("UserId", "User", "ItemId", where: WhereAuth("Email", "Email"))));
+        var targets = AccessLookupTargets.Build(original, [User()]);
+        var copy = RoundTrip(original);
+
+        var resolved = await resolver.ResolveAsync(copy, Caller, Read, targets, CancellationToken.None);
+
+        Assert.Equal(2, runner.Calls.Count);
+        Assert.Equal(new BsonArray { "X" }, FirstRule(resolved, 0).Resolution!.Values);
+        Assert.Equal(LookupOutcome.Values, FirstRule(resolved, 1).Resolution!.Outcome);
+        Assert.Contains(runner.Calls, q => q.IsSystemEntity && q.CollectionName == "Users" && q.DbFieldName == "_id");
+        Assert.Empty(log.Named("AccessLookupTargetMissing"));
+        Assert.Null(FirstRule(copy).Resolution);
     }
 
     [Fact]

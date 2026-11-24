@@ -1,6 +1,7 @@
 using Blocks.Genesis.DataAccess.Evaluation;
 using Blocks.Genesis.DataAccess.Rules;
 using Blocks.Genesis.Entities.Data;
+using MongoDB.Bson;
 
 namespace Blocks.Genesis.DataAccess.Lookups;
 
@@ -13,19 +14,29 @@ public sealed record AccessLookupTarget(string SchemaName, string FieldName, str
 
 /// <summary>
 /// The targets of one schema's lookup rules, checked once when the schema is assembled against the definitions of
-/// the schemas they name (<see cref="TargetSchemaNames"/>). Keyed by the rule's <see cref="PolicyReference"/>
-/// instance: <see cref="Find"/> answers only for the references of the schema it was built from (the column copies
-/// derived from a policy share its rule group, so they share the references too).
+/// the schemas they name (<see cref="TargetSchemaNames"/>). Keyed by the reference's value (target schema, target
+/// field, filter as JSON), so a copy of the schema (a snapshot, an entity view, a BSON round trip) finds the same
+/// targets. When rules with equal references get different answers (their left fields differ in type), the invalid
+/// answer is kept for all of them: never wider.
 /// </summary>
 public sealed class AccessLookupTargets
 {
-    private readonly Dictionary<PolicyReference, AccessLookupTarget> _targets;
+    private readonly Dictionary<(string Schema, string Field, string Filter), AccessLookupTarget> _targets;
 
-    private AccessLookupTargets(Dictionary<PolicyReference, AccessLookupTarget> targets) => _targets = targets;
+    private AccessLookupTargets(Dictionary<(string, string, string), AccessLookupTarget> targets) => _targets = targets;
 
-    /// <summary>The target of <paramref name="reference"/>, or null when it is not a reference of the schema these targets were built from.</summary>
+    /// <summary>
+    /// The target of <paramref name="reference"/> (matched by value), or null when no lookup rule of the schema these
+    /// targets were built from has an equal reference.
+    /// </summary>
     public AccessLookupTarget? Find(PolicyReference reference) =>
-        reference is not null && _targets.TryGetValue(reference, out var target) ? target : null;
+        reference is not null && _targets.TryGetValue(KeyOf(reference), out var target) ? target : null;
+
+    /// <summary>The value a reference is matched by: trimmed schema name, trimmed field name (ItemId when blank), filter as JSON.</summary>
+    private static (string, string, string) KeyOf(PolicyReference reference) =>
+        (reference.SchemaName?.Trim() ?? string.Empty,
+         string.IsNullOrWhiteSpace(reference.FieldName) ? ReferenceTargets.DefaultTargetField : reference.FieldName.Trim(),
+         reference.Filter is null ? string.Empty : reference.Filter.ToJson());
 
     /// <summary>The schema names the lookup rules of <paramref name="policySchema"/>'s policies point at, distinct, in order.</summary>
     public static IReadOnlyCollection<string> TargetSchemaNames(SchemaDefinitionExtended policySchema)
@@ -48,15 +59,16 @@ public sealed class AccessLookupTargets
         ArgumentNullException.ThrowIfNull(policySchema);
         ArgumentNullException.ThrowIfNull(candidates);
 
-        var targets = new Dictionary<PolicyReference, AccessLookupTarget>(ReferenceEqualityComparer.Instance);
+        var targets = new Dictionary<(string, string, string), AccessLookupTarget>();
         foreach (var rule in LookupRules(policySchema))
         {
             if (rule.Reference is null)
                 continue;
             var target = Check(policySchema, candidates, rule);
-            // The same reference under two rules (never expected): the stricter answer wins.
-            if (!targets.TryGetValue(rule.Reference, out var known) || known.InvalidReason is null)
-                targets[rule.Reference] = target;
+            var key = KeyOf(rule.Reference);
+            // Equal references under rules that get different answers: the invalid one wins.
+            if (!targets.TryGetValue(key, out var known) || known.InvalidReason is null)
+                targets[key] = target;
         }
         return new AccessLookupTargets(targets);
     }
