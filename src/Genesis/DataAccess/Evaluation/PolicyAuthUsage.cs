@@ -43,13 +43,13 @@ public sealed record PolicyAuthUsage(bool UsesPermissions, IReadOnlySet<string> 
             return;
 
         foreach (var rule in group.Rules ?? [])
-            CollectNames(rule, names);
+            CollectNames(rule, names, depth);
 
         foreach (var nested in group.NestedGroups ?? [])
             CollectNames(nested, names, depth + 1);
     }
 
-    private static void CollectNames(PolicyRule rule, HashSet<string> names)
+    private static void CollectNames(PolicyRule rule, HashSet<string> names, int depth)
     {
         if (rule.LeftSource == ConditionSource.AUTH && !string.IsNullOrEmpty(rule.LeftOperand))
             names.Add(rule.LeftOperand);
@@ -67,5 +67,9 @@ public sealed record PolicyAuthUsage(bool UsesPermissions, IReadOnlySet<string> 
 
         if (rule.StaticValue is string text)
             names.UnionWith(DataAccessPolicyHelper.AuthExpressionNames(text));
+
+        // A lookup filter on the referenced schema can read Auth values too.
+        if (rule.Reference?.Filter is { } lookupFilter)
+            CollectNames(lookupFilter, names, depth + 1);
     }
 }
