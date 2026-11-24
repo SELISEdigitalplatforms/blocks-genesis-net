@@ -6,6 +6,8 @@ using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson;
+using System.Text.Json.Serialization;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Data;
 
@@ -160,6 +162,21 @@ public class PolicyRule
     /// Optional description for this rule.
     /// </summary>
     public string? Description { get; set; }
+
+    /// <summary>
+    /// For EXISTS_IN / NOT_EXISTS_IN: the schema field the left operand's value is looked up in.
+    /// Not written while null, in the database or in API responses, so existing documents and payloads are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PolicyReference? Reference { get; set; }
+
+    /// <summary>
+    /// Runtime only: the looked-up values of Reference, filled in before evaluation. Never stored or returned.
+    /// </summary>
+    [BsonIgnore]
+    [JsonIgnore]
+    public LookupResolution? Resolution { get; set; }
 
     /// <summary>
     /// Converts JsonElement to proper .NET types for MongoDB serialization.
@@ -343,4 +360,44 @@ public class PolicyStaticValueSerializer : IBsonSerializer<object?>
     {
         Serialize(context, args, value);
     }
+}
+
+/// <summary>
+/// The other schema an EXISTS_IN / NOT_EXISTS_IN rule looks its value up in.
+/// </summary>
+[BsonIgnoreExtraElements]
+public sealed class PolicyReference
+{
+    /// <summary>The schema to look in.</summary>
+    public string SchemaName { get; set; } = string.Empty;
+
+    /// <summary>The field of that schema holding the values to compare with.</summary>
+    public string FieldName { get; set; } = ReferenceTargets.DefaultTargetField;
+
+    /// <summary>Optional: only rows of the target schema matching this filter are looked in.</summary>
+    [BsonIgnoreIfNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PolicyRuleGroup? Filter { get; set; }
+}
+
+/// <summary>How a reference lookup came out.</summary>
+public enum LookupOutcome
+{
+    /// <summary>Compare against the resolved values.</summary>
+    Values,
+    /// <summary>Nothing can match (EXISTS_IN is false for every row).</summary>
+    Never,
+    /// <summary>Everything matches (NOT_EXISTS_IN is true for every row).</summary>
+    Always
+}
+
+/// <summary>The resolved result of a PolicyReference lookup, held on the rule for one evaluation.</summary>
+public sealed record LookupResolution(LookupOutcome Outcome, BsonArray Values, IReadOnlySet<string> Keys)
+{
+    public static LookupResolution Never { get; } = new(LookupOutcome.Never, [], new HashSet<string>());
+
+    public static LookupResolution Always { get; } = new(LookupOutcome.Always, [], new HashSet<string>());
+
+    public static LookupResolution Of(IReadOnlyList<BsonValue> values) =>
+        new(LookupOutcome.Values, new BsonArray(values), values.Select(WriteRules.ReferenceKey).ToHashSet());
 }
