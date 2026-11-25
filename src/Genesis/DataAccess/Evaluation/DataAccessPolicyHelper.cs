@@ -233,142 +233,159 @@ public static class DataAccessPolicyHelper
 
         // Case 1: Token vs Static/Token - Pure validation (no data filter needed)
         if (leftIsToken && !leftIsSchema && !rightIsSchema)
-        {
-            var tokenValue = GetTokenValue(principal, rule.LeftOperand);
-            var compareValue = rule.RightSource == ConditionSource.AUTH
-                ? GetTokenValue(principal, rule.RightOperand)
-                : rule.StaticValue;
-
-            var isValid = EvaluateCondition(tokenValue, rule.Operator, compareValue);
-
-            return new PolicyEvaluationResult
-            {
-                IsAccessGranted = isValid,
-                RequiresDataFilter = false
-            };
-        }
+            return EvaluateTokenRule(principal, rule);
 
         // Case 2: Schema field vs Token/Static - Requires data filter
         if (leftIsSchema)
-        {
-            var compareValue = rule.RightSource == ConditionSource.AUTH
-                ? GetTokenValue(principal, rule.RightOperand)
-                : rule.RightSource == ConditionSource.SCHEMA_FIELD
-                    ? null // Schema vs Schema comparison (rare case)
-                    : rule.StaticValue;
-
-            // If comparing with another schema field, this needs special handling
-            if (rule.RightSource == ConditionSource.SCHEMA_FIELD)
-            {
-                // MongoDB $expr for field-to-field comparison
-                var filter = BuildFieldComparisonFilter(rule.LeftOperand, rule.Operator, rule.RightOperand);
-                return new PolicyEvaluationResult
-                {
-                    IsAccessGranted = true, // Can't validate without data
-                    DataFilter = filter,
-                    RequiresDataFilter = true
-                };
-            }
-
-            // In / Not in a typed list ("US,ZZ", or the rightOperands array): a plain $in / $nin, which matches a
-            // single-value field and any item of a list field, and can use an index.
-            if (rule.RightSource == ConditionSource.STATIC_VALUE &&
-                rule.Operator is PolicyOperator.IN or PolicyOperator.NOT_IN &&
-                StaticList(rule) is { } list)
-            {
-                return new PolicyEvaluationResult
-                {
-                    IsAccessGranted = true,
-                    DataFilter = new BsonDocument(rule.LeftOperand, new BsonDocument(
-                        rule.Operator == PolicyOperator.IN ? "$in" : "$nin", WithTypedAlternatives(list))),
-                    RequiresDataFilter = true
-                };
-            }
-
-            if (ConvertToStringArray(compareValue) is { } values &&
-                IsCollectionOperator(rule.Operator))
-            {
-                return new PolicyEvaluationResult
-                {
-                    IsAccessGranted = true,
-                    DataFilter = BuildArrayComparisonFilter(
-                        FieldArrayExpression(rule.LeftOperand),
-                        new BsonArray(values),
-                        rule.Operator),
-                    RequiresDataFilter = true
-                };
-            }
-
-            var dataFilter = rule.RightSource == ConditionSource.STATIC_VALUE
-                ? BuildStaticConditionFilter(principal, rule.LeftOperand, rule.Operator, compareValue)
-                : BuildConditionFilter(principal, rule.LeftOperand, rule.Operator, compareValue);
-
-            return new PolicyEvaluationResult
-            {
-                IsAccessGranted = true, // Access depends on data filter results
-                DataFilter = dataFilter,
-                RequiresDataFilter = true
-            };
-        }
+            return EvaluateSchemaFieldRule(principal, rule);
 
         // Case 3: Static vs Schema (reversed operands - normalize)
         if (rule.LeftSource == ConditionSource.STATIC_VALUE && rightIsSchema)
-        {
-            var dataFilter = BuildStaticConditionFilter(principal, rule.RightOperand,
-                GetReversedOperator(rule.Operator), rule.StaticValue);
-
-            return new PolicyEvaluationResult
-            {
-                IsAccessGranted = true,
-                DataFilter = dataFilter,
-                RequiresDataFilter = true
-            };
-        }
+            return EvaluateStaticVsSchemaRule(principal, rule);
 
         // Case 4: Token vs Schema field - Build filter comparing schema field to token value
         // Example: token.userId == CreatedBy -> { "CreatedBy": "user-id-value" }
         if (leftIsToken && rightIsSchema)
+            return EvaluateTokenVsSchemaRule(principal, rule);
+
+        return new PolicyEvaluationResult { IsAccessGranted = true };
+    }
+
+    /// <summary>Case 1 of <see cref="EvaluateRule"/>: Auth value vs static or Auth value, answered now.</summary>
+    private static PolicyEvaluationResult EvaluateTokenRule(AccessPrincipal principal, PolicyRule rule)
+    {
+        var tokenValue = GetTokenValue(principal, rule.LeftOperand);
+        var compareValue = rule.RightSource == ConditionSource.AUTH
+            ? GetTokenValue(principal, rule.RightOperand)
+            : rule.StaticValue;
+
+        var isValid = EvaluateCondition(tokenValue, rule.Operator, compareValue);
+
+        return new PolicyEvaluationResult
         {
-            var tokenValue = GetTokenValue(principal, rule.LeftOperand);
+            IsAccessGranted = isValid,
+            RequiresDataFilter = false
+        };
+    }
 
-            // If token value is null or empty, the rule cannot be satisfied
-            if (tokenValue is null || (tokenValue is string s && string.IsNullOrEmpty(s)))
-            {
-                return new PolicyEvaluationResult
-                {
-                    IsAccessGranted = false,
-                    ErrorMessage = $"Token value '{rule.LeftOperand}' is null or empty."
-                };
-            }
+    /// <summary>Case 2 of <see cref="EvaluateRule"/>: record field vs Auth, static or record field, as a data filter.</summary>
+    private static PolicyEvaluationResult EvaluateSchemaFieldRule(AccessPrincipal principal, PolicyRule rule)
+    {
+        var compareValue = rule.RightSource switch
+        {
+            ConditionSource.AUTH => GetTokenValue(principal, rule.RightOperand),
+            ConditionSource.SCHEMA_FIELD => null, // Schema vs Schema comparison (rare case)
+            _ => rule.StaticValue,
+        };
 
-            // Build filter: SchemaField <operator> TokenValue
-            // We need to reverse the operator since we're building: SchemaField op TokenValue
-            // from the rule: TokenValue op SchemaField
-            var rightOperands = rule.RightOperands.Count > 0 ? rule.RightOperands : [rule.RightOperand];
-            var tokenArray = ConvertToStringArray(tokenValue);
-            var filters = rightOperands.Select(rightOperand =>
-                tokenArray is not null && IsCollectionOperator(rule.Operator)
-                    ? BuildArrayComparisonFilter(
-                        new BsonArray(tokenArray),
-                        FieldArrayExpression(rightOperand),
-                        rule.Operator)
-                    : BuildConditionFilter(principal, rightOperand, GetReversedOperator(rule.Operator), tokenValue)).ToList();
-            var combineOperator = rule.Operator is PolicyOperator.NOT_IN or PolicyOperator.NOT_CONTAIN
-                ? "$and"
-                : "$or";
-            var dataFilter = filters.Count == 1
-                ? filters[0]
-                : new BsonDocument(combineOperator, new BsonArray(filters));
-
+        // If comparing with another schema field, this needs special handling
+        if (rule.RightSource == ConditionSource.SCHEMA_FIELD)
+        {
+            // MongoDB $expr for field-to-field comparison
+            var filter = BuildFieldComparisonFilter(rule.LeftOperand, rule.Operator, rule.RightOperand);
             return new PolicyEvaluationResult
             {
-                IsAccessGranted = true,
-                DataFilter = dataFilter,
+                IsAccessGranted = true, // Can't validate without data
+                DataFilter = filter,
                 RequiresDataFilter = true
             };
         }
 
-        return new PolicyEvaluationResult { IsAccessGranted = true };
+        // In / Not in a typed list ("US,ZZ", or the rightOperands array): a plain $in / $nin, which matches a
+        // single-value field and any item of a list field, and can use an index.
+        if (rule.RightSource == ConditionSource.STATIC_VALUE &&
+            rule.Operator is PolicyOperator.IN or PolicyOperator.NOT_IN &&
+            StaticList(rule) is { } list)
+        {
+            return new PolicyEvaluationResult
+            {
+                IsAccessGranted = true,
+                DataFilter = new BsonDocument(rule.LeftOperand, new BsonDocument(
+                    rule.Operator == PolicyOperator.IN ? "$in" : "$nin", WithTypedAlternatives(list))),
+                RequiresDataFilter = true
+            };
+        }
+
+        if (ConvertToStringArray(compareValue) is { } values &&
+            IsCollectionOperator(rule.Operator))
+        {
+            return new PolicyEvaluationResult
+            {
+                IsAccessGranted = true,
+                DataFilter = BuildArrayComparisonFilter(
+                    FieldArrayExpression(rule.LeftOperand),
+                    new BsonArray(values),
+                    rule.Operator),
+                RequiresDataFilter = true
+            };
+        }
+
+        var dataFilter = rule.RightSource == ConditionSource.STATIC_VALUE
+            ? BuildStaticConditionFilter(principal, rule.LeftOperand, rule.Operator, compareValue)
+            : BuildConditionFilter(principal, rule.LeftOperand, rule.Operator, compareValue);
+
+        return new PolicyEvaluationResult
+        {
+            IsAccessGranted = true, // Access depends on data filter results
+            DataFilter = dataFilter,
+            RequiresDataFilter = true
+        };
+    }
+
+    /// <summary>Case 3 of <see cref="EvaluateRule"/>: static value vs record field, normalised to field vs value.</summary>
+    private static PolicyEvaluationResult EvaluateStaticVsSchemaRule(AccessPrincipal principal, PolicyRule rule)
+    {
+        var dataFilter = BuildStaticConditionFilter(principal, rule.RightOperand,
+            GetReversedOperator(rule.Operator), rule.StaticValue);
+
+        return new PolicyEvaluationResult
+        {
+            IsAccessGranted = true,
+            DataFilter = dataFilter,
+            RequiresDataFilter = true
+        };
+    }
+
+    /// <summary>Case 4 of <see cref="EvaluateRule"/>: Auth value vs record field, as a data filter on the field.</summary>
+    private static PolicyEvaluationResult EvaluateTokenVsSchemaRule(AccessPrincipal principal, PolicyRule rule)
+    {
+        var tokenValue = GetTokenValue(principal, rule.LeftOperand);
+
+        // If token value is null or empty, the rule cannot be satisfied
+        if (tokenValue is null || (tokenValue is string s && string.IsNullOrEmpty(s)))
+        {
+            return new PolicyEvaluationResult
+            {
+                IsAccessGranted = false,
+                ErrorMessage = $"Token value '{rule.LeftOperand}' is null or empty."
+            };
+        }
+
+        // Build filter: SchemaField <operator> TokenValue
+        // We need to reverse the operator since we're building: SchemaField op TokenValue
+        // from the rule: TokenValue op SchemaField
+        var rightOperands = rule.RightOperands.Count > 0 ? rule.RightOperands : [rule.RightOperand];
+        var tokenArray = ConvertToStringArray(tokenValue);
+        var filters = rightOperands.Select(rightOperand =>
+            tokenArray is not null && IsCollectionOperator(rule.Operator)
+                ? BuildArrayComparisonFilter(
+                    new BsonArray(tokenArray),
+                    FieldArrayExpression(rightOperand),
+                    rule.Operator)
+                : BuildConditionFilter(principal, rightOperand, GetReversedOperator(rule.Operator), tokenValue)).ToList();
+        var combineOperator = rule.Operator is PolicyOperator.NOT_IN or PolicyOperator.NOT_CONTAIN
+            ? "$and"
+            : "$or";
+        var dataFilter = filters.Count == 1
+            ? filters[0]
+            : new BsonDocument(combineOperator, new BsonArray(filters));
+
+        return new PolicyEvaluationResult
+        {
+            IsAccessGranted = true,
+            DataFilter = dataFilter,
+            RequiresDataFilter = true
+        };
     }
 
     /// <summary>True for <see cref="PolicyOperator.EXISTS_IN"/> and <see cref="PolicyOperator.NOT_EXISTS_IN"/>.</summary>
@@ -688,6 +705,8 @@ public static class DataAccessPolicyHelper
 
     #region Condition Evaluation
 
+    private static bool IsNullOrEmptyValue(object? value) => value is null || (value is string text && text.Length == 0);
+
     /// <summary>
     /// Evaluates a condition between two values.
     /// </summary>
@@ -700,10 +719,10 @@ public static class DataAccessPolicyHelper
 
         // Handle null cases
         if (op == PolicyOperator.IS_NULL)
-            return leftValue is null || (leftValue is string s && string.IsNullOrEmpty(s));
+            return IsNullOrEmptyValue(leftValue);
 
         if (op == PolicyOperator.IS_NOT_NULL)
-            return leftValue is not null && !(leftValue is string s && string.IsNullOrEmpty(s));
+            return !IsNullOrEmptyValue(leftValue);
 
         if (leftValue is null || rightValue is null)
             return false;
@@ -723,8 +742,7 @@ public static class DataAccessPolicyHelper
 
         // Handle array-based comparisons (for Roles, Permissions)
         // Try to convert left value to string array (handles object[], List<object>, etc.)
-        var leftArray = ConvertToStringArray(leftValue);
-        if (leftArray != null && leftArray.Length > 0)
+        if (ConvertToStringArray(leftValue) is { Length: > 0 } leftArray)
         {
             return EvaluateArrayCondition(leftArray, op, rightValue);
         }
@@ -1033,37 +1051,16 @@ public static class DataAccessPolicyHelper
 
     private static BsonDocument? BuildLookupRule(PolicyRule rule, AccessPrincipal principal, ref string? missing)
     {
-        if (rule.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
-            throw new InvalidOperationException("A lookup filter cannot contain Must exist in / Must not exist in.");
-        if (rule.LeftSource != ConditionSource.SCHEMA_FIELD || rule.RightSource is not (ConditionSource.STATIC_VALUE or ConditionSource.AUTH))
-            throw new InvalidOperationException("A lookup filter condition compares a target field with a static value or an Auth value.");
+        EnsureLookupCondition(rule);
 
         var field = rule.LeftOperand == nameof(GraphQlBaseEntity.ItemId) ? PolicyConstants.DbEntityIdFieldName : rule.LeftOperand;
         if (rule.Operator is PolicyOperator.IS_NULL or PolicyOperator.IS_NOT_NULL)
             return BuildConditionFilter(principal, field, rule.Operator, null);
 
-        object? value;
-        if (rule.RightSource == ConditionSource.AUTH)
+        if (!TryGetLookupValue(rule, principal, out var value, out var lacking))
         {
-            value = GetTokenValue(principal, rule.RightOperand);
-            if (value is null)
-            {
-                missing ??= rule.RightOperand;
-                return null;
-            }
-        }
-        else
-        {
-            value = rule.StaticValue;
-            if (value is string text)
-            {
-                var lacking = AuthExpressionNames(text).FirstOrDefault(name => GetTokenValue(principal, name) is null);
-                if (lacking is not null)
-                {
-                    missing ??= lacking;
-                    return null;
-                }
-            }
+            missing ??= lacking;
+            return null;
         }
 
         // The same paths as an access policy's field-vs-value rule, so operators keep their policy meaning.
@@ -1081,6 +1078,34 @@ public static class DataAccessPolicyHelper
         return rule.RightSource == ConditionSource.STATIC_VALUE
             ? BuildStaticConditionFilter(principal, field, rule.Operator, value)
             : BuildConditionFilter(principal, field, rule.Operator, value);
+    }
+
+    private static void EnsureLookupCondition(PolicyRule rule)
+    {
+        if (rule.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
+            throw new InvalidOperationException("A lookup filter cannot contain Must exist in / Must not exist in.");
+        if (rule.LeftSource != ConditionSource.SCHEMA_FIELD || rule.RightSource is not (ConditionSource.STATIC_VALUE or ConditionSource.AUTH))
+            throw new InvalidOperationException("A lookup filter condition compares a target field with a static value or an Auth value.");
+    }
+
+    /// <summary>
+    /// The value a lookup filter condition compares with: the caller's Auth value, or the static value. False, with
+    /// the name of the Auth value the caller lacks, when the Auth value (or one named inside the static text) is missing.
+    /// </summary>
+    private static bool TryGetLookupValue(PolicyRule rule, AccessPrincipal principal, out object? value, out string? lacking)
+    {
+        if (rule.RightSource == ConditionSource.AUTH)
+        {
+            value = GetTokenValue(principal, rule.RightOperand);
+            lacking = value is null ? rule.RightOperand : null;
+            return value is not null;
+        }
+
+        value = rule.StaticValue;
+        lacking = value is string text
+            ? AuthExpressionNames(text).FirstOrDefault(name => GetTokenValue(principal, name) is null)
+            : null;
+        return lacking is null;
     }
 
     private static readonly Regex IsoDatePattern = new(@"^\d{4}-\d{2}-\d{2}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));

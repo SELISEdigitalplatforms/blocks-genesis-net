@@ -43,14 +43,13 @@ public static class AccessLookupPlanner
             .ToList();
     }
 
-    private static IEnumerable<PolicyRule> Walk(PolicyRuleGroup group)
+    /// <summary>The EXISTS_IN / NOT_EXISTS_IN rules of a rule group and its nested groups, in order.</summary>
+    internal static IEnumerable<PolicyRule> Walk(PolicyRuleGroup group)
     {
-        foreach (var rule in group.Rules)
-            if (rule.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
-                yield return rule;
-        foreach (var nested in group.NestedGroups)
-            foreach (var rule in Walk(nested))
-                yield return rule;
+        foreach (var rule in group.Rules.Where(r => r.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN))
+            yield return rule;
+        foreach (var rule in group.NestedGroups.SelectMany(Walk))
+            yield return rule;
     }
 }
 

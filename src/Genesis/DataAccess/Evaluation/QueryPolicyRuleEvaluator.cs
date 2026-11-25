@@ -145,17 +145,14 @@ public static class QueryPolicyRuleEvaluator
             case BsonArray array:
                 foreach (var item in array)
                     yield return item;
-                yield break;
-            case string or byte[] or BsonValue or IDictionary<string, object>:
-                yield return value;
-                yield break;
-            case System.Collections.IEnumerable list:
+                break;
+            case System.Collections.IEnumerable list when value is not (string or byte[] or BsonValue or IDictionary<string, object>):
                 foreach (var item in list)
                     yield return item;
-                yield break;
+                break;
             default:
                 yield return value;
-                yield break;
+                break;
         }
     }
 
