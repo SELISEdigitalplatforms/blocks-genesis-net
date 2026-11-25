@@ -15,6 +15,10 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="10.0.1" />
+    <!-- I04-WP5 property tests. FsCheck.Xunit 3.6.0 (BSD-3-Clause) runs on xunit 2.x through xunit.extensibility.execution. -->
+    <PackageReference Include="FsCheck.Xunit" Version="3.6.0" />
+    <!-- FsCheck 3.6.0 needs FSharp.Core 5.0.2 (2021). This pins a current MIT release, so the dependency meets A5's 24-month rule. -->
+    <PackageReference Include="FSharp.Core" Version="11.0.101" />
     <!-- Copy-local so coverlet can resolve the shared-framework assembly when instrumenting Blocks.Genesis. -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <PackageReference Include="JunitXml.TestLogger" Version="8.0.0" />
