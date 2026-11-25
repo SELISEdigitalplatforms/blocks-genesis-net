@@ -86,7 +86,11 @@ public enum PolicyOperator
     END_WITH,
     IS_NULL,
     IS_NOT_NULL,
-    REGEX
+    REGEX,
+    /// <summary>The field's value exists in another schema (see PolicyRule.Reference). Appended: numbers 0-14 are stored by name but kept stable.</summary>
+    EXISTS_IN = 15,
+    /// <summary>The field's value does not exist in another schema (see PolicyRule.Reference).</summary>
+    NOT_EXISTS_IN = 16
 }
 
 /// <summary>

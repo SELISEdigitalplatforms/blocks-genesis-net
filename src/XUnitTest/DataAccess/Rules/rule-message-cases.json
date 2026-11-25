@@ -19,6 +19,7 @@
     "NowOnlyForComparisons": "A date relative to now only works in greater than, less than and range rules",
     "NowOnlyForDates": "A date relative to now only works on a date-time property",
     "OnlyForLists": "This rule checks a list, so it only works on a list property",
+    "OperatorNotAvailable": "This condition uses an operator that isn't available here.",
     "PlaceholderNotAllowed": "A fixed value can't contain {{…}}: compare with a property instead",
     "TargetSchemaRequired": "Choose the schema to check against",
     "TooManyValues": "Is one of / is not one of takes at most 500 values",

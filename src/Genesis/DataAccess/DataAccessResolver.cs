@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Blocks.Genesis.DataAccess.Evaluation;
+using Blocks.Genesis.DataAccess.Lookups;
 using Blocks.Genesis.DataAccess.Rules;
 using Blocks.Genesis.Entities.Data;
 using Microsoft.Extensions.Logging;
@@ -13,25 +14,39 @@ namespace Blocks.Genesis.DataAccess;
 /// Reads <c>SchemaDefinitions</c>, <c>DataAccessPolicys</c> and <c>DataValidations</c> of the
 /// principal's tenant (collections named after the entity type, as the gateway names them) and maps
 /// them onto a <see cref="SchemaDefinitionExtended"/>. Only the schema's own rows are loaded; the
-/// policies are attached as stored, which is all the row-level gate and filter need.
+/// policies are attached as stored, which is all the row-level gate and filter need. Cross-schema rules
+/// (EXISTS_IN / NOT_EXISTS_IN) are resolved per request before the policies are evaluated; a schema without them
+/// costs no extra query.
 /// </summary>
 public sealed class DataAccessResolver : IDataAccessResolver
 {
     private readonly IDbContextProvider _dbContextProvider;
-    private readonly IDataAccessPolicyResolutionService _resolver;
+    private readonly SchemaNamedFailures _resolver;
     private readonly IAccessPrincipalAccessor _principals;
     private readonly bool _systemEntitiesOnly;
     private readonly IAccessPrincipalEnricher _enricher;
+    private readonly AccessLookupResolver _lookups;
 
     public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals, DataAccessOptions? options = null,
         ILogger<DataAccessResolver>? logger = null, IAccessPrincipalEnricher? enricher = null)
+        : this(dbContextProvider, resolver, principals, options, logger, enricher, lookups: null)
+    {
+    }
+
+    /// <param name="lookups">
+    /// Resolves cross-schema rules. Null: a <see cref="DbContextAccessLookupRunner"/> over the same database provider
+    /// and caller, so lookups always run in the database the schema was read from.
+    /// </param>
+    public DataAccessResolver(IDbContextProvider dbContextProvider, IDataAccessPolicyResolutionService resolver, IAccessPrincipalAccessor principals, DataAccessOptions? options,
+        ILogger<DataAccessResolver>? logger, IAccessPrincipalEnricher? enricher, AccessLookupResolver? lookups)
     {
         _systemEntitiesOnly = options?.SystemEntitiesOnly ?? false;
         _dbContextProvider = dbContextProvider;
-        _resolver = resolver;
+        _resolver = new SchemaNamedFailures(resolver);
         _principals = principals;
         _logger = logger ?? NullLogger<DataAccessResolver>.Instance;
         _enricher = enricher ?? new AccessPrincipalEnricher(dbContextProvider, options);
+        _lookups = lookups ?? new AccessLookupResolver(new DbContextAccessLookupRunner(dbContextProvider, principals), NullLogger<AccessLookupResolver>.Instance);
     }
 
     private readonly ILogger<DataAccessResolver> _logger;
@@ -48,7 +63,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// <inheritdoc />
     public async Task<ResolvedFilter> ResolveReadFilterAsync(string schemaName, BsonDocument userFilter, CancellationToken cancellationToken = default)
     {
-        var request = await PrepareRequestAsync(schemaName, PolicyOperation.READ, cancellationToken);
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.READ, LookupsFor(PolicyOperation.READ), cancellationToken);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedFilter(rls, null);
@@ -59,7 +74,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// <inheritdoc />
     public async Task<ResolvedFilter> ResolveMutationFilterAsync(string schemaName, PolicyOperation operation, BsonDocument baseFilter, CancellationToken cancellationToken = default)
     {
-        var request = await PrepareRequestAsync(schemaName, operation, cancellationToken);
+        var request = await PrepareRequestAsync(schemaName, operation, LookupsFor(operation), cancellationToken);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedFilter(rls, null);
@@ -70,7 +85,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// <inheritdoc />
     public async Task<ResolvedRead> ResolveReadAsync(string schemaName, BsonDocument userFilter, IReadOnlyList<string>? requestedFields, CancellationToken cancellationToken = default)
     {
-        var request = await PrepareRequestAsync(schemaName, PolicyOperation.READ, cancellationToken);
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.READ, LookupsFor(PolicyOperation.READ), cancellationToken);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedRead(rls, null, null, null);
@@ -83,7 +98,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// <inheritdoc />
     public async Task<ResolvedProjection> ResolveProjectionAsync(string schemaName, IReadOnlyList<string>? requestedFields, CancellationToken cancellationToken = default)
     {
-        var request = await PrepareRequestAsync(schemaName, PolicyOperation.READ, cancellationToken);
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.READ, LookupsFor(PolicyOperation.READ), cancellationToken);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedProjection(rls, null, null);
@@ -95,7 +110,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// <inheritdoc />
     public async Task<ResolvedInput> ResolveInputAsync(string schemaName, PolicyOperation operation, IDictionary<string, object?> input, CancellationToken cancellationToken = default)
     {
-        var request = await PrepareRequestAsync(schemaName, operation, cancellationToken);
+        var request = await PrepareRequestAsync(schemaName, operation, LookupsFor(operation), cancellationToken);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedInput(rls, null, []);
@@ -131,7 +146,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
     /// <inheritdoc />
     public async Task<ResolvedUpdate> ResolveUpdateAsync(string schemaName, BsonDocument baseFilter, IDictionary<string, object?> input, CancellationToken cancellationToken = default)
     {
-        var request = await PrepareRequestAsync(schemaName, PolicyOperation.EDIT, cancellationToken);
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.EDIT, LookupsFor(PolicyOperation.EDIT, PolicyOperation.READ), cancellationToken);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedUpdate(rls, null, null, []);
@@ -149,7 +164,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
     public async Task<ResolvedRowCheck> CheckInsertAsync(string schemaName, BsonDocument row, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(row);
-        var request = await PrepareRequestAsync(schemaName, PolicyOperation.WRITE, cancellationToken).ConfigureAwait(false);
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.WRITE, LookupsFor(PolicyOperation.WRITE), cancellationToken).ConfigureAwait(false);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedRowCheck(rls);
@@ -181,7 +196,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
 
     private async Task<ResolvedRowCheck> CheckEditAsync(string schemaName, BsonDocument storedRow, RowUpdateResult update, CancellationToken cancellationToken)
     {
-        var request = await PrepareRequestAsync(schemaName, PolicyOperation.EDIT, cancellationToken).ConfigureAwait(false);
+        var request = await PrepareRequestAsync(schemaName, PolicyOperation.EDIT, LookupsFor(PolicyOperation.EDIT), cancellationToken).ConfigureAwait(false);
         var rls = _resolver.Check(request);
         if (!rls.IsAccessGranted)
             return new ResolvedRowCheck(rls);
@@ -315,14 +330,43 @@ public sealed class DataAccessResolver : IDataAccessResolver
             ? _dbContextProvider.GetDatabase() ?? throw new InvalidOperationException("Database context provider returned null database.")
             : _dbContextProvider.GetDatabase(principal.TenantId);
 
-    private async Task<SchemaAccessRequest> PrepareRequestAsync(string schemaName, PolicyOperation operation, CancellationToken cancellationToken)
+    /// <summary>The operations whose policies' cross-schema rules a method resolves, named at each call.</summary>
+    private static PolicyOperation[] LookupsFor(params PolicyOperation[] operations) => operations;
+
+    private async Task<SchemaAccessRequest> PrepareRequestAsync(string schemaName, PolicyOperation operation, IReadOnlyCollection<PolicyOperation> lookupOperations, CancellationToken cancellationToken)
     {
         var principal = _principals.Current;
         var schema = await LoadSchemaAsync(schemaName, principal, cancellationToken)
             ?? throw new KeyNotFoundException($"Schema '{schemaName}' was not found for tenant '{principal.TenantId}'.");
         // Role-bound permissions and access attributes come from the database, only when a policy reads them.
         principal = await _enricher.EnrichAsync(principal, schema.Policies, cancellationToken).ConfigureAwait(false);
+        // The schema was loaded for this request: walk it without caching (UsesLookups caches per instance).
+        if (AccessLookupPlanner.HasLookups(schema))
+            schema = await ResolveLookupsAsync(schema, principal, lookupOperations, cancellationToken).ConfigureAwait(false);
         return new SchemaAccessRequest(principal, schema, operation);
+    }
+
+    /// <summary>
+    /// A per-request copy of <paramref name="schema"/> whose cross-schema rules for <paramref name="operations"/> carry
+    /// their looked-up values, or the same instance when none applies (then no target is loaded). Targets are the
+    /// schemas the rules name, loaded as this schema was (so with <see cref="DataAccessOptions.SystemEntitiesOnly"/> a
+    /// tenant schema is never a target); one that doesn't load makes its rules never match.
+    /// </summary>
+    private async Task<SchemaDefinitionExtended> ResolveLookupsAsync(SchemaDefinitionExtended schema, AccessPrincipal principal, IReadOnlyCollection<PolicyOperation> operations, CancellationToken cancellationToken)
+    {
+        if (AccessLookupPlanner.RulesFor(schema, operations).Count == 0)
+            return schema;
+
+        // The policy schema is always a candidate (Build adds it), for rules that look into their own schema.
+        var candidates = new List<SchemaDefinitionExtended>();
+        foreach (var name in AccessLookupTargets.TargetSchemaNames(schema).Where(n => n != schema.SchemaName))
+        {
+            if (await LoadSchemaAsync(name, principal, cancellationToken).ConfigureAwait(false) is { } target)
+                candidates.Add(target);
+        }
+
+        var targets = AccessLookupTargets.Build(schema, candidates);
+        return await _lookups.ResolveAsync(schema, principal, operations, targets, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -383,4 +427,58 @@ public sealed class DataAccessResolver : IDataAccessResolver
 
     private static IMongoCollection<T> Collection<T>(IMongoDatabase database) =>
         database.GetCollection<T>($"{typeof(T).Name}s");
+
+    /// <summary>
+    /// Evaluation throws <see cref="AccessCheckFailedException"/> without a schema name (an unresolved cross-schema
+    /// rule, an unknown operator). This names the request's schema, so the caller's message says which data couldn't
+    /// be checked; the original is kept as the inner exception. Nothing is swallowed.
+    /// </summary>
+    private sealed class SchemaNamedFailures(IDataAccessPolicyResolutionService inner) : IDataAccessPolicyResolutionService
+    {
+        // Static lambdas with their arguments passed as state: no closure is allocated per call.
+        public PolicyEvaluationResult Check(SchemaAccessRequest request) =>
+            Named(request, (inner, request), static s => s.inner.Check(s.request));
+
+        public BsonDocument BuildReadFilter(SchemaAccessRequest request, BsonDocument userFilter, PolicyEvaluationResult rls) =>
+            Named(request, (inner, request, userFilter, rls), static s => s.inner.BuildReadFilter(s.request, s.userFilter, s.rls));
+
+        public BsonDocument ApplyMutationFilter(SchemaAccessRequest request, BsonDocument baseFilter, PolicyEvaluationResult rls) =>
+            Named(request, (inner, request, baseFilter, rls), static s => s.inner.ApplyMutationFilter(s.request, s.baseFilter, s.rls));
+
+        public ReadProjection BuildReadProjection(SchemaAccessRequest request, BsonDocument requestedProjection) =>
+            Named(request, (inner, request, requestedProjection), static s => s.inner.BuildReadProjection(s.request, s.requestedProjection));
+
+        public ReadProjection BuildReadProjection(SchemaAccessRequest request, IReadOnlyList<string>? requestedFields) =>
+            Named(request, (inner, request, requestedFields), static s => s.inner.BuildReadProjection(s.request, s.requestedFields));
+
+        public Dictionary<string, object> MaskRow(SchemaAccessRequest request, Dictionary<string, object> row, ReadProjection projection) =>
+            Named(request, (inner, request, row, projection), static s => s.inner.MaskRow(s.request, s.row, s.projection));
+
+        public InputRestriction RestrictInput(SchemaAccessRequest request, IDictionary<string, object?> input) =>
+            Named(request, (inner, request, input), static s => s.inner.RestrictInput(s.request, s.input));
+
+        public PolicyEvaluationResult CheckRow(SchemaAccessRequest request, PolicyEvaluationResult rls, BsonDocument row) =>
+            Named(request, (inner, request, rls, row), static s => s.inner.CheckRow(s.request, s.rls, s.row));
+
+        public PolicyEvaluationResult CheckInput(SchemaAccessRequest request, IEnumerable<string> paths, BsonDocument? dataRow) =>
+            Named(request, (inner, request, paths, dataRow), static s => s.inner.CheckInput(s.request, s.paths, s.dataRow));
+
+        public IReadOnlyCollection<PolicyOperation> ListAllowed(AccessPrincipal principal, SchemaDefinitionExtended schema) =>
+            Named(schema?.SchemaName, (inner, principal, schema), static s => s.inner.ListAllowed(s.principal, s.schema!));
+
+        private static T Named<TState, T>(SchemaAccessRequest request, TState state, Func<TState, T> evaluate) =>
+            Named(request?.Schema?.SchemaName, state, evaluate);
+
+        private static T Named<TState, T>(string? schemaName, TState state, Func<TState, T> evaluate)
+        {
+            try
+            {
+                return evaluate(state);
+            }
+            catch (AccessCheckFailedException ex) when (string.IsNullOrWhiteSpace(ex.SchemaName) && !string.IsNullOrWhiteSpace(schemaName))
+            {
+                throw new AccessCheckFailedException(schemaName!, ex.Reason, ex);
+            }
+        }
+    }
 }

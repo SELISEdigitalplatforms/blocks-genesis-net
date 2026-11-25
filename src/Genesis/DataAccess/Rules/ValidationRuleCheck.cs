@@ -42,6 +42,7 @@ public static class ValidationRuleCheck
     public const string ConditionOnLookup = "\"Exists in\" and \"must not exist in\" rules can't have a condition yet: use a filter on the other schema";
     public const string ConditionGroupEmpty = "Each group of conditions needs at least one condition";
     public const string UniqueItemsNeedsValues = "No duplicates works on a list of values, not a list of objects";
+    public const string OperatorNotAvailable = "This condition uses an operator that isn't available here.";
 
     public const string NowOnlyForDates = "A date relative to now only works on a date-time property";
     public const string NowOnlyForComparisons = "A date relative to now only works in greater than, less than and range rules";
@@ -63,7 +64,8 @@ public static class ValidationRuleCheck
     /// <summary>One user-facing message per problem; empty when the rule may be saved.</summary>
     public static IReadOnlyList<string> Check(ValidationRule rule, RuleField field, string schemaName, bool systemSchema, IReadOnlyDictionary<string, VariableField> fields)
     {
-        var problems = new List<string>();
+        // Every save path calls this; the operator check runs first and ungated (see Operators).
+        var problems = new List<string>(Operators(rule));
         // Like variables, a date relative to now is read only from version 1: an older rule's text stays text.
         var usesNow = rule.EvaluationVersion >= 1 && (RelativeNow.IsWritten(rule.Value) || RelativeNow.IsWritten(rule.SecondaryValue));
         var usesNewFeatures = NewTypes.Contains(rule.Type) || rule.When is not null || rule.TargetFilter is not null || usesNow;
@@ -113,6 +115,23 @@ public static class ValidationRuleCheck
 
         return problems.Distinct().ToList();
     }
+
+    /// <summary>
+    /// The refusal when a condition of the rule (<see cref="ValidationRule.When"/>, <see cref="ValidationRule.TargetFilter"/>,
+    /// at any depth) uses an operator outside Equal..Regex: Must (not) exist in, or any other value. Such a condition
+    /// can't be evaluated on a write (every write to the schema would fail) and older readers can't load it. Shared by
+    /// every validation save path (through <see cref="Check"/>, or on its own); empty when the rule may be saved.
+    /// </summary>
+    public static IReadOnlyList<string> Operators(ValidationRule rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        return HasUnavailableOperator(rule.When) || HasUnavailableOperator(rule.TargetFilter) ? [OperatorNotAvailable] : [];
+    }
+
+    private static bool HasUnavailableOperator(PolicyRuleGroup? group) =>
+        group is not null
+        && ((group.Rules ?? []).Any(rule => rule is not null && rule.Operator is < PolicyOperator.EQUAL or > PolicyOperator.REGEX)
+            || (group.NestedGroups ?? []).Any(HasUnavailableOperator));
 
     private static readonly HashSet<ValidationType> OrderingTypes =
     [
