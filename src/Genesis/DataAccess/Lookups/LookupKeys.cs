@@ -54,21 +54,24 @@ public static class LookupKeys
 
     private static string IntegerKey(long value) => NumberKey(value, 0);
 
-    private static string? SpecialKey(double value) =>
-        double.IsNaN(value) ? "n:NaN"
-        : double.IsPositiveInfinity(value) ? "n:Infinity"
-        : double.IsNegativeInfinity(value) ? "n:-Infinity"
-        : null;
+    private static string? SpecialKey(double value)
+    {
+        if (double.IsNaN(value))
+            return "n:NaN";
+        if (double.IsInfinity(value))
+            return value > 0 ? "n:Infinity" : "n:-Infinity";
+        return null;
+    }
 
     private static string DoubleKey(double value)
     {
         if (SpecialKey(value) is { } special)
             return special;
-        if (value == 0)
-            return "n:0e0"; // -0.0 equals 0
-
         // value = ±mantissa * 2^exponent exactly.
         var bits = BitConverter.DoubleToInt64Bits(value);
+        if ((bits & long.MaxValue) == 0)
+            return "n:0e0"; // 0.0 or -0.0 (only the sign bit set): -0.0 equals 0
+
         var negative = bits < 0;
         var rawExponent = (int)((bits >> 52) & 0x7FF);
         var mantissa = bits & 0xFFFFFFFFFFFFFL;

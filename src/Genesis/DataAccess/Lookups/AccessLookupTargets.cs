@@ -49,10 +49,17 @@ public sealed class AccessLookupTargets
         return new TargetKey(
             rule.LeftSource,
             rule.LeftOperand ?? string.Empty,
-            left is null ? string.Empty : left.Type + (left.IsArray ? "[]" : string.Empty),
+            TypeKey(left),
             reference.SchemaName?.Trim() ?? string.Empty,
             string.IsNullOrWhiteSpace(reference.FieldName) ? ReferenceTargets.DefaultTargetField : reference.FieldName.Trim(),
             reference.Filter is null ? string.Empty : reference.Filter.ToJson());
+    }
+
+    private static string TypeKey(FieldDefinition? field)
+    {
+        if (field is null)
+            return string.Empty;
+        return field.IsArray ? field.Type + "[]" : field.Type;
     }
 
     /// <summary>The schema names the lookup rules of <paramref name="policySchema"/>'s policies point at, distinct, in order.</summary>
@@ -93,19 +100,9 @@ public sealed class AccessLookupTargets
     private static IEnumerable<PolicyRule> LookupRules(SchemaDefinitionExtended schema) =>
         schema.Policies
             .Where(p => p.RuleGroup is not null)
-            .SelectMany(p => Walk(p.RuleGroup))
+            .SelectMany(p => AccessLookupPlanner.Walk(p.RuleGroup))
             .Distinct(ReferenceEqualityComparer.Instance)
             .Cast<PolicyRule>();
-
-    private static IEnumerable<PolicyRule> Walk(PolicyRuleGroup group)
-    {
-        foreach (var rule in group.Rules)
-            if (rule.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
-                yield return rule;
-        foreach (var nested in group.NestedGroups)
-            foreach (var rule in Walk(nested))
-                yield return rule;
-    }
 
     private static AccessLookupTarget Check(SchemaDefinitionExtended policySchema, IReadOnlyCollection<SchemaDefinitionExtended> candidates, PolicyRule rule)
     {
@@ -121,8 +118,7 @@ public sealed class AccessLookupTargets
         if (target is null)
         {
             // A system schema's policy never sees tenant schemas; say why instead of "does not exist".
-            if (policySchema.IsSystemEntity && candidates.Any(s => s is not null && !s.IsSystemEntity && s.SchemaType == SchemaType.Entity && !s.IsDeleted
-                    && string.Equals(s.SchemaName, schemaName, StringComparison.OrdinalIgnoreCase)))
+            if (policySchema.IsSystemEntity && HasTenantSchemaNamed(candidates, schemaName))
                 return Invalid(SystemOnlyMessage);
             return Invalid(problem!);
         }
@@ -215,6 +211,10 @@ public sealed class AccessLookupTargets
         Fields = target.Fields.Select(f => new FieldDefinition { Name = f.Name, Type = f.Type, IsArray = f.IsArray }).ToList(),
     };
 
+    private static bool HasTenantSchemaNamed(IEnumerable<SchemaDefinitionExtended> candidates, string schemaName) =>
+        candidates.Any(s => s is not null && !s.IsSystemEntity && s.SchemaType == SchemaType.Entity && !s.IsDeleted
+            && string.Equals(s.SchemaName, schemaName, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// Why the WHERE filter can't be run as written, or null. Each condition compares a property of the target with a
     /// fixed value or an Auth value; no lookup inside a lookup. A property the target no longer has would make the
@@ -224,14 +224,8 @@ public sealed class AccessLookupTargets
     {
         foreach (var condition in filter.Rules)
         {
-            if (condition.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
-                return "has a filter that looks into another schema";
-            if (condition.Operator is < PolicyOperator.EQUAL or > PolicyOperator.REGEX)
-                return "has a filter with an unknown operator";
-            if (condition.LeftSource != ConditionSource.SCHEMA_FIELD || condition.RightSource is not (ConditionSource.STATIC_VALUE or ConditionSource.AUTH))
-                return "has a filter that doesn't compare a property with a fixed value or a current-user value";
-            if (condition.LeftOperand != ReferenceTargets.DefaultTargetField && !ReferenceTargets.HasProperty(target.Fields, condition.LeftOperand))
-                return $"has a filter on '{condition.LeftOperand}', which isn't a property of '{target.SchemaName}'";
+            if (ConditionProblem(condition, target) is { } conditionProblem)
+                return conditionProblem;
             fields.Add(condition.LeftOperand);
         }
         foreach (var nested in filter.NestedGroups)
@@ -239,6 +233,19 @@ public sealed class AccessLookupTargets
             if (FilterProblem(nested, target, fields) is { } problem)
                 return problem;
         }
+        return null;
+    }
+
+    private static string? ConditionProblem(PolicyRule condition, SchemaDefinitionExtended target)
+    {
+        if (condition.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
+            return "has a filter that looks into another schema";
+        if (condition.Operator is < PolicyOperator.EQUAL or > PolicyOperator.REGEX)
+            return "has a filter with an unknown operator";
+        if (condition.LeftSource != ConditionSource.SCHEMA_FIELD || condition.RightSource is not (ConditionSource.STATIC_VALUE or ConditionSource.AUTH))
+            return "has a filter that doesn't compare a property with a fixed value or a current-user value";
+        if (condition.LeftOperand != ReferenceTargets.DefaultTargetField && !ReferenceTargets.HasProperty(target.Fields, condition.LeftOperand))
+            return $"has a filter on '{condition.LeftOperand}', which isn't a property of '{target.SchemaName}'";
         return null;
     }
 

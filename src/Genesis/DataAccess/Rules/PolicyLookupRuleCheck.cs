@@ -34,24 +34,20 @@ public static class PolicyLookupRuleCheck
     {
         if (group is null)
             yield break;
-        foreach (var rule in group.Rules ?? [])
-            if (rule is not null && IsLookup(rule))
-                yield return rule;
-        foreach (var nested in group.NestedGroups ?? [])
-            foreach (var rule in LookupRules(nested))
-                yield return rule;
+        foreach (var rule in (group.Rules ?? []).Where(r => r is not null && IsLookup(r)))
+            yield return rule;
+        foreach (var rule in (group.NestedGroups ?? []).SelectMany(LookupRules))
+            yield return rule;
     }
 
     private static IEnumerable<PolicyRule> AllRules(PolicyRuleGroup? group)
     {
         if (group is null)
             yield break;
-        foreach (var rule in group.Rules ?? [])
-            if (rule is not null)
-                yield return rule;
-        foreach (var nested in group.NestedGroups ?? [])
-            foreach (var rule in AllRules(nested))
-                yield return rule;
+        foreach (var rule in (group.Rules ?? []).Where(r => r is not null))
+            yield return rule;
+        foreach (var rule in (group.NestedGroups ?? []).SelectMany(AllRules))
+            yield return rule;
     }
 
     /// <summary>What is wrong with the shape of the policy's lookup rules; empty when fine or when it has none.</summary>

@@ -69,11 +69,9 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
 
         var resolutions = new Dictionary<PolicyRule, LookupResolution>(ReferenceEqualityComparer.Instance);
         var answers = new Dictionary<(string, string, bool, string), IReadOnlyList<BsonValue>?>();
-        foreach (var rule in rules)
-        {
-            if (!resolutions.ContainsKey(rule))
-                resolutions[rule] = await ResolveRuleAsync(schema, rule, principal, targets, answers, cancellationToken).ConfigureAwait(false);
-        }
+        // The same rule object can appear more than once; it is resolved once.
+        foreach (var rule in rules.Where(r => !resolutions.ContainsKey(r)))
+            resolutions[rule] = await ResolveRuleAsync(schema, rule, principal, targets, answers, cancellationToken).ConfigureAwait(false);
 
         var groupCopies = new Dictionary<PolicyRuleGroup, PolicyRuleGroup?>(ReferenceEqualityComparer.Instance);
         var policies = new List<DataAccessPolicy>(schema.Policies.Count);
@@ -83,6 +81,41 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
             policies.Add(group is null ? policy : policy.WithRuleGroup(group));
         }
         return schema.WithPolicies(policies);
+    }
+
+    /// <summary>
+    /// The target values matching the filter, or null when there are too many. Asked once per request for each
+    /// target and match; later rules with the same question reuse the answer.
+    /// </summary>
+    private async Task<IReadOnlyList<BsonValue>?> LookUpAsync(
+        SchemaDefinitionExtended schema,
+        AccessLookupTarget target,
+        AccessLookupFilter filter,
+        Dictionary<(string, string, bool, string), IReadOnlyList<BsonValue>?> answers,
+        CancellationToken cancellationToken)
+    {
+        var match = Match(filter.Match, target.DbFieldName);
+        var key = (target.CollectionName, target.DbFieldName, target.IsSystemEntity, match.ToJson());
+        if (answers.TryGetValue(key, out var values))
+            return values;
+
+        var found = await _runner.RunAsync(new AccessLookupQuery(target.CollectionName, target.DbFieldName, target.IsSystemEntity, match, QueryLimit), cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Access lookup runner returned no result.");
+        if (found.Count > MaxValues)
+        {
+            // The query stops at QueryLimit, so the real count is only known to be above MaxValues.
+            _logger.LogWarning(TooLarge,
+                "Access lookup on {Schema} gives no access: target {Target}.{Field} matched more than {MaxValues} values",
+                schema.SchemaName, target.SchemaName, target.FieldName, MaxValues);
+            values = null;
+        }
+        else
+        {
+            // {$in: [null]} would match rows without the field.
+            values = found.Where(v => v is not (null or BsonNull or BsonUndefined)).ToList();
+        }
+        answers[key] = values;
+        return values;
     }
 
     private async Task<LookupResolution> ResolveRuleAsync(
@@ -114,7 +147,7 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
         catch (InvalidOperationException ex)
         {
             if (FirstTargetMissing(schema.SchemaName, target.SchemaName, target.FieldName, ex.Message))
-                _logger.LogWarning(TargetMissing,
+                _logger.LogWarning(TargetMissing, ex,
                     "Access lookup on {Schema} gives no access: target {Target}.{Field} has a filter that can't be run ({Reason})",
                     schema.SchemaName, target.SchemaName, target.FieldName, ex.Message);
             return LookupResolution.Never;
@@ -129,28 +162,7 @@ public sealed class AccessLookupResolver(IAccessLookupRunner runner, ILogger<Acc
             return LookupResolution.Never;
         }
 
-        var match = Match(filter.Match, target.DbFieldName);
-        var key = (target.CollectionName, target.DbFieldName, target.IsSystemEntity, match.ToJson());
-        if (!answers.TryGetValue(key, out var values))
-        {
-            var found = await _runner.RunAsync(new AccessLookupQuery(target.CollectionName, target.DbFieldName, target.IsSystemEntity, match, QueryLimit), cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Access lookup runner returned no result.");
-            if (found.Count > MaxValues)
-            {
-                // The query stops at QueryLimit, so the real count is only known to be above MaxValues.
-                _logger.LogWarning(TooLarge,
-                    "Access lookup on {Schema} gives no access: target {Target}.{Field} matched more than {MaxValues} values",
-                    schema.SchemaName, target.SchemaName, target.FieldName, MaxValues);
-                values = null;
-            }
-            else
-            {
-                // {$in: [null]} would match rows without the field.
-                values = found.Where(v => v is not (null or BsonNull or BsonUndefined)).ToList();
-            }
-            answers[key] = values;
-        }
-
+        var values = await LookUpAsync(schema, target, filter, answers, cancellationToken).ConfigureAwait(false);
         if (values is null)
             return LookupResolution.Never;
         if (values.Count == 0)
