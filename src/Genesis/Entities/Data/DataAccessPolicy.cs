@@ -6,6 +6,9 @@ using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson;
+using System.Text.Json.Serialization;
+using Blocks.Genesis.DataAccess.Lookups;
+using Blocks.Genesis.DataAccess.Rules;
 
 namespace Blocks.Genesis.Entities.Data;
 
@@ -73,6 +76,18 @@ public class DataAccessPolicy : GraphQlBaseEntity
             Priority = Priority,
             IsAllowPolicy = IsAllowPolicy,
         };
+    }
+
+    /// <summary>
+    /// A shallow copy of this policy (every property, ids included) with <paramref name="ruleGroup"/> as its rule
+    /// group. Used for per-request copies whose lookup rules are resolved; this instance is left unchanged.
+    /// </summary>
+    public DataAccessPolicy WithRuleGroup(PolicyRuleGroup ruleGroup)
+    {
+        ArgumentNullException.ThrowIfNull(ruleGroup);
+        var copy = (DataAccessPolicy)MemberwiseClone();
+        copy.RuleGroup = ruleGroup;
+        return copy;
     }
 }
 
@@ -160,6 +175,30 @@ public class PolicyRule
     /// Optional description for this rule.
     /// </summary>
     public string? Description { get; set; }
+
+    /// <summary>
+    /// For EXISTS_IN / NOT_EXISTS_IN: the schema field the left operand's value is looked up in.
+    /// Not written while null, in the database or in API responses, so existing documents and payloads are unchanged.
+    /// </summary>
+    [BsonIgnoreIfNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PolicyReference? Reference { get; set; }
+
+    /// <summary>
+    /// Runtime only: the looked-up values of Reference, filled in before evaluation. Never stored or returned.
+    /// </summary>
+    [BsonIgnore]
+    [JsonIgnore]
+    public LookupResolution? Resolution { get; set; }
+
+    /// <summary>A shallow copy of this rule with <paramref name="resolution"/> filled in; this instance is left unchanged.</summary>
+    public PolicyRule WithResolution(LookupResolution resolution)
+    {
+        ArgumentNullException.ThrowIfNull(resolution);
+        var copy = (PolicyRule)MemberwiseClone();
+        copy.Resolution = resolution;
+        return copy;
+    }
 
     /// <summary>
     /// Converts JsonElement to proper .NET types for MongoDB serialization.
@@ -343,4 +382,22 @@ public class PolicyStaticValueSerializer : IBsonSerializer<object?>
     {
         Serialize(context, args, value);
     }
+}
+
+/// <summary>
+/// The other schema an EXISTS_IN / NOT_EXISTS_IN rule looks its value up in.
+/// </summary>
+[BsonIgnoreExtraElements]
+public sealed class PolicyReference
+{
+    /// <summary>The schema to look in.</summary>
+    public string SchemaName { get; set; } = string.Empty;
+
+    /// <summary>The field of that schema holding the values to compare with.</summary>
+    public string FieldName { get; set; } = ReferenceTargets.DefaultTargetField;
+
+    /// <summary>Optional: only rows of the target schema matching this filter are looked in.</summary>
+    [BsonIgnoreIfNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PolicyRuleGroup? Filter { get; set; }
 }

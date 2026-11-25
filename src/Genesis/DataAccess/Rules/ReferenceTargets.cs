@@ -125,7 +125,7 @@ public sealed class ReferenceTargets
         // ItemId is stored as _id and is not always listed among a schema's fields.
         if (fieldName == DefaultTargetField)
         {
-            target = new ReferenceTarget(targetSchema.SchemaName, fieldName, targetSchema.CollectionName, PolicyConstants.DbEntityIdFieldName, targetSchema.IsSystemEntity);
+            target = new ReferenceTarget(targetSchema.SchemaName, fieldName, targetSchema.CollectionName, StoredFieldName(fieldName), targetSchema.IsSystemEntity);
             return null;
         }
 
@@ -133,9 +133,13 @@ public sealed class ReferenceTargets
         if (field is null || field.IsArray || !SchemaTypeHelper.IsScalar(field.Type))
             return $"references field '{targetSchema.SchemaName}.{fieldName}', which does not exist or is not a single value";
 
-        target = new ReferenceTarget(targetSchema.SchemaName, fieldName, targetSchema.CollectionName, fieldName, targetSchema.IsSystemEntity);
+        target = new ReferenceTarget(targetSchema.SchemaName, fieldName, targetSchema.CollectionName, StoredFieldName(fieldName), targetSchema.IsSystemEntity);
         return null;
     }
+
+    /// <summary>The name a target field is stored under: <c>ItemId</c> is <c>_id</c>, every other field its own name.</summary>
+    internal static string StoredFieldName(string fieldName) =>
+        fieldName == DefaultTargetField ? PolicyConstants.DbEntityIdFieldName : fieldName;
 
     /// <summary>
     /// Why a filter can't be checked as written, or null. Each condition must compare a property of the target with a
@@ -159,7 +163,7 @@ public sealed class ReferenceTargets
         return null;
     }
 
-    private static bool HasProperty(List<FieldDefinitionResponse> fields, string path)
+    internal static bool HasProperty(List<FieldDefinitionResponse> fields, string path)
     {
         // Nested properties are either stored as dotted rows ("Address.City") or under their object field.
         if (fields.Any(f => f.Name == path))

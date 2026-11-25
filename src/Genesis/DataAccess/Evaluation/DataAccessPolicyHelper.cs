@@ -1,3 +1,4 @@
+using Blocks.Genesis.DataAccess.Lookups;
 using Blocks.Genesis.DataAccess;
 using Blocks.Genesis.Entities.Data;
 using MongoDB.Bson;
@@ -221,6 +222,11 @@ public static class DataAccessPolicyHelper
     /// </summary>
     private static PolicyEvaluationResult EvaluateRule(AccessPrincipal principal, PolicyRule rule)
     {
+        // Must exist in / Must not exist in: first, ahead of all value handling (no comma splitting, no typed
+        // alternatives); the looked-up values are compared as stored.
+        if (IsLookupOperator(rule.Operator))
+            return EvaluateLookupRule(rule);
+
         var leftIsToken = rule.LeftSource == ConditionSource.AUTH;
         var leftIsSchema = rule.LeftSource == ConditionSource.SCHEMA_FIELD;
         var rightIsSchema = rule.RightSource == ConditionSource.SCHEMA_FIELD;
@@ -364,6 +370,59 @@ public static class DataAccessPolicyHelper
 
         return new PolicyEvaluationResult { IsAccessGranted = true };
     }
+
+    /// <summary>True for <see cref="PolicyOperator.EXISTS_IN"/> and <see cref="PolicyOperator.NOT_EXISTS_IN"/>.</summary>
+    internal static bool IsLookupOperator(PolicyOperator op) =>
+        op is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN;
+
+    /// <summary>
+    /// A resolved Must exist in / Must not exist in rule. <see cref="LookupOutcome.Values"/> filters the record field
+    /// (<c>ItemId</c> as the stored <c>_id</c>) with <c>$in</c> / <c>$nin</c> on the looked-up values with their stored types. <see cref="LookupOutcome.Never"/>
+    /// and <see cref="LookupOutcome.Always"/> are the rule's fixed answer (whatever the operator) and evaluate like an
+    /// Auth-only condition that is false / true: no row filter, so no constant <c>$expr</c> reaches MongoDB and
+    /// AND / OR combine it as they combine any Auth-only condition. Unresolved: <see cref="AccessCheckFailedException"/>.
+    /// </summary>
+    private static PolicyEvaluationResult EvaluateLookupRule(PolicyRule rule)
+    {
+        var resolution = RequireResolution(rule);
+        return resolution.Outcome switch
+        {
+            LookupOutcome.Never => new PolicyEvaluationResult { IsAccessGranted = false, RequiresDataFilter = false },
+            LookupOutcome.Always => new PolicyEvaluationResult { IsAccessGranted = true, RequiresDataFilter = false },
+            LookupOutcome.Values => new PolicyEvaluationResult
+            {
+                IsAccessGranted = true,
+                DataFilter = new BsonDocument(LookupFieldName(rule.LeftOperand), new BsonDocument(
+                    rule.Operator == PolicyOperator.EXISTS_IN ? "$in" : "$nin", new BsonArray(resolution.Values))),
+                RequiresDataFilter = true
+            },
+            _ => throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule has an unknown lookup outcome {resolution.Outcome}.")
+        };
+    }
+
+    /// <summary>
+    /// The stored name of a lookup rule's record field: <c>ItemId</c> is stored as <c>_id</c>. Only the lookup branch
+    /// maps it; the other branches keep their field names.
+    /// </summary>
+    private static string LookupFieldName(string leftOperand) =>
+        leftOperand == nameof(GraphQlBaseEntity.ItemId) ? PolicyConstants.DbEntityIdFieldName : leftOperand;
+
+    /// <summary>
+    /// The rule's resolution; throws <see cref="AccessCheckFailedException"/> (empty schema name) when the lookup was
+    /// never resolved, or the rule doesn't compare a record field. Shared with <see cref="QueryPolicyRuleEvaluator"/>.
+    /// </summary>
+    internal static LookupResolution RequireResolution(PolicyRule rule)
+    {
+        if (rule.LeftSource != ConditionSource.SCHEMA_FIELD || string.IsNullOrEmpty(rule.LeftOperand))
+            throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule must compare a record field.");
+        return rule.Resolution
+            ?? throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule on '{rule.LeftOperand}' reached evaluation unresolved.");
+    }
+
+    private static AccessCheckFailedException UnevaluableOperator(PolicyOperator op) =>
+        new(string.Empty, IsLookupOperator(op)
+            ? $"{op} can only be evaluated as a resolved policy rule."
+            : $"Unknown policy operator {(int)op}.");
 
     /// <summary>
     /// Combines multiple evaluation results based on logical operator.
@@ -634,6 +693,11 @@ public static class DataAccessPolicyHelper
     /// </summary>
     public static bool EvaluateCondition(object? leftValue, PolicyOperator op, object? rightValue)
     {
+        // Only the operators up to REGEX are answered here. Any other (Must (not) exist in, which needs its resolved
+        // lookup, or an unknown value) refuses instead of reading as false; checked first so no value shape skips it.
+        if (op is < PolicyOperator.EQUAL or > PolicyOperator.REGEX)
+            throw UnevaluableOperator(op);
+
         // Handle null cases
         if (op == PolicyOperator.IS_NULL)
             return leftValue is null || (leftValue is string s && string.IsNullOrEmpty(s));
@@ -681,7 +745,7 @@ public static class DataAccessPolicyHelper
             PolicyOperator.START_WITH => leftValue.ToString()?.StartsWith(rightValue.ToString() ?? "") ?? false,
             PolicyOperator.END_WITH => leftValue.ToString()?.EndsWith(rightValue.ToString() ?? "") ?? false,
             PolicyOperator.REGEX => Regex.IsMatch(leftValue.ToString() ?? "", rightValue.ToString() ?? "", RegexOptions.None, TimeSpan.FromSeconds(1)),
-            _ => false
+            _ => throw UnevaluableOperator(op)
         };
     }
 
@@ -921,8 +985,102 @@ public static class DataAccessPolicyHelper
             PolicyOperator.IS_NULL => new BsonDocument(fieldName, BsonNull.Value),
             PolicyOperator.IS_NOT_NULL => new BsonDocument(fieldName, new BsonDocument("$ne", BsonNull.Value)),
             PolicyOperator.REGEX => new BsonDocument(fieldName, new BsonDocument("$regex", value?.ToString() ?? "")),
-            _ => new BsonDocument()
+            // An empty filter would grant every row: refuse instead (unknown operator, or an unresolved lookup).
+            _ => throw UnevaluableOperator(op)
         };
+    }
+
+    /// <summary>
+    /// The Mongo match for a lookup's WHERE condition, for the caller's own Auth values. Conditions compare a target
+    /// field with a static value or an Auth value; <c>ItemId</c> is read as the stored <c>_id</c> at every level. When
+    /// an Auth value the condition needs is null, the first such name is reported in
+    /// <see cref="Lookups.AccessLookupFilter.MissingAuthName"/> and no condition comparing to null is emitted.
+    /// Static values keep the policy meaning of operators (numbers, dates and booleans typed as text match typed
+    /// fields; In / Contains work on list fields); no target field types are needed.
+    /// When <c>MissingAuthName</c> is set, callers must treat the lookup as "never matches": a missing-Auth branch is
+    /// dropped from OR groups, so <c>Match</c> alone is wider than intended.
+    /// </summary>
+    public static Lookups.AccessLookupFilter BuildAccessLookupFilter(PolicyRuleGroup? filter, AccessPrincipal principal)
+    {
+        string? missing = null;
+        var match = filter is null ? new BsonDocument() : BuildLookupGroup(filter, principal, ref missing);
+        return new Lookups.AccessLookupFilter(match, missing);
+    }
+
+    private static BsonDocument BuildLookupGroup(PolicyRuleGroup group, AccessPrincipal principal, ref string? missing)
+    {
+        var parts = new List<BsonDocument>();
+        foreach (var rule in group.Rules)
+        {
+            var part = BuildLookupRule(rule, principal, ref missing);
+            if (part is not null)
+                parts.Add(part);
+        }
+        foreach (var nested in group.NestedGroups)
+        {
+            var part = BuildLookupGroup(nested, principal, ref missing);
+            if (part.ElementCount > 0)
+                parts.Add(part);
+        }
+
+        return parts.Count switch
+        {
+            0 => new BsonDocument(),
+            1 => parts[0],
+            _ => new BsonDocument(group.LogicalOperator == PolicyLogicalOperator.OR ? "$or" : "$and", new BsonArray(parts)),
+        };
+    }
+
+    private static BsonDocument? BuildLookupRule(PolicyRule rule, AccessPrincipal principal, ref string? missing)
+    {
+        if (rule.Operator is PolicyOperator.EXISTS_IN or PolicyOperator.NOT_EXISTS_IN)
+            throw new InvalidOperationException("A lookup filter cannot contain Must exist in / Must not exist in.");
+        if (rule.LeftSource != ConditionSource.SCHEMA_FIELD || rule.RightSource is not (ConditionSource.STATIC_VALUE or ConditionSource.AUTH))
+            throw new InvalidOperationException("A lookup filter condition compares a target field with a static value or an Auth value.");
+
+        var field = rule.LeftOperand == nameof(GraphQlBaseEntity.ItemId) ? PolicyConstants.DbEntityIdFieldName : rule.LeftOperand;
+        if (rule.Operator is PolicyOperator.IS_NULL or PolicyOperator.IS_NOT_NULL)
+            return BuildConditionFilter(principal, field, rule.Operator, null);
+
+        object? value;
+        if (rule.RightSource == ConditionSource.AUTH)
+        {
+            value = GetTokenValue(principal, rule.RightOperand);
+            if (value is null)
+            {
+                missing ??= rule.RightOperand;
+                return null;
+            }
+        }
+        else
+        {
+            value = rule.StaticValue;
+            if (value is string text)
+            {
+                var lacking = AuthExpressionNames(text).FirstOrDefault(name => GetTokenValue(principal, name) is null);
+                if (lacking is not null)
+                {
+                    missing ??= lacking;
+                    return null;
+                }
+            }
+        }
+
+        // The same paths as an access policy's field-vs-value rule, so operators keep their policy meaning.
+        if (rule.RightSource == ConditionSource.STATIC_VALUE &&
+            rule.Operator is PolicyOperator.IN or PolicyOperator.NOT_IN &&
+            StaticList(rule) is { } list)
+        {
+            return new BsonDocument(field, new BsonDocument(
+                rule.Operator == PolicyOperator.IN ? "$in" : "$nin", WithTypedAlternatives(list)));
+        }
+
+        if (ConvertToStringArray(value) is { } values && IsCollectionOperator(rule.Operator))
+            return BuildArrayComparisonFilter(FieldArrayExpression(field), new BsonArray(values), rule.Operator);
+
+        return rule.RightSource == ConditionSource.STATIC_VALUE
+            ? BuildStaticConditionFilter(principal, field, rule.Operator, value)
+            : BuildConditionFilter(principal, field, rule.Operator, value);
     }
 
     private static readonly Regex IsoDatePattern = new(@"^\d{4}-\d{2}-\d{2}", RegexOptions.Compiled, TimeSpan.FromSeconds(1));

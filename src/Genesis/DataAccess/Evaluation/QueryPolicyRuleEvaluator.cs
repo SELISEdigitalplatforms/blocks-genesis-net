@@ -1,4 +1,5 @@
 using Blocks.Genesis.DataAccess;
+using Blocks.Genesis.DataAccess.Lookups;
 using Blocks.Genesis.Entities.Data;
 using MongoDB.Bson;
 
@@ -71,12 +72,106 @@ public static class QueryPolicyRuleEvaluator
     /// </summary>
     public static bool EvaluateSingleRuleForRow(AccessPrincipal principal, PolicyRule rule, IDictionary<string, object> rowData)
     {
+        // Must exist in / Must not exist in: first, ahead of all value handling.
+        if (DataAccessPolicyHelper.IsLookupOperator(rule.Operator))
+            return EvaluateLookupRuleForRow(rule, rowData);
+
         var rightOperands = rule.RightOperands.Count > 0 ? rule.RightOperands : [rule.RightOperand];
         var results = rightOperands.Select(operand => EvaluateOperandPairForRow(principal, rule, operand, rowData));
         return rule.Operator is PolicyOperator.NOT_IN or PolicyOperator.NOT_CONTAIN
             ? results.All(result => result)
             : results.Any(result => result);
     }
+
+    /// <summary>
+    /// A resolved Must exist in / Must not exist in rule against a row, with the answer MongoDB gives the filter
+    /// <c>{field: {$in | $nin: values}}</c> built from it (<c>ItemId</c> read as <c>_id</c>, see
+    /// <see cref="LookupFieldPath"/>). The field is read as the other rules read it (dotted paths,
+    /// through lists of objects); a list value is matched item by item. A value is in the set when its
+    /// <see cref="LookupKeys"/> key is in <see cref="LookupResolution.Keys"/>, which is exactly when MongoDB finds the
+    /// two equal: numbers by exact value across numeric types, text by exact case, no type equal to another (text
+    /// never equals a number, a bool or an id). A null or missing value, and a nested list or object, is not in the set.
+    /// <see cref="LookupOutcome.Never"/> is false and <see cref="LookupOutcome.Always"/> true, whatever the operator.
+    /// Unresolved: <see cref="AccessCheckFailedException"/>.
+    /// </summary>
+    private static bool EvaluateLookupRuleForRow(PolicyRule rule, IDictionary<string, object> rowData)
+    {
+        var resolution = DataAccessPolicyHelper.RequireResolution(rule);
+        switch (resolution.Outcome)
+        {
+            case LookupOutcome.Never:
+                return false;
+            case LookupOutcome.Always:
+                return true;
+            case LookupOutcome.Values:
+                break;
+            default:
+                throw new AccessCheckFailedException(string.Empty, $"{rule.Operator} rule has an unknown lookup outcome {resolution.Outcome}.");
+        }
+
+        var path = LookupFieldPath(rule.LeftOperand, rowData);
+        var values = TryGetValuesThroughLists(rowData, path, out var items)
+            ? items
+            : [GetNestedValueByPath(rowData, path)];
+        var found = values.SelectMany(LookupCandidates)
+            .Select(LookupKeyOf)
+            .Any(key => key is not null && resolution.Keys.Contains(key));
+        return rule.Operator == PolicyOperator.EXISTS_IN ? found : !found;
+    }
+
+    /// <summary>
+    /// Where a lookup rule's record field is in the row. <c>ItemId</c> is the stored <c>_id</c> (the DB filter uses
+    /// <c>_id</c>, and rows reach the evaluator as stored documents); only a row with no <c>_id</c> but an
+    /// <c>ItemId</c> is read at <c>ItemId</c>.
+    /// </summary>
+    private static string LookupFieldPath(string leftOperand, IDictionary<string, object> rowData)
+    {
+        if (leftOperand != nameof(GraphQlBaseEntity.ItemId))
+            return leftOperand;
+        return rowData.ContainsKey(PolicyConstants.DbEntityIdFieldName) || !rowData.ContainsKey(leftOperand)
+            ? PolicyConstants.DbEntityIdFieldName
+            : leftOperand;
+    }
+
+    /// <summary>
+    /// The values one field value offers to <c>$in</c> / <c>$nin</c>: itself, or each item of a list (text and binary
+    /// are values, not lists). Items that are themselves lists or objects are offered too and get no key, so they never
+    /// match: <c>$in</c> doesn't look inside a nested list.
+    /// </summary>
+    private static IEnumerable<object?> LookupCandidates(object? value)
+    {
+        switch (value)
+        {
+            case BsonArray array:
+                foreach (var item in array)
+                    yield return item;
+                yield break;
+            case string or byte[] or BsonValue or IDictionary<string, object>:
+                yield return value;
+                yield break;
+            case System.Collections.IEnumerable list:
+                foreach (var item in list)
+                    yield return item;
+                yield break;
+            default:
+                yield return value;
+                yield break;
+        }
+    }
+
+    /// <summary>
+    /// The <see cref="LookupKeys"/> key of a row value, which arrives as a BsonValue or as the .NET value of a stored
+    /// document (<c>ToDictionary</c>). Null, lists and objects have no key. A Guid is the standard UUID binary.
+    /// </summary>
+    private static string? LookupKeyOf(object? value) => value switch
+    {
+        null => null,
+        BsonValue bson => LookupKeys.Of(bson),
+        Guid guid => LookupKeys.Of(new BsonBinaryData(guid, GuidRepresentation.Standard)),
+        string or byte[] => LookupKeys.Of(BsonValue.Create(value)),
+        IDictionary<string, object> or System.Collections.IEnumerable => null,
+        _ => LookupKeys.Of(BsonValue.Create(value))
+    };
 
     /// <summary>
     /// Evaluates the rule's left operand against one right operand. When exactly one side is a schema field whose
