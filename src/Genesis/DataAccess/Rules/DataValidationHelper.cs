@@ -52,10 +52,16 @@ public static class DataValidationHelper
     {
         var result = new DataValidationResult();
         var scope = new VariableScope(input, storedRecord, nowUtc);
-        ValidateData(input, schema.Fields, result, pathPrefix: "", scope);
+        ValidateData(input, schema.Fields, result, pathPrefix: "", scope, isInsert: storedRecord is null);
         ValidateConditional(input, schema, storedRecord, rawInput, scope, result);
         return result;
     }
+
+    /// <summary>
+    /// From this evaluation version, "Not empty" also fails a property that an insert leaves out. Older rules keep
+    /// checking only what was sent (the G1 baseline), and an update never fails a property it leaves out.
+    /// </summary>
+    public const int NotEmptyChecksMissingFromVersion = 3;
 
     /// <summary>
     /// The rules without an "only when" condition, on the input alone: what <see cref="Validate(Dictionary{string, object?}, SchemaDefinitionExtended)"/>
@@ -65,7 +71,7 @@ public static class DataValidationHelper
     public static DataValidationResult ValidateWithoutConditions(this Dictionary<string, object?> input, SchemaDefinitionExtended schema, DateTime nowUtc)
     {
         var result = new DataValidationResult();
-        ValidateData(input, schema.Fields, result, pathPrefix: "", new VariableScope(input, null, nowUtc));
+        ValidateData(input, schema.Fields, result, pathPrefix: "", new VariableScope(input, null, nowUtc), isInsert: false);
         return result;
     }
 
@@ -170,15 +176,19 @@ public static class DataValidationHelper
 
     /// <summary>
     /// Validates input against a list of field definitions and appends errors to the result.
-    /// Recurses into nested objects when a field is not a scalar type.
+    /// Recurses into nested objects when a field is not a scalar type. On an insert, a version-3 "Not empty" also fails
+    /// a property left out (<see cref="FailMissingNotEmpty"/>).
     /// </summary>
     private static void ValidateData(
         Dictionary<string, object?> input,
         List<FieldDefinitionResponse> fields,
         DataValidationResult result,
         string pathPrefix,
-        VariableScope scope)
+        VariableScope scope,
+        bool isInsert)
     {
+        FailMissingNotEmpty(input, fields, result, pathPrefix, isInsert);
+
         foreach (var fieldKey in input.Keys)
         {
             var fieldDefinition = fields.FirstOrDefault(f => f.Name == fieldKey);
@@ -215,14 +225,14 @@ public static class DataValidationHelper
                     {
                         if (item is Dictionary<string, object?> nestedDict && fieldDefinition.Fields.Count > 0)
                         {
-                            ValidateData(nestedDict, fieldDefinition.Fields, result, $"{fieldPath}[{index}].", scope);
+                            ValidateData(nestedDict, fieldDefinition.Fields, result, $"{fieldPath}[{index}].", scope, isInsert);
                         }
                         index++;
                     }
                 }
                 else if (fieldValue is Dictionary<string, object?> nestedDict && fieldDefinition.Fields.Count > 0)
                 {
-                    ValidateData(nestedDict, fieldDefinition.Fields, result, $"{fieldPath}.", scope);
+                    ValidateData(nestedDict, fieldDefinition.Fields, result, $"{fieldPath}.", scope, isInsert);
                 }
                 continue;
             }
@@ -247,6 +257,29 @@ public static class DataValidationHelper
             }
         }
     }
+
+    /// <summary>
+    /// On an insert (<paramref name="isInsert"/>), a property left out: each active version-3 "Not empty" on it, without an "only when" condition,
+    /// fails as for a null value. Only scalar properties (and lists of them); a nested object left out is not entered,
+    /// and a rule with a condition runs in the conditional pass, which already reads a missing value as null.
+    /// </summary>
+    private static void FailMissingNotEmpty(Dictionary<string, object?> input, List<FieldDefinitionResponse> fields, DataValidationResult result, string pathPrefix, bool isInsert)
+    {
+        if (!isInsert)
+            return;
+
+        var missing = fields.Where(f => !input.ContainsKey(f.Name) && SchemaTypeHelper.IsScalar(f.Type) && f.ValidationRule?.Validations is not null);
+        foreach (var field in missing)
+        {
+            var fieldPath = string.IsNullOrEmpty(pathPrefix) ? field.Name : $"{pathPrefix}{field.Name}";
+            foreach (var message in field.ValidationRule!.Validations.Where(ChecksMissing).Select(rule => rule.ErrorMessage))
+                AddIfInvalid(result, ValidateNotEmpty(fieldPath, null, string.IsNullOrWhiteSpace(message) ? null : message));
+        }
+    }
+
+    /// <summary>An active version-3 "Not empty" without a condition: the rules <see cref="FailMissingNotEmpty"/> applies.</summary>
+    private static bool ChecksMissing(ValidationRule rule) =>
+        rule.IsActive && rule.When is null && rule.Type == ValidationType.NotEmpty && rule.EvaluationVersion >= NotEmptyChecksMissingFromVersion;
 
     /// <summary>One rule on one property's value: the list as a whole, each item, or the single value.</summary>
     private static void ApplyRule(DataValidationResult result, string fieldPath, object? fieldValue, List<object?>? elements, string fieldType, ValidationRule validation)
