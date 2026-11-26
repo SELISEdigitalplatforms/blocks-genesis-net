@@ -96,6 +96,19 @@ public sealed class ResolveWriteTests : IDisposable
     }
 
     [Fact]
+    public async Task NotEmptyVersion3_FailsAMissingProperty_OnInsertOnly()
+    {
+        Rule("EmailTemplate", "TemplateSubject", new ValidationRule { Type = ValidationType.NotEmpty, EvaluationVersion = 3, IsActive = true });
+        var partial = new BsonDocument { { "_id", "t1" }, { "Name", "Welcome" } };
+
+        var updated = await _resolver.ResolveWriteAsync("EmailTemplate", partial.DeepClone().AsBsonDocument, isInsert: false);
+        var inserted = await _resolver.ResolveWriteAsync("EmailTemplate", partial.DeepClone().AsBsonDocument, isInsert: true);
+
+        Assert.True(updated.IsValid);
+        Assert.Equal("TemplateSubject", Assert.Single(inserted.Validation.Errors).FieldName);
+    }
+
+    [Fact]
     public async Task Default_FillsANullProperty_OnInsertOnly_AndNeverOverwrites()
     {
         Default("EmailTemplate", "TemplateSubject", new FieldDefaultValue { Kind = DefaultValueKind.Static, Value = "Hello" });

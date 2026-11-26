@@ -75,6 +75,16 @@ public class NotEmptyMissingFieldTests
     }
 
     [Fact]
+    public void Version3_UpdateWithoutAStoredRecord_DoesNotFailAPropertyTheUpdateLeavesOut()
+    {
+        // Service data access (DataAccessResolver.ResolveWriteAsync) checks updates without loading the stored record.
+        var schema = Attendance(Field("EmployeeId", rules: NotEmpty(3)), Field("StartTime"));
+
+        Assert.True(new Dictionary<string, object?> { ["StartTime"] = "10:00" }.Validate(schema, storedRecord: null, DateTime.UtcNow, isInsert: false).IsValid);
+        Assert.False(new Dictionary<string, object?> { ["StartTime"] = "10:00" }.Validate(schema, storedRecord: null, DateTime.UtcNow, isInsert: true).IsValid);
+    }
+
+    [Fact]
     public void Version3_BulkUpdateInput_DoesNotFailAPropertyItLeavesOut()
     {
         var schema = Attendance(Field("EmployeeId", rules: NotEmpty(3)), Field("StartTime"));

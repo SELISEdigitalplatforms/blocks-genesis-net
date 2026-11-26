@@ -47,12 +47,15 @@ public static class DataValidationHelper
     /// <paramref name="rawInput"/> is the input as sent, explicit nulls included, for a caller whose
     /// <paramref name="input"/> has lost them (<c>WriteRules.ToRecord</c>): "only when" rules read it to know what was sent
     /// and cleared. Rules without a condition never read it.
+    /// <paramref name="isInsert"/> says whether this write is an insert; when not given, a write without
+    /// <paramref name="storedRecord"/> counts as one. A caller that checks updates without loading the stored record
+    /// must pass <c>false</c>, or a version-3 "Not empty" fails each property the update leaves out.
     /// </summary>
-    public static DataValidationResult Validate(this Dictionary<string, object?> input, SchemaDefinitionExtended schema, IReadOnlyDictionary<string, object?>? storedRecord, DateTime nowUtc, MongoDB.Bson.BsonDocument? rawInput = null)
+    public static DataValidationResult Validate(this Dictionary<string, object?> input, SchemaDefinitionExtended schema, IReadOnlyDictionary<string, object?>? storedRecord, DateTime nowUtc, MongoDB.Bson.BsonDocument? rawInput = null, bool? isInsert = null)
     {
         var result = new DataValidationResult();
         var scope = new VariableScope(input, storedRecord, nowUtc);
-        ValidateData(input, schema.Fields, result, pathPrefix: "", scope, isInsert: storedRecord is null);
+        ValidateData(input, schema.Fields, result, pathPrefix: "", scope, isInsert: isInsert ?? storedRecord is null);
         ValidateConditional(input, schema, storedRecord, rawInput, scope, result);
         return result;
     }
