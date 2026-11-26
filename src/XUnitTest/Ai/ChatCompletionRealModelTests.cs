@@ -4,29 +4,20 @@ namespace XUnitTest.Ai;
 
 /// <summary>
 /// One test per provider style against a real endpoint (rule 13, D4). Excluded from ordinary runs by
-/// <c>--filter "Category!=RealModel"</c>. Run on its own without the <c>TEST_MODEL_*</c> variables, it FAILs and names D4: it never skips.
+/// <c>--filter "Category!=RealModel"</c>. Without the <c>TEST_MODEL_*</c> variables of its style, a test is skipped, so a CI run with no endpoint stays green (D4).
 /// It sends one synthetic prompt and prints neither the key nor the endpoint.
 /// </summary>
 public class ChatCompletionRealModelTests
 {
     private static (string Endpoint, string Key, string Name, string? ApiVersion) Required(string style)
     {
-        var actualStyle = Environment.GetEnvironmentVariable("TEST_MODEL_STYLE");
-        var endpoint = Environment.GetEnvironmentVariable("TEST_MODEL_ENDPOINT");
-        var key = Environment.GetEnvironmentVariable("TEST_MODEL_KEY");
-        var name = Environment.GetEnvironmentVariable("TEST_MODEL_NAME");
-        if (!string.Equals(actualStyle, style, StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(name))
-        {
-            Assert.Fail($"D4 pending: this test needs a real '{style}' endpoint. The owner writes TEST_MODEL_STYLE, TEST_MODEL_ENDPOINT, TEST_MODEL_KEY and TEST_MODEL_NAME " +
-                        "into blocks-infra\\model-endpoint.env (runbook 13B), and the run is approved first (rule 13).");
-        }
-        return (endpoint!.TrimEnd('/'), key!, name!, Environment.GetEnvironmentVariable("TEST_MODEL_API_VERSION"));
+        Assert.True(RealModelFactAttribute.TryGetEndpoint(style, out var endpoint), $"No real '{style}' endpoint is configured.");
+        return endpoint;
     }
 
     private static readonly ChatMessage[] Prompt = { new("user", "Reply with the single word: pong") };
 
-    [Fact]
+    [RealModelFact("azure-openai")]
     [Trait("Category", "RealModel")]
     public async Task AzureOpenAi_answers_and_reports_token_usage()
     {
@@ -43,7 +34,7 @@ public class ChatCompletionRealModelTests
         Assert.True(result.Usage!.PromptTokens > 0);
     }
 
-    [Fact]
+    [RealModelFact("openai")]
     [Trait("Category", "RealModel")]
     public async Task OpenAiCompatible_answers_and_reports_token_usage()
     {
