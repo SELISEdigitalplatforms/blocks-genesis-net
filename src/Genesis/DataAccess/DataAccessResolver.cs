@@ -256,7 +256,7 @@ public sealed class DataAccessResolver : IDataAccessResolver
         }
 
         // The raw document keeps explicit nulls, which "only when" rules read as cleared properties.
-        result.Errors.AddRange(record.Validate(schema, storedRecord is null ? null : WriteRules.ToRecord(storedRecord), nowUtc, rawInput: document).Errors);
+        result.Errors.AddRange(record.Validate(schema, storedRecord is null ? null : WriteRules.ToRecord(storedRecord), nowUtc, rawInput: document, isInsert).Errors);
         await CheckReferencesAsync(schema, record, principal, result, cancellationToken);
         return new ResolvedWrite(document, result, defaultsApplied);
     }
