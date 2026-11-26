@@ -63,6 +63,8 @@ public class ValidationRule
     /// <summary>
     /// How the rule is evaluated. 0 (every rule saved before this field existed): a rule on a list
     /// property checks the list as a whole, exactly as before. 1: a list property is checked item by item.
+    /// 2: deleted target records no longer count for a Reference rule. 3: "Not empty" also fails a property that an
+    /// insert leaves out (an update never fails a property it leaves out). Every later version keeps the earlier ones.
     /// Not written while 0, so existing documents are unchanged.
     /// </summary>
     [BsonIgnoreIfDefault]
