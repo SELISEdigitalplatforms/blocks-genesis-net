@@ -1,8 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Version>4.6.4</Version>
+    <Version>4.6.4-lm2</Version>
 
 
     <PackageId>SeliseBlocks.Genesis.OS</PackageId>
@@ -28,6 +28,7 @@
 		<PackageReference Include="SharpCompress" Version="0.48.0" />
 
 		<PackageReference Include="OpenTelemetry" Version="1.15.3" />
+		<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
 		<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
 		<PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
 		<PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
@@ -44,6 +45,7 @@
 		<PackageReference Include="Serilog.Enrichers.OpenTelemetry" Version="1.0.1" />
 		<PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
 		<PackageReference Include="Serilog.Sinks.MongoDB" Version="7.2.0" />
+		<PackageReference Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
 		<PackageReference Include="StackExchange.Redis" Version="2.12.14" />
 		<!-- 10.0.15 is the first version without GHSA-wr8v-9x5q-ggcm (high); 10.0.0-10.0.14 are affected. -->
 		<PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" />

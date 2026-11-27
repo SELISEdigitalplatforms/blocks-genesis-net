@@ -18,6 +18,8 @@ public sealed class LmtServiceBusSender : ILmtMessageSender
     private readonly ServiceBusSender? _serviceBusSender;
     private readonly SemaphoreSlim _retrySemaphore = new SemaphoreSlim(1, 1);
     private bool _disposed;
+    private int _disposeState;
+    private readonly ConcurrentDictionary<Task, byte> _inFlight = new();
     private readonly ILogger<LmtServiceBusSender>? _logger;
     private ILogger Logger => _logger ?? NullLogger<LmtServiceBusSender>.Instance;
 
@@ -42,7 +44,7 @@ public sealed class LmtServiceBusSender : ILmtMessageSender
             _serviceBusSender = _serviceBusClient.CreateSender(LmtConstants.GetTopicName(serviceName));
         }
 
-        _retryTimer = new Timer(async _ => await RetryFailedBatchesAsync().ConfigureAwait(false), null,
+        _retryTimer = new Timer(_ => TrackedRetry(), null,
             TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
@@ -196,7 +198,25 @@ public sealed class LmtServiceBusSender : ILmtMessageSender
         }
     }
 
-    private Task RetryFailedBatchesAsync() =>
+    private bool IsDisposing => Volatile.Read(ref _disposeState) != 0;
+
+    // A retry that starts after Dispose has begun does nothing. One that loses the race with the semaphore being disposed is
+    // swallowed, and Dispose waits for the ones still running.
+    private void TrackedRetry()
+    {
+        if (IsDisposing) return;
+        var task = Task.Run(async () =>
+        {
+            try { await RetryFailedBatchesAsync().ConfigureAwait(false); }
+            catch (ObjectDisposedException) { }
+        });
+        _inFlight?.TryAdd(task, 0);
+        _ = task.ContinueWith(t => _inFlight?.TryRemove(t, out _), TaskScheduler.Default);
+    }
+
+    private Task RetryFailedBatchesAsync() => IsDisposing ? Task.CompletedTask : RetryFailedBatchesCoreAsync();
+
+    private Task RetryFailedBatchesCoreAsync() =>
         LmtFailedBatchRetryHelper.RetryFailedBatchesAsync(_retrySemaphore, RetryFailedLogsAsync, RetryFailedTracesAsync);
 
     private Task RetryFailedLogsAsync(DateTime now) =>
@@ -229,10 +249,20 @@ public sealed class LmtServiceBusSender : ILmtMessageSender
 
     public void Dispose()
     {
-        if (_disposed) return;
+        // The flag goes first, so a second Dispose and a timer tick see it at once.
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0) return;
 
-        _retryTimer?.Dispose();
-        RetryFailedBatchesAsync().GetAwaiter().GetResult();
+        if (_retryTimer != null)
+        {
+            using var timerDone = new ManualResetEvent(false);
+            if (_retryTimer.Dispose(timerDone))
+                timerDone.WaitOne(TimeSpan.FromSeconds(10));
+        }
+
+        try { Task.WaitAll(_inFlight?.Keys.ToArray() ?? [], TimeSpan.FromSeconds(10)); }
+        catch (AggregateException) { }
+
+        RetryFailedBatchesCoreAsync().GetAwaiter().GetResult();
         _retrySemaphore?.Dispose();
         _serviceBusSender?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _serviceBusClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();

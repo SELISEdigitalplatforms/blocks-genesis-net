@@ -1,4 +1,4 @@
-using Blocks.Genesis.Health;
+﻿using Blocks.Genesis.Health;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
@@ -40,18 +40,29 @@ public static class ApplicationConfigurations
             LmtConfiguration.CreateCollectionForLogs(_blocksSecret.LogConnectionString, serviceName);
         }
 
-        Log.Logger = new LoggerConfiguration()
+        var logConfiguration = new LoggerConfiguration()
             .Enrich.FromLogContext()
             .Enrich.With<TraceContextEnricher>()
             .Enrich.WithEnvironmentName()
-            .WriteTo.Console()
-            .WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret)
+            .WriteTo.Console();
+        if (OtlpExport.MongoExportEnabled())
+        {
+            logConfiguration = logConfiguration.WriteTo.MongoDBWithDynamicCollection(_serviceName, _blocksSecret);
+        }
+
+        Log.Logger = logConfiguration
+            .WriteToOtlpWhenConfigured(_serviceName)
             .CreateLogger();
 
         return _blocksSecret;
     }
 
-    public static VaultType ResolveVaultType(VaultType defaultVaultType = VaultType.Azure)
+    private static int _vaultTypeLogged;
+
+    // BLOCKS_VAULT_TYPE wins when it is set to a valid value. Otherwise the vault is Azure only when a Key Vault URL
+    // is configured, and the on-premises vault when it is not (I02-WP1). A caller that passes defaultVaultType keeps
+    // that choice for the unset and invalid cases.
+    public static VaultType ResolveVaultType(VaultType? defaultVaultType = null)
     {
         LoadDotEnvFile();
 
@@ -59,10 +70,23 @@ public static class ApplicationConfigurations
         if (!string.IsNullOrWhiteSpace(configuredVaultType) &&
             Enum.TryParse<VaultType>(configuredVaultType, true, out var parsedVaultType))
         {
+            LogVaultTypeOnce(parsedVaultType, "BLOCKS_VAULT_TYPE");
             return parsedVaultType;
         }
 
-        return defaultVaultType;
+        var keyVaultUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
+        var fallback = defaultVaultType ??
+            (string.IsNullOrWhiteSpace(keyVaultUrl) ? VaultType.OnPrem : VaultType.Azure);
+        LogVaultTypeOnce(fallback, defaultVaultType.HasValue ? "caller default" : "no valid BLOCKS_VAULT_TYPE");
+        return fallback;
+    }
+
+    private static void LogVaultTypeOnce(VaultType vaultType, string reason)
+    {
+        if (System.Threading.Interlocked.Exchange(ref _vaultTypeLogged, 1) == 0)
+        {
+            Log.Information("Vault type is {VaultType} (from {Reason})", vaultType, reason);
+        }
     }
 
     public static void ConfigureKestrel(WebApplicationBuilder builder)
@@ -134,17 +158,27 @@ public static class ApplicationConfigurations
         services.AddOpenTelemetry()
             .WithTracing(tracingBuilder =>
             {
-                tracingBuilder
-                    .AddSource(_serviceName, HttpService.ProtocolActivitySourceName)
-                    .SetSampler(new AlwaysOnSampler())
-                    .AddAspNetCoreInstrumentation()
-                    .AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
+                tracingBuilder.AddSource(_serviceName, HttpService.ProtocolActivitySourceName);
+                // The standard OTEL_TRACES_SAMPLER variable wins when it is set.
+                if (OtlpExport.UseDefaultSampler())
+                {
+                    tracingBuilder.SetSampler(new AlwaysOnSampler());
+                }
+
+                tracingBuilder.AddAspNetCoreInstrumentation();
+                if (OtlpExport.MongoExportEnabled())
+                {
+                    tracingBuilder.AddProcessor(new MongoDBTraceExporter(_serviceName, blocksSecret: _blocksSecret));
+                }
+
+                tracingBuilder.AddOtlpExporterWhenConfigured();
             })
             .WithMetrics(metricsBuilder =>
             {
                 metricsBuilder
                     .AddAspNetCoreInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    .AddOtlpExporterWhenConfigured();
             });
 
         services.AddSingleton<IHttpService, HttpService>();
@@ -176,6 +210,12 @@ public static class ApplicationConfigurations
                 name: "mongodb",
                 tags: ["ready"])
             .AddRedis(_blocksSecret.CacheConnectionString, name: "redis", tags: ["ready"]);
+
+        // I01-WP2: the RabbitMQ connection is part of readiness only where RabbitMQ is configured.
+        if (messageConfiguration.RabbitMqConfiguration != null)
+        {
+            services.AddHealthChecks().AddCheck<RabbitMqReadinessCheck>("rabbitmq", tags: ["ready"]);
+        }
 
         if (_blocksSwaggerOptions != null)
         {

@@ -25,23 +25,76 @@ namespace XUnitTest.Configuration;
 public class ApplicationConfigurationsCoverageTests
 {
     [Fact]
-    public void ResolveVaultType_ShouldReturnDefault_WhenEnvironmentVariableIsMissing()
+    public void ResolveVaultType_ShouldReturnOnPrem_WhenEnvironmentVariableIsMissingAndNoKeyVaultUrl()
     {
         var previousVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
+        var previousKeyVaultUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
         var previousDirectory = Directory.GetCurrentDirectory();
         var tempDirectory = CreateTempDirectory();
 
         try
         {
             Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", null);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", null);
             Directory.SetCurrentDirectory(tempDirectory);
 
-            Assert.Equal(VaultType.Azure, ApplicationConfigurations.ResolveVaultType());
+            Assert.Equal(VaultType.OnPrem, ApplicationConfigurations.ResolveVaultType());
             Assert.Equal(VaultType.OnPrem, ApplicationConfigurations.ResolveVaultType(VaultType.OnPrem));
         }
         finally
         {
             Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", previousVaultType);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", previousKeyVaultUrl);
+            RestoreCurrentDirectory(previousDirectory);
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void ResolveVaultType_ShouldReturnAzure_WhenEnvironmentVariableIsMissingAndKeyVaultUrlIsSet()
+    {
+        var previousVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
+        var previousKeyVaultUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
+        var previousDirectory = Directory.GetCurrentDirectory();
+        var tempDirectory = CreateTempDirectory();
+
+        try
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", null);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", "https://unit-test-vault.vault.azure.net/");
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            Assert.Equal(VaultType.Azure, ApplicationConfigurations.ResolveVaultType());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", previousVaultType);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", previousKeyVaultUrl);
+            RestoreCurrentDirectory(previousDirectory);
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void ResolveVaultType_ShouldReturnAzure_WhenAzureIsExplicitlyConfiguredWithoutKeyVaultUrl()
+    {
+        var previousVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
+        var previousKeyVaultUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
+        var previousDirectory = Directory.GetCurrentDirectory();
+        var tempDirectory = CreateTempDirectory();
+
+        try
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", "Azure");
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", null);
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            Assert.Equal(VaultType.Azure, ApplicationConfigurations.ResolveVaultType());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", previousVaultType);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", previousKeyVaultUrl);
             RestoreCurrentDirectory(previousDirectory);
             TryDeleteDirectory(tempDirectory);
         }
@@ -72,19 +125,42 @@ public class ApplicationConfigurationsCoverageTests
     [Theory]
     [InlineData("not-a-vault")]
     [InlineData("   ")]
-    public void ResolveVaultType_ShouldReturnDefault_WhenEnvironmentVariableIsInvalid(string configuredValue)
+    public void ResolveVaultType_ShouldReturnOnPrem_WhenEnvironmentVariableIsInvalidAndNoKeyVaultUrl(string configuredValue)
     {
         var previousVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
+        var previousKeyVaultUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
 
         try
         {
             Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", configuredValue);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", null);
+
+            Assert.Equal(VaultType.OnPrem, ApplicationConfigurations.ResolveVaultType());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", previousVaultType);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", previousKeyVaultUrl);
+        }
+    }
+
+    [Fact]
+    public void ResolveVaultType_ShouldReturnAzure_WhenEnvironmentVariableIsInvalidAndKeyVaultUrlIsSet()
+    {
+        var previousVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
+        var previousKeyVaultUrl = Environment.GetEnvironmentVariable("KeyVault__KeyVaultUrl");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", "not-a-vault");
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", "https://unit-test-vault.vault.azure.net/");
 
             Assert.Equal(VaultType.Azure, ApplicationConfigurations.ResolveVaultType());
         }
         finally
         {
             Environment.SetEnvironmentVariable("BLOCKS_VAULT_TYPE", previousVaultType);
+            Environment.SetEnvironmentVariable("KeyVault__KeyVaultUrl", previousKeyVaultUrl);
         }
     }
 

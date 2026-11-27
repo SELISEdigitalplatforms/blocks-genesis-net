@@ -18,6 +18,8 @@ public class MongoDBTraceExporter : BaseProcessor<Activity>
     private readonly LmtServiceBusSender? _serviceBusSender;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
     private bool _disposed;
+    private int _disposeState;
+    private readonly ConcurrentDictionary<Task, byte> _inFlight = new();
 
     public MongoDBTraceExporter(
         string serviceName,
@@ -38,7 +40,23 @@ public class MongoDBTraceExporter : BaseProcessor<Activity>
 
         _serviceBusSender = TryCreateTracesSender(serviceName);
 
-        _timer = new Timer(async _ => await FlushBatchAsync().ConfigureAwait(false), null, interval, interval);
+        _timer = new Timer(_ => TrackedFlush(), null, interval, interval);
+    }
+
+    private bool IsDisposing => Volatile.Read(ref _disposeState) != 0;
+
+    // Runs a flush that Dispose can wait for. A flush that starts after Dispose has begun does nothing, and a flush that loses the
+    // race with the semaphore being disposed is swallowed instead of becoming an unhandled exception on a thread-pool thread.
+    private void TrackedFlush()
+    {
+        if (IsDisposing) return;
+        var task = Task.Run(async () =>
+        {
+            try { await FlushBatchAsync().ConfigureAwait(false); }
+            catch (ObjectDisposedException) { }
+        });
+        _inFlight?.TryAdd(task, 0);
+        _ = task.ContinueWith(t => _inFlight?.TryRemove(t, out _), TaskScheduler.Default);
     }
 
     private static LmtServiceBusSender? TryCreateTracesSender(string serviceName)
@@ -55,6 +73,8 @@ public class MongoDBTraceExporter : BaseProcessor<Activity>
 
     public override void OnEnd(Activity data)
     {
+        if (IsDisposing) return;
+
         var endTime = data.StartTimeUtc.Add(data.Duration);
         var tenantId = Baggage.GetBaggage("TenantId") ?? BlocksConstants.Miscellaneous;
         tenantId = !string.IsNullOrWhiteSpace(tenantId) ? tenantId : BlocksConstants.Miscellaneous;
@@ -87,7 +107,7 @@ public class MongoDBTraceExporter : BaseProcessor<Activity>
 
         if (_batch.Count >= _batchSize)
         {
-            Task.Run(() => FlushBatchAsync());
+            TrackedFlush();
         }
     }
 
@@ -101,9 +121,11 @@ public class MongoDBTraceExporter : BaseProcessor<Activity>
         return baggage;
     }
 
-    private async Task FlushBatchAsync()
+    private Task FlushBatchAsync() => IsDisposing ? Task.CompletedTask : FlushCoreAsync();
+
+    private async Task FlushCoreAsync()
     {
-        await _semaphore.WaitAsync();
+        await _semaphore.WaitAsync().ConfigureAwait(false);
         try
         {
             var tenantBatches = new Dictionary<string, List<TraceData>>();
@@ -189,13 +211,24 @@ public class MongoDBTraceExporter : BaseProcessor<Activity>
 
     protected override void Dispose(bool disposing)
     {
-        if (_disposed)
+        // The flag goes first, so a second Dispose, a timer tick and OnEnd all see it at once.
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
             return;
 
         if (disposing)
         {
-            _timer.Dispose();
-            FlushBatchAsync().GetAwaiter().GetResult();
+            // Dispose the timer and wait for a callback that is running, then wait for the flushes still in flight.
+            using (var timerDone = new ManualResetEvent(false))
+            {
+                if (_timer.Dispose(timerDone))
+                    timerDone.WaitOne(TimeSpan.FromSeconds(10));
+            }
+
+            try { Task.WaitAll(_inFlight?.Keys.ToArray() ?? [], TimeSpan.FromSeconds(10)); }
+            catch (AggregateException) { }
+
+            // The final flush still runs, before the semaphore goes.
+            FlushCoreAsync().GetAwaiter().GetResult();
             _semaphore.Dispose();
             _serviceBusSender?.Dispose();
         }
